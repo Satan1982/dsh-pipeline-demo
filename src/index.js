@@ -17,6 +17,11 @@ export function divide(a, b) {
   return a / b;
 }
 
+export function roundTo(n, digits) {
+  const factor = Math.pow(10, digits);
+  return Math.round(n * factor) / factor;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide } from './index.js';
+import { add, subtract, multiply, fib, divide, roundTo } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -37,4 +37,11 @@ test('divide', () => {
 
 test('divide rejects zero divisor', () => {
   assert.throws(() => divide(1, 0), RangeError);
+});
+
+test('roundTo', () => {
+  assert.equal(roundTo(3.14159, 2), 3.14);
+  assert.equal(roundTo(2.5, 0), 3);
+  assert.equal(roundTo(1.2345, 3), 1.235);
+  assert.equal(roundTo(0, 2), 0);
 });
