@@ -261,6 +261,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       prUrl = Array.isArray(list.data) ? list.data[0]?.html_url : null;
     }
 
+    // 摘掉 ready/working，否则 label 状态会显示成「该 issue 还在排队」；
+    // 虽然轮询过滤了 agent:done，但脏 label 会误导人，也挡不住手工重打 ready 时的重复执行。
+    await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+    await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
     await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:done'] }).catch(() => {});
     await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
       body: `✅ 已生成 PR：${prUrl ?? '（PR 已存在但查询失败）'}\n\n耗时 ${secs}s。`,
