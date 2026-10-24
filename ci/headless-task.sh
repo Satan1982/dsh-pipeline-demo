@@ -19,6 +19,17 @@ DSH="/c/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/ru
 PATCH="${DSH_HEADLESS_PATCH:-D:/code/.secrets/headless-model.yml}"
 CREDS="${DSH_CREDENTIALS:-/c/Users/Administrator/.dsh/.credentials.yaml}"
 
+# 计划任务（以及任何干净 shell）里 PATH 没有 node，也没有 PNPM_CLI：
+# verify.sh 的 pack 步骤会因为没有包管理器而失败。这里自己补齐，让入口自足。
+BUNDLE="/c/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies"
+if [ -d "$BUNDLE/node/bin" ]; then
+  case ":$PATH:" in
+    *":$BUNDLE/node/bin:"*) ;;
+    *) export PATH="$BUNDLE/node/bin:$PATH" ;;
+  esac
+fi
+export PNPM_CLI="${PNPM_CLI:-$BUNDLE/pnpm/bin/pnpm.cjs}"
+
 export DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-danger-full-access}"
 
 if [ -z "${SILICONFLOW_API_KEY:-}" ]; then
