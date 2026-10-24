@@ -232,3 +232,14 @@ node --use-system-ca ci/dispatch.mjs
 - `dispatch.log`：调度器自身日志，>5MB 轮转为 `.1`
 - `issue-<n>-attempt-<m>.log`：该次 headless 的完整 stdout/stderr
 - `issue-<n>-attempt-<m>.prompt.md`：该次实际喂给 agent 的提示词，用来确认记忆库/上一轮失败原因有没有真的注入
+
+## 模型路由
+
+| 情况 | 走哪个模型 |
+|---|---|
+| 第一次尝试 | 默认 29B（免费、便宜） |
+| 第 2 次及以后（重试升级） | `DeepSeek-V4.1-Flash`，日志里标 `model=strong(重试升级)` |
+| issue 带 `model:strong` | 第一次就用强模型 |
+
+理由：29B 在长推理任务上会撞 TPM 限流（`429 code 50602`）停在「Now I'll add ...」不动，
+让同一个弱模型重试三次没有意义；第二次直接换模型，实测 issue #33 第 2 次 45s 成功。

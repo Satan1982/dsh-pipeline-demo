@@ -314,13 +314,17 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
 
     // issue 打了 model:strong 就用强模型路由；复杂任务用 29B 容易漏改
-    const useStrong = (issue.labels ?? []).some((l) => l.name === 'model:strong');
+    // 第一次用便宜模型，失败后升级：29B 在长推理任务上会撞 TPM 限流而停在计划阶段，
+    // 与其让同一个弱模型重试三次，不如第二次就换 DeepSeek-V4.1-Flash。
+    const forceStrong = (issue.labels ?? []).some((l) => l.name === 'model:strong');
+    const useStrong = forceStrong || attempt > 1;
     // 改门禁脚本默认被评审层阻断，issue 打 allow:gate 才放行（人工在 issue 上表态）
     const allowGate = (issue.labels ?? []).some((l) => l.name === 'allow:gate');
     const runEnv = { PATH: CHILD_PATH };
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
-    log(`${tag} 启动 headless（cwd=${wt}${useStrong ? ', model=strong' : ''}）`);
+    const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
+    log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
     const t0 = Date.now();
     const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
       cwd: wt, input: prompt, timeout: TIMEOUT,
