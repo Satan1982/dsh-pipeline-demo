@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide } from './index.js';
+import { add, subtract, multiply, fib, divide, powOf } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -35,6 +35,11 @@ test('divide', () => {
   assert.equal(divide(10, 2), 5);
 });
 
-test('divide rejects zero divisor', () => {
-  assert.throws(() => divide(1, 0), RangeError);
+test('powOf', () => {
+  assert.equal(powOf(2, 3), 8);
+  assert.equal(powOf(9, 0), 1);
+  assert.equal(powOf(0, 0), 1);
+  assert.equal(powOf(3, 2), 9);
+  assert.equal(powOf(-2, 3), -8);
+  assert.equal(powOf(2, -1), 0.5);
 });

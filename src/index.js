@@ -17,6 +17,10 @@ export function divide(a, b) {
   return a / b;
 }
 
+export function powOf(base, exp) {
+  return base ** exp;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');
