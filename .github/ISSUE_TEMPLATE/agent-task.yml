@@ -1,0 +1,37 @@
+name: 自动化任务
+description: 交给 DSH agent 自动执行的任务。验收标准必须可执行，否则调度器会拒绝启动。
+title: "[task] "
+labels: ["agent:ready"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 要改什么，改成什么样。一段话即可。
+      placeholder: 在 src/index.js 增加 divide(a, b)，b 为 0 时抛 RangeError。
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准（可执行）
+      description: 写具体命令或断言，agent 会照着自测。至少一条。
+      placeholder: |
+        - bash scripts/verify.sh 通过
+        - divide(6, 3) === 2
+        - divide(1, 0) 抛 RangeError
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束（可选）
+      description: 不能碰的文件、不能加的依赖、不能改的接口。
+      placeholder: |
+        - 不改 .github/workflows/*
+        - 不加新依赖
+        - 不改 add/multiply/fib 的行为
+    validations:
+      required: false
