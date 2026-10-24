@@ -358,6 +358,7 @@ ${logText.slice(-8000)}
 3. 修复**根因**；禁止为了让 CI 变绿而放宽/删除测试断言，禁止改 .github/workflows/*，禁止新增依赖。
 4. 修好后必须确认 \`bash scripts/verify.sh\` 通过。
 5. 不要执行 git commit / git push —— 调度器会处理。
+6. 不许留调试或占位代码。实测出现过：坏行 \`export const BROKEN = (\` 被「把括号补全」变成 \`export const BROKEN = 0;\` 而不是删掉——根因该删就删，别让它变合法留下来。
 
 现在开始。`;
 
