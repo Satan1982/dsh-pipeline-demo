@@ -293,13 +293,13 @@ async function collectFailureLog(runId) {
   return text || '(CI 日志为空)';
 }
 
-async function repairCI(pr, issueN, run) {
+async function repairCI(pr, issueN, runInfo) {
   const branch = pr.head.ref;
   const tag = `[issue #${issueN}][ci-retry]`;
   const wt = path.join(WT_ROOT, `issue-${issueN}-ci`);
-  log(`${tag} CI 失败 run=${run.id}，开始自动修复`);
+  log(`${tag} CI 失败 run=${runInfo.id}，开始自动修复`);
 
-  const logText = await collectFailureLog(run.id);
+  const logText = await collectFailureLog(runInfo.id);
   const t0 = Date.now();
 
   try {
@@ -343,12 +343,12 @@ ${logText.slice(-8000)}
     if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
 
     await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-      body: `🔧 CI 失败自动修复完成（run ${run.id}，耗时 ${secs}s），已推送新提交到 ${branch}。\n\n<!-- ci-retry-run:${run.id} -->`,
+      body: `🔧 CI 失败自动修复完成（run ${runInfo.id}，耗时 ${secs}s），已推送新提交到 ${branch}。\n\n<!-- ci-retry-run:${runInfo.id} -->`,
     }).catch(() => {});
     log(`${tag} 修复完成 ${secs}s`);
   } catch (e) {
     await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-      body: `⚠️ CI 失败自动修复未成功：${String(e.message).slice(0, 800)}\n\n<!-- ci-retry-run:${run.id} -->`,
+      body: `⚠️ CI 失败自动修复未成功：${String(e.message).slice(0, 800)}\n\n<!-- ci-retry-run:${runInfo.id} -->`,
     }).catch(() => {});
     log(`${tag} 修复失败: ${e.message}`);
   } finally {
