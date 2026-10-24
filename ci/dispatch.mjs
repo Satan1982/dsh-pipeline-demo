@@ -265,6 +265,125 @@ async function pollOnce() {
   return issues.length;
 }
 
+// ---------- CI 失败回环 ----------
+// agent 在 worktree 里自己跑 verify.sh 通过了，但云端 CI 仍可能因环境差异红掉。
+// 这里监听 open PR 的 agent/* 分支，CI 失败就拉日志回灌给 agent 重修，上限 MAX_ATTEMPTS 次。
+
+async function collectFailureLog(runId) {
+  let text = '';
+  try {
+    const { data: jobs } = await api('GET', `/repos/${REPO}/actions/runs/${runId}/jobs`);
+    for (const j of (jobs?.jobs ?? []).filter((x) => x.conclusion === 'failure')) {
+      const failedSteps = (j.steps ?? []).filter((s) => s.conclusion === 'failure').map((s) => s.name).join(', ');
+      text += `### job: ${j.name}（失败步骤: ${failedSteps || '未知'}）\n`;
+      const r = await fetch(`https://api.github.com/repos/${REPO}/actions/jobs/${j.id}/logs`, {
+        headers: { Authorization: `Bearer ${TOKEN}`, 'User-Agent': 'dsh-dispatch' },
+        redirect: 'follow',
+      });
+      if (r.ok) {
+        const body = await r.text();
+        text += body.slice(-6000) + '\n';
+      } else {
+        text += `(日志拉取失败 http=${r.status})\n`;
+      }
+    }
+  } catch (e) {
+    text += `(收集日志出错: ${e.message})\n`;
+  }
+  return text || '(CI 日志为空)';
+}
+
+async function repairCI(pr, issueN, run) {
+  const branch = pr.head.ref;
+  const tag = `[issue #${issueN}][ci-retry]`;
+  const wt = path.join(WT_ROOT, `issue-${issueN}-ci`);
+  log(`${tag} CI 失败 run=${run.id}，开始自动修复`);
+
+  const logText = await collectFailureLog(run.id);
+  const t0 = Date.now();
+
+  try {
+    await git(['fetch', 'origin', branch, '--quiet']);
+    await git(['worktree', 'remove', '--force', wt]);
+    await git(['branch', '-D', branch]);
+    const add = await git(['worktree', 'add', wt, '-b', branch, `origin/${branch}`]);
+    if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+
+    const prompt = `GitHub 云端 CI 在分支 ${branch} 上失败了（对应 issue #${issueN}）。注意：本地 verify.sh 可能是绿的，失败来自环境差异，必须先复现再修。
+
+## 失败日志（尾部）
+\`\`\`
+${logText.slice(-8000)}
+\`\`\`
+
+## 要求
+1. 先读仓库根目录的 AGENTS.md。
+2. 在本地复现失败：运行 \`bash scripts/verify.sh\`。
+3. 修复**根因**；禁止为了让 CI 变绿而放宽/删除测试断言，禁止改 .github/workflows/*，禁止新增依赖。
+4. 修好后必须确认 \`bash scripts/verify.sh\` 通过。
+5. 不要执行 git commit / git push —— 调度器会处理。
+
+现在开始。`;
+
+    const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
+      cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: process.env.PATH },
+    });
+    const secs = Math.round((Date.now() - t0) / 1000);
+    log(`${tag} headless 结束 exit=${r.code} ${secs}s`);
+
+    const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+    if (!status) throw new Error('CI 修复未产生任何改动');
+
+    await run(GIT, ['add', '-A'], { cwd: wt });
+    const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
+      'commit', '-m', `agent: fix CI for issue #${issueN}`], { cwd: wt });
+    if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
+
+    const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
+    if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
+
+    await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+      body: `🔧 CI 失败自动修复完成（run ${run.id}，耗时 ${secs}s），已推送新提交到 ${branch}。\n\n<!-- ci-retry-run:${run.id} -->`,
+    }).catch(() => {});
+    log(`${tag} 修复完成 ${secs}s`);
+  } catch (e) {
+    await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+      body: `⚠️ CI 失败自动修复未成功：${String(e.message).slice(0, 800)}\n\n<!-- ci-retry-run:${run.id} -->`,
+    }).catch(() => {});
+    log(`${tag} 修复失败: ${e.message}`);
+  } finally {
+    await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+  }
+}
+
+async function checkAgentPRs() {
+  const { data: prs } = await api('GET', `/repos/${REPO}/pulls?state=open&per_page=20`);
+  for (const pr of Array.isArray(prs) ? prs : []) {
+    const m = /^agent\/issue-(\d+)$/.exec(pr.head.ref);
+    if (!m) continue;
+    const issueN = Number(m[1]);
+
+    const { data: runs } = await api('GET', `/repos/${REPO}/actions/runs?branch=${encodeURIComponent(pr.head.ref)}&per_page=5`);
+    const ci = ((runs?.workflow_runs) ?? []).find((r) => r.name === 'ci' && r.status === 'completed');
+    if (!ci || ci.conclusion !== 'failure') continue;
+
+    const { data: comments } = await api('GET', `/repos/${REPO}/issues/${issueN}/comments?per_page=100`);
+    const list = Array.isArray(comments) ? comments : [];
+    if (list.some((c) => c.body.includes(`ci-retry-run:${ci.id}`))) continue; // 这个 run 已处理过
+
+    const attempts = list.filter((c) => c.body.includes('CI 失败自动修复')).length;
+    if (attempts >= MAX_ATTEMPTS) {
+      await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
+      await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+        body: `❌ CI 失败修复已达 ${MAX_ATTEMPTS} 次上限，需人工介入。\n\n<!-- ci-retry-run:${ci.id} -->`,
+      }).catch(() => {});
+      log(`[issue #${issueN}] CI 修复次数超限，转人工`);
+      continue;
+    }
+    await repairCI(pr, issueN, ci);
+  }
+}
+
 // 调度器重启后，上一个进程可能留下 agent:working 的孤儿 issue；启动时清掉，
 // 否则这些 issue 会因为"正在执行"被永久跳过。
 async function cleanupStaleWorking() {
@@ -281,10 +400,14 @@ async function main() {
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
   await pollOnce();
+  await checkAgentPRs();
   if (ONCE) return;
   while (true) {
     await new Promise((r) => setTimeout(r, INTERVAL));
-    try { await pollOnce(); } catch (e) { log(`轮询出错: ${e.message}`); }
+    try {
+      await pollOnce();
+      await checkAgentPRs();
+    } catch (e) { log(`轮询出错: ${e.message}`); }
   }
 }
 
