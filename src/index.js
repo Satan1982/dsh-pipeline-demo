@@ -61,6 +61,10 @@ export function isOdd(n) {
   return Number.isInteger(n) && n % 2 !== 0;
 }
 
+export function isPositive(n) {
+  return n > 0;
+}
+
 export function toCelsius(f) {
   return Math.round((f - 32) * (5 / 9) * 10) / 10;
 }

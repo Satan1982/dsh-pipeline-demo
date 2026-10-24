@@ -10,6 +10,7 @@
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
+1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
 1 2f121b96683ee14d assert.ok(r.findings.some((f) => f.rule === 'dependency-added'));
 4 32364602f0692844 assert.equal(r.ok, true);
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
@@ -36,8 +37,10 @@
 1 74c3214719308fdd assert.ok(rec);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
 1 77d034bd9159d035 assert.equal(rec.fix, '删掉坏行');
+1 7978bcfd36da7752 assert.equal(isPositive(0), false);
 1 7aa8ecae03f50247 assert.ok(r.findings.some((f) => f.rule === 'assert-removed'));
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
+1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
