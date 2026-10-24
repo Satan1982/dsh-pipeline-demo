@@ -46,6 +46,14 @@ export function cube(n) {
   return n * n * n;
 }
 
+export function isEven(n) {
+  return Number.isInteger(n) && n % 2 === 0;
+}
+
+export function isOdd(n) {
+  return Number.isInteger(n) && n % 2 !== 0;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');
