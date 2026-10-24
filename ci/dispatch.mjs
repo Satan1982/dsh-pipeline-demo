@@ -92,7 +92,15 @@ function run(cmd, args, { cwd, env, timeout, input } = {}) {
   });
 }
 
-const git = (args, opts = {}) => run(GIT, args, { cwd: REPO_DIR, ...opts });
+// 本机全局配置把 https://github.com/ 重写成 ghfast.top 镜像（fetch 加速），
+// 而全局 credential.helper=manager 给 ghfast.top 的凭据是错的，实测 fetch 100% 报
+// `remote: Repository not found.`。统一禁用 GCM、只让 GIT_ASKPASS 供凭据后 3/3 成功。
+const git = (args, opts = {}) =>
+  run(GIT, ['-c', 'credential.helper=', ...args], {
+    ...opts,
+    cwd: opts.cwd ?? REPO_DIR,
+    env: { ...GIT_ENV, ...(opts.env ?? {}) },
+  });
 
 // ---------- 并发原语 ----------
 
@@ -119,7 +127,8 @@ function locked(fn) {
 
 async function setupWorktree(branch, wt, baseRef) {
   return locked(async () => {
-    await git(['fetch', 'origin', '--quiet']);
+    const f = await git(['fetch', 'origin', '--quiet']);
+    if (f.code !== 0) throw new Error(`git fetch 失败: ${f.err.trim().slice(0, 200)}`);
     await git(['worktree', 'remove', '--force', wt]);
     await git(['branch', '-D', branch]);
     const add = await git(['worktree', 'add', wt, '-b', branch, baseRef]);
