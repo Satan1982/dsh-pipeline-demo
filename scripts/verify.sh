@@ -25,15 +25,20 @@ echo "== lint =="
 bash scripts/lint.sh
 
 echo "== unit test =="
-TEST_FILES=$(ls src/*.test.js)
+TEST_FILES=$(ls src/*.test.js | tr '\n' ' ')
 echo "running $TEST_FILES"
-TEST_OUT=$(node --test $TEST_FILES 2>&1 || true)
+TEST_OUT=$(node --test --test-reporter=tap $TEST_FILES 2>&1 || true)
 printf '%s\n' "$TEST_OUT"
 
-CUR_TESTS=$(printf '%s\n' "$TEST_OUT" | sed -n 's/^ℹ tests \([0-9][0-9]*\)$/\1/p' | tail -1)
-CUR_FAIL=$(printf '%s\n' "$TEST_OUT" | sed -n 's/^ℹ fail \([0-9][0-9]*\)$/\1/p' | tail -1)
+# Node 22 默认输出 TAP（`# tests N`），Node 24 默认输出 spec（`ℹ tests N`）。两种都认。
+CUR_TESTS=$(printf '%s\n' "$TEST_OUT" | sed -n -e 's/^# tests \([0-9][0-9]*\)$/\1/p' -e 's/^ℹ tests \([0-9][0-9]*\)$/\1/p' | tail -1)
+CUR_FAIL=$(printf '%s\n' "$TEST_OUT" | sed -n -e 's/^# fail \([0-9][0-9]*\)$/\1/p' -e 's/^ℹ fail \([0-9][0-9]*\)$/\1/p' | tail -1)
 if [ "${CUR_FAIL:-1}" != "0" ]; then
   echo "unit test 失败：fail=${CUR_FAIL:-unknown}" >&2
+  exit 1
+fi
+if [ -z "${CUR_TESTS:-}" ]; then
+  echo "无法解析测试数量（期望 TAP 的 '# tests N' 或 spec 的 'ℹ tests N'）" >&2
   exit 1
 fi
 
