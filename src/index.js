@@ -17,6 +17,10 @@ export function divide(a, b) {
   return a / b;
 }
 
+export function clamp(value, min, max) {
+  return Math.max(min, Math.min(value, max));
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');
