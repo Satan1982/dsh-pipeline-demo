@@ -17,6 +17,13 @@ export function divide(a, b) {
   return a / b;
 }
 
+export function maxOf(a, b) {
+  if (a >= b) {
+    return a;
+  }
+  return b;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');

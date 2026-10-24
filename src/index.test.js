@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide } from './index.js';
+import { add, subtract, multiply, fib, divide, maxOf } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -17,6 +17,12 @@ test('subtract', () => {
 test('multiply', () => {
   assert.equal(multiply(2, 3), 6);
   assert.equal(multiply(0, 9), 0);
+});
+
+test('maxOf', () => {
+  assert.equal(maxOf(3, 9), 9);
+  assert.equal(maxOf(-2, -5), -2);
+  assert.equal(maxOf(7, 7), 7);
 });
 
 test('fib', () => {
