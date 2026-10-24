@@ -25,7 +25,7 @@ echo "== lint =="
 bash scripts/lint.sh
 
 echo "== unit test =="
-TEST_FILES=$(ls src/*.test.js | tr '\n' ' ')
+TEST_FILES=$(ls src/*.test.js ci/*.test.mjs | tr '\n' ' ')
 echo "running $TEST_FILES"
 TEST_OUT=$(node --test --test-reporter=tap $TEST_FILES 2>&1 || true)
 printf '%s\n' "$TEST_OUT"
@@ -42,7 +42,7 @@ if [ -z "${CUR_TESTS:-}" ]; then
   exit 1
 fi
 
-CUR_ASSERTS=$(grep -ho 'assert\.' src/*.test.js | wc -l | tr -d ' ')
+CUR_ASSERTS=$(grep -ho 'assert\.' src/*.test.js ci/*.test.mjs | wc -l | tr -d ' ')
 
 echo "== test guard =="
 if [ ! -f "$BASE_FILE" ]; then

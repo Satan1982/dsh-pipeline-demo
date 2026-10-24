@@ -188,3 +188,34 @@ node --use-system-ca ci/dispatch.mjs
 - **模型能力上限**：29B 对「跨 3 个文件、需要判断改动边界」的任务会漏东西（见上表），复杂需求加 `model:strong` 或人工拆小。
 - **Node 证书**：脚本会自动用 `--use-system-ca` 重启自己，否则 api.github.com 报 `unable to verify the first certificate`。
 - **无失败指纹库**：同一类失败第三次重试还是从头试，没有跨 issue 的历史教训（Hindsight 里可以补，尚未接）。
+
+## 评审层（push 之前拦）
+
+`ci/review.mjs` 在调度器 push 之前看 diff，判定「这不该被推上去」。它不做审美判断，只做机械判定：
+
+| 规则 | 级别 | 挡的是什么 |
+|---|---|---|
+| `forbidden-path` | block | 改 `.github/workflows/*` |
+| `debug-residue` | block | `BROKEN`、`debugger`、冲突标记、`.only`、调试日志 |
+| `test-removed` / `assert-removed` | block | 删用例、删断言（比等 CI 红更早一步） |
+| `baseline-unsynced` | block | 改了测试却没 `--bless`（PR #22 就是这么混过去的） |
+| `dependency-added` | block | 新增依赖未人工批准 |
+| `gate-modified` | warn | 动了 `verify.sh` / `assert-guard.mjs` |
+| `diff-large` | warn | 单次新增 > 400 行 |
+
+同时 `runTask` 不再采信 agent 的自述：headless 结束后调度器自己在同一 worktree 里跑一遍
+`bash scripts/verify.sh`，红了直接重试。两者顺序是 独立门禁 → commit → 评审 → push。
+
+手动跑：`node ci/review.mjs`（默认对比 `origin/main`）。
+
+## 失败指纹库
+
+`docs/failures.jsonl` 是追加写的失败账本，每条记录：
+
+```
+{"fp":"指纹前16位","sig":"症状骨架","issue":25,"attempt":1,"reason":"...","fix":"...","at":"..."}
+```
+
+- 指纹 = 归一化（抹掉 sha、时间、耗时、绝对路径）后的签名哈希，同类错误换张工单也是同一指纹。
+- 命中同指纹时，调度器把「上次根因 + 上次修法」直接插进 prompt。
+- 指纹不同但同一工单反复失败 = 在瞎试，这个信号人工看日志时一眼可见。

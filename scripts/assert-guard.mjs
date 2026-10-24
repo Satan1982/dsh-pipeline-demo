@@ -11,7 +11,7 @@
 //   - every baseline fingerprint must still appear at least as many times  -> else FAIL
 //   - brand new fingerprints are allowed, with a reminder to re-bless
 //   - `--bless` rewrites the baseline file (a human decision, never automatic)
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -19,6 +19,7 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE = path.join(ROOT, 'scripts', 'assert-baseline.txt');
 const SRC = path.join(ROOT, 'src');
+const CI = path.join(ROOT, 'ci');
 const BLESS = process.argv.includes('--bless');
 // CI 用 base 分支的旧基线做对比：这时新增断言是合法的（PR 自己的基线已经登记它们，
 // 由本地 verify 保证），只有「旧基线里的断言被删/改写」才是问题。
@@ -28,8 +29,13 @@ const BASELINE_OVERRIDE = baseArg >= 0 ? process.argv[baseArg + 1] : null;
 
 function assertionLines() {
   const out = [];
-  for (const f of readdirSync(SRC).filter((n) => n.endsWith('.test.js')).sort()) {
-    const text = readFileSync(path.join(SRC, f), 'utf8');
+  // src 里是产品代码的同一目录测试；ci 里是调度器模块的测试。两处都必须被指纹保护。
+  const targets = [
+    ...readdirSync(SRC).filter((n) => n.endsWith('.test.js')).map((n) => path.join(SRC, n)),
+    ...(existsSync(CI) ? readdirSync(CI).filter((n) => n.endsWith('.test.mjs')).map((n) => path.join(CI, n)) : []),
+  ].sort();
+  for (const file of targets) {
+    const text = readFileSync(file, 'utf8');
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
       if (!line.startsWith('assert.')) continue;

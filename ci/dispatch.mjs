@@ -18,6 +18,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'node:fs';
 import path from 'node:path';
+import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
+import { reviewWorktree, formatFindings } from './review.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -44,6 +46,12 @@ const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
+
+// 随包运行时根目录（node/bin/node.exe 往上两级）。verify.sh 的打包步骤需要 pnpm，
+// 计划任务环境里没有任何包管理器，必须由调度器显式给出。
+const BUNDLE_DIR = path.dirname(path.dirname(process.execPath));
+const PNPM_CLI = process.env.PNPM_CLI || path.join(BUNDLE_DIR, 'pnpm', 'bin', 'pnpm.cjs');
+const FAIL_STORE = path.join(REPO_DIR, 'docs', 'failures.jsonl');
 
 // 计划任务里的 PATH 不含 node/git；显式把当前 node 与 git 所在目录拼进去，
 // 否则被调起的 headless agent 在 verify.sh 里跑 `node` 会 command not found。
@@ -172,8 +180,14 @@ function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, pri
   const retryBlock = priorFailure
     ? `\n## 上次失败原因（这是第 ${attempt} 次尝试，必须针对性修复，不要重复同样的错误）\n${String(priorFailure).slice(0, 3000)}\n`
     : '';
+  // 失败指纹库命中时，把「同一个根因以前出现过」连同上次修法一起喂进去，
+  // 避免换个工单又从零摸索。
+  const known = priorFailure ? formatPriorFailures(priorFailure, FAIL_STORE) : '';
+  const knownBlock = known
+    ? `\n## 历史同类失败（调度器记忆库）\n${known}\n\n先确认这次的根因是否与上次一致；一致就直接照上次的修法，不要重新试错。\n`
+    : '';
   return `你正在一个隔离的 git worktree 里工作。任务来自 GitHub Issue #${n}：${title}
-${retryBlock}
+${retryBlock}${knownBlock}
 ## 目标
 ${goal}
 
@@ -206,6 +220,30 @@ async function failTask(issue, reason) {
   await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
     body: `❌ 调度器执行失败：\n\n\`\`\`\n${r}\n\`\`\`\n\n处理完后去掉 \`agent:failed\`、重新加 \`agent:ready\` 即可重试。`,
   }).catch(() => {});
+}
+
+// ---------- 独立门禁 + 评审层 ----------
+// agent 会声称自己跑过了 verify.sh。这里不信自述，调度器自己在同一个 worktree
+// 里再跑一遍；红就是红，绿才有资格进下一步。
+
+async function verifyWorktree(wt) {
+  const v = await run(BASH, ['scripts/verify.sh'], {
+    cwd: wt, timeout: 15 * 60 * 1000,
+    env: { PATH: CHILD_PATH, PNPM_CLI },
+  });
+  if (v.code === 0) return { ok: true };
+  const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
+  return {
+    ok: false,
+    detail: `独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：\n${tail}`,
+  };
+}
+
+// 提交之后才能拿到 base...HEAD 的 diff，所以评审放在 commit 之后、push 之前。
+function reviewAfterCommit(wt, base = 'origin/main') {
+  const r = reviewWorktree(wt, base);
+  if (r.ok) return { ok: true, findings: r.findings };
+  return { ok: false, detail: `评审层拒绝（改动未推送）：\n${formatFindings(r)}` };
 }
 
 async function runTask(issue, attempt = 1, priorFailure = '') {
@@ -265,12 +303,27 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const ahead = parseInt((await run(GIT, ['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt })).out.trim() || '0', 10);
     if (!status && ahead === 0) throw new Error('agent 未产生任何改动');
 
+    // 1) 独立门禁：不接受作者自评
+    const gate = await verifyWorktree(wt);
+    if (!gate.ok) {
+      recordFailure({ text: gate.detail, issue: n, attempt, reason: gate.detail }, FAIL_STORE);
+      throw new Error(gate.detail);
+    }
+
     if (status) {
       await run(GIT, ['add', '-A'], { cwd: wt });
       const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
         'commit', '-m', `agent: issue #${n}`], { cwd: wt });
       if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
     }
+
+    // 2) 评审层：机械判定，push 之前拦
+    const review = reviewAfterCommit(wt);
+    if (!review.ok) {
+      recordFailure({ text: review.detail, issue: n, attempt, reason: review.detail }, FAIL_STORE);
+      throw new Error(review.detail);
+    }
+    const warns = (review.findings ?? []).filter((f) => f.severity === 'warn');
 
     const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
     if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
@@ -282,6 +335,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       body: [
         `由调度器自动生成，对应 #${n}。`,
         '', '## 目标', goal, '', '## 验收标准', acceptance,
+        '',
+        '## 自动检查',
+        `- 独立门禁 \`bash scripts/verify.sh\`：通过（调度器自己跑的，不采信 agent 自述）`,
+        `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
+        ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
         '', '---', 'CI 通过后请人工 review 再合并。',
       ].join('\n'),
     });
@@ -302,6 +360,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     log(`${tag} done → ${prUrl}`);
   } catch (e) {
     const reason = String(e?.stack || e);
+    // 失败指纹入仓：下次同类失败（哪怕换一张工单）能直接拿到这次的根因。
+    try { recordFailure({ text: reason, issue: n, attempt, reason: reason.slice(0, 1500) }, FAIL_STORE); } catch { /* 记账失败不影响重试 */ }
     if (attempt < MAX_ATTEMPTS) {
       log(`${tag} 第 ${attempt}/${MAX_ATTEMPTS} 次失败，自动重试：${reason.split('\n')[0].slice(0, 180)}`);
       await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
@@ -371,11 +431,14 @@ async function repairCI(pr, issueN, runInfo) {
 
   const logText = await collectFailureLog(runInfo.id);
   const t0 = Date.now();
+  const prior = formatPriorFailures(logText, FAIL_STORE);
+  const priorBlock = prior ? `\n## 历史同类失败（调度器记忆库）\n${prior}\n` : '';
 
   try {
     await setupWorktree(branch, wt, `origin/${branch}`);
 
     const prompt = `GitHub 云端 CI 在分支 ${branch} 上失败了（对应 issue #${issueN}）。注意：本地 verify.sh 可能是绿的，失败来自环境差异，必须先复现再修。
+${priorBlock}
 
 ## 失败日志（尾部）
 \`\`\`
@@ -401,10 +464,17 @@ ${logText.slice(-8000)}
     const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
     if (!status) throw new Error('CI 修复未产生任何改动');
 
+    const gate = await verifyWorktree(wt);
+    if (!gate.ok) throw new Error(gate.detail);
+
     await run(GIT, ['add', '-A'], { cwd: wt });
     const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
       'commit', '-m', `agent: fix CI for issue #${issueN}`], { cwd: wt });
     if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
+
+    // 修复本身也会写出脏东西（历史上出现过 BROKEN 占位行），所以修复提交同样过评审层
+    const review = reviewAfterCommit(wt, 'HEAD~1');
+    if (!review.ok) throw new Error(review.detail);
 
     const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
     if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
@@ -414,6 +484,9 @@ ${logText.slice(-8000)}
     }).catch(() => {});
     log(`${tag} 修复完成 ${secs}s`);
   } catch (e) {
+    try {
+      recordFailure({ text: logText, issue: issueN, attempt: 1, reason: `CI 修复失败：${e.message}` }, FAIL_STORE);
+    } catch { /* 记账失败不影响主流程 */ }
     await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
       body: `⚠️ CI 失败自动修复未成功：${String(e.message).slice(0, 800)}\n\n<!-- ci-retry-run:${runInfo.id} -->`,
     }).catch(() => {});
