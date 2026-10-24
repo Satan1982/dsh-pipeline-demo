@@ -17,6 +17,27 @@ export function divide(a, b) {
   return a / b;
 }
 
+export function minOf(a, b) {
+  return a < b ? a : b;
+}
+
+export function maxOf(a, b) {
+  return a >= b ? a : b;
+}
+
+export function clamp(value, min, max) {
+  return Math.max(min, Math.min(value, max));
+}
+
+export function roundTo(n, digits) {
+  const factor = 10 ** digits;
+  return Math.round(n * factor) / factor;
+}
+
+export function powOf(base, exp) {
+  return base ** exp;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');
