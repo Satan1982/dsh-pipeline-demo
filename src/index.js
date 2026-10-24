@@ -46,6 +46,13 @@ export function cube(n) {
   return n * n * n;
 }
 
+export function absValue(n) {
+  if (!Number.isFinite(n)) {
+    throw new TypeError('absValue expects a finite number');
+  }
+  return Math.abs(n);
+}
+
 export function isEven(n) {
   return Number.isInteger(n) && n % 2 === 0;
 }
