@@ -34,6 +34,9 @@ const ASKPASS   = 'D:/code/.secrets/askpass.sh';
 const REPO_DIR  = 'D:/code/dsh-pipeline-demo';
 const WT_ROOT   = 'D:/code/.worktrees';
 const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
+const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
+// 仅用于验证重试状态机：前 N 次尝试强制失败，不真正调模型
+const DEBUG_FAIL = Number(process.env.DSH_DEBUG_FAIL_ATTEMPTS ?? 0);
 const ONCE      = process.argv.includes('--once');
 const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
@@ -100,9 +103,12 @@ function pick(sections, ...keys) {
   return '';
 }
 
-function buildPrompt({ n, title, goal, acceptance, constraints }) {
+function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, priorFailure = '' }) {
+  const retryBlock = priorFailure
+    ? `\n## 上次失败原因（这是第 ${attempt} 次尝试，必须针对性修复，不要重复同样的错误）\n${String(priorFailure).slice(0, 3000)}\n`
+    : '';
   return `你正在一个隔离的 git worktree 里工作。任务来自 GitHub Issue #${n}：${title}
-
+${retryBlock}
 ## 目标
 ${goal}
 
@@ -129,15 +135,17 @@ async function failTask(issue, reason) {
   const r = String(reason).slice(0, 2000);
   log(`[issue #${n}] FAILED: ${r.split('\n')[0].slice(0, 200)}`);
   await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+  // 必须摘掉 agent:ready，否则下一轮轮询会把失败的 issue 再次领取
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
   await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:failed'] }).catch(() => {});
   await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
     body: `❌ 调度器执行失败：\n\n\`\`\`\n${r}\n\`\`\`\n\n处理完后去掉 \`agent:failed\`、重新加 \`agent:ready\` 即可重试。`,
   }).catch(() => {});
 }
 
-async function runTask(issue) {
+async function runTask(issue, attempt = 1, priorFailure = '') {
   const n = issue.number;
-  const tag = `[issue #${n}]`;
+  const tag = `[issue #${n}]${attempt > 1 ? `(第 ${attempt} 次)` : ''}`;
   log(`${tag} 领取：${issue.title}`);
 
   const sections = parseSections(issue.body);
@@ -164,7 +172,11 @@ async function runTask(issue) {
     if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
 
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
-    const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints });
+    const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints, attempt, priorFailure });
+
+    if (DEBUG_FAIL && attempt <= DEBUG_FAIL) {
+      throw new Error(`[debug] 强制第 ${attempt} 次尝试失败（DSH_DEBUG_FAIL_ATTEMPTS=${DEBUG_FAIL}）`);
+    }
 
     log(`${tag} 启动 headless（cwd=${wt}）`);
     const t0 = Date.now();
@@ -219,10 +231,18 @@ async function runTask(issue) {
     }).catch(() => {});
     log(`${tag} done → ${prUrl}`);
   } catch (e) {
-    await failTask(issue, e?.stack || String(e));
+    const reason = String(e?.stack || e);
+    if (attempt < MAX_ATTEMPTS) {
+      log(`${tag} 第 ${attempt}/${MAX_ATTEMPTS} 次失败，自动重试：${reason.split('\n')[0].slice(0, 180)}`);
+      await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+        body: `⚠️ 第 ${attempt} 次执行失败，正在自动重试（上限 ${MAX_ATTEMPTS} 次）。\n\n\`\`\`\n${reason.slice(0, 1200)}\n\`\`\``,
+      }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 2000));
+      return runTask(issue, attempt + 1, reason);
+    }
+    await failTask(issue, `${MAX_ATTEMPTS} 次尝试均失败。\n\n最后一次错误：\n${reason}`);
   } finally {
     await git(['worktree', 'remove', '--force', wt]).catch(() => {});
-    await git(['branch', '--unmerged', branch]).catch(() => {});
   }
 }
 
@@ -245,9 +265,21 @@ async function pollOnce() {
   return issues.length;
 }
 
+// 调度器重启后，上一个进程可能留下 agent:working 的孤儿 issue；启动时清掉，
+// 否则这些 issue 会因为"正在执行"被永久跳过。
+async function cleanupStaleWorking() {
+  const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:working')}&state=open&per_page=50`);
+  for (const i of Array.isArray(data) ? data : []) {
+    if (i.pull_request || i.labels.some((l) => l.name === 'agent:done')) continue;
+    await api('DELETE', `/repos/${REPO}/issues/${i.number}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+    log(`清理孤儿 agent:working → issue #${i.number}`);
+  }
+}
+
 async function main() {
-  log(`调度器启动 repo=${REPO} once=${ONCE} dry=${DRY}`);
+  log(`调度器启动 repo=${REPO} once=${ONCE} dry=${DRY} maxAttempts=${MAX_ATTEMPTS}`);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
+  await cleanupStaleWorking();
   await pollOnce();
   if (ONCE) return;
   while (true) {
