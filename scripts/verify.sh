@@ -13,12 +13,32 @@ BASE_FILE="scripts/test-baseline.txt"
 pack() {
   if command -v npm >/dev/null 2>&1; then
     npm pack --silent --pack-destination dist
-  elif [ -n "${PNPM_CLI:-}" ]; then
-    node "$PNPM_CLI" pack --pack-destination dist
-  else
-    echo "no packer available: install npm or set PNPM_CLI to pnpm.cjs" >&2
+    return
+  fi
+
+  # PNPM_CLI 可能由调度器按错误目录拼出（历史故障指向 node/pnpm/...）。
+  # 路径不存在时不要直接让 node 报 MODULE_NOT_FOUND，改为从当前 node 的
+  # 安装位置反推随包 pnpm，保证打包步骤不会误杀整个门禁。
+  local pnpm_cli="${PNPM_CLI:-}"
+  if [ -n "$pnpm_cli" ] && [ ! -f "$pnpm_cli" ]; then
+    echo "忽略不存在的 PNPM_CLI：$pnpm_cli（改为自动定位随包 pnpm）" >&2
+    pnpm_cli=""
+  fi
+  if [ -z "$pnpm_cli" ]; then
+    local node_path runtime_dir
+    node_path=$(command -v node || true)
+    if [ -n "$node_path" ]; then
+      runtime_dir=$(cd "$(dirname "$node_path")/../.." 2>/dev/null && pwd || true)
+      if [ -n "$runtime_dir" ] && [ -f "$runtime_dir/pnpm/bin/pnpm.cjs" ]; then
+        pnpm_cli="$runtime_dir/pnpm/bin/pnpm.cjs"
+      fi
+    fi
+  fi
+  if [ -z "$pnpm_cli" ]; then
+    echo "no packer available: install npm or set PNPM_CLI to a valid pnpm.cjs" >&2
     exit 1
   fi
+  node "$pnpm_cli" pack --pack-destination dist
 }
 
 echo "== lint =="

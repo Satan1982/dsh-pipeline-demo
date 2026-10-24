@@ -47,9 +47,9 @@ const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
 
-// 随包运行时根目录（node/bin/node.exe 往上两级）。verify.sh 的打包步骤需要 pnpm，
-// 计划任务环境里没有任何包管理器，必须由调度器显式给出。
-const BUNDLE_DIR = path.dirname(path.dirname(process.execPath));
+// 随包运行时根目录：.../dependencies/node/bin/node.exe 上溯三级才是 dependencies。
+// 只上溯两级会落到 .../dependencies/node，PNPM_CLI 随之指向不存在的 node/pnpm/bin。
+const BUNDLE_DIR = path.dirname(path.dirname(path.dirname(process.execPath)));
 const PNPM_CLI = process.env.PNPM_CLI || path.join(BUNDLE_DIR, 'pnpm', 'bin', 'pnpm.cjs');
 const FAIL_STORE = path.join(REPO_DIR, 'docs', 'failures.jsonl');
 
