@@ -37,6 +37,7 @@ const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 仅用于验证重试状态机：前 N 次尝试强制失败，不真正调模型
 const DEBUG_FAIL = Number(process.env.DSH_DEBUG_FAIL_ATTEMPTS ?? 0);
+const CONCURRENCY = Math.max(1, Number(process.env.DSH_CONCURRENCY ?? 2));
 const ONCE      = process.argv.includes('--once');
 const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
@@ -83,6 +84,39 @@ function run(cmd, args, { cwd, env, timeout, input } = {}) {
 }
 
 const git = (args, opts = {}) => run(GIT, args, { cwd: REPO_DIR, ...opts });
+
+// ---------- 并发原语 ----------
+
+async function mapPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// .git/worktrees 与 refs 不是并发安全的，worktree 的建删必须串行
+let wtLock = Promise.resolve();
+function locked(fn) {
+  const p = wtLock.then(fn, fn);
+  wtLock = p.then(() => {}, () => {});
+  return p;
+}
+
+async function setupWorktree(branch, wt, baseRef) {
+  return locked(async () => {
+    await git(['fetch', 'origin', '--quiet']);
+    await git(['worktree', 'remove', '--force', wt]);
+    await git(['branch', '-D', branch]);
+    const add = await git(['worktree', 'add', wt, '-b', branch, baseRef]);
+    if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+  });
+}
 
 // ---------- Issue 解析 ----------
 
@@ -165,11 +199,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   if (!existsSync(WT_ROOT)) mkdirSync(WT_ROOT, { recursive: true });
 
   try {
-    await git(['fetch', 'origin', 'main', '--quiet']);
-    await git(['worktree', 'remove', '--force', wt]);
-    await git(['branch', '-D', branch]);
-    const add = await git(['worktree', 'add', wt, '-b', branch, 'origin/main']);
-    if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    await setupWorktree(branch, wt, 'origin/main');
 
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
     const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints, attempt, priorFailure });
@@ -242,7 +272,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
     await failTask(issue, `${MAX_ATTEMPTS} 次尝试均失败。\n\n最后一次错误：\n${reason}`);
   } finally {
-    await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+    await locked(() => git(['worktree', 'remove', '--force', wt])).catch(() => {});
   }
 }
 
@@ -257,11 +287,11 @@ async function pollOnce() {
     log('没有待处理任务');
     return 0;
   }
-  log(`发现 ${issues.length} 个待处理任务`);
-  for (const issue of issues) {
-    if (DRY) { log(`[dry-run] would run #${issue.number} ${issue.title}`); continue; }
+  log(`发现 ${issues.length} 个待处理任务（并发上限 ${CONCURRENCY}）`);
+  await mapPool(issues, CONCURRENCY, async (issue) => {
+    if (DRY) { log(`[dry-run] would run #${issue.number} ${issue.title}`); return; }
     await runTask(issue);
-  }
+  });
   return issues.length;
 }
 
@@ -303,11 +333,7 @@ async function repairCI(pr, issueN, runInfo) {
   const t0 = Date.now();
 
   try {
-    await git(['fetch', 'origin', branch, '--quiet']);
-    await git(['worktree', 'remove', '--force', wt]);
-    await git(['branch', '-D', branch]);
-    const add = await git(['worktree', 'add', wt, '-b', branch, `origin/${branch}`]);
-    if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    await setupWorktree(branch, wt, `origin/${branch}`);
 
     const prompt = `GitHub 云端 CI 在分支 ${branch} 上失败了（对应 issue #${issueN}）。注意：本地 verify.sh 可能是绿的，失败来自环境差异，必须先复现再修。
 
@@ -352,7 +378,7 @@ ${logText.slice(-8000)}
     }).catch(() => {});
     log(`${tag} 修复失败: ${e.message}`);
   } finally {
-    await git(['worktree', 'remove', '--force', wt]).catch(() => {});
+    await locked(() => git(['worktree', 'remove', '--force', wt])).catch(() => {});
   }
 }
 
