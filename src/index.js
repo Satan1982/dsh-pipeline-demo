@@ -54,6 +54,14 @@ export function isOdd(n) {
   return Number.isInteger(n) && n % 2 !== 0;
 }
 
+export function toCelsius(f) {
+  return Math.round((f - 32) * (5 / 9) * 10) / 10;
+}
+
+export function toFahrenheit(c) {
+  return c * (9 / 5) + 32;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');

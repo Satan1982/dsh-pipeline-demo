@@ -18,6 +18,7 @@
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
+1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
 1 89e42d0d5796c99e assert.equal(maxOf(-2, -5), -2);
@@ -29,11 +30,13 @@
 1 a5a768c434d2455c assert.equal(cube(-2), -8);
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
+1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
 1 c5672a99d6c8291f assert.equal(minOf(-2, -5), -5);
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
+1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
@@ -45,5 +48,6 @@
 1 eb80d76d1aae398d assert.equal(divide(10, 2), 5);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 fa424e742fb44593 assert.equal(median([1, 3, 2]), 2);
+1 fb201fb82fec0771 assert.equal(toFahrenheit(100), 212);
 1 fc7f0404c19aea36 assert.equal(clamp(5, 0, 10), 5);
 1 fcb5ac6f00a8954e assert.equal(powOf(2, -1), 0.5);
