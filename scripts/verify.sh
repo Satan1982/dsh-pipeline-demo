@@ -64,17 +64,12 @@ else
     echo "拒绝：断言数量从 $BASE_ASSERTS 降到 $CUR_ASSERTS（禁止删断言凑绿）" >&2
     exit 1
   fi
-  if [ "$CUR_TESTS" -gt "$BASE_TESTS" ]; then
-    echo "基线可上调：tests $BASE_TESTS→$CUR_TESTS"
+  if [ "$CUR_TESTS" -gt "$BASE_TESTS" ] || [ "$CUR_ASSERTS" -gt "$BASE_ASSERTS" ]; then
+    echo "拒绝：测试/断言有新增但基线未更新（tests $BASE_TESTS→$CUR_TESTS, asserts $BASE_ASSERTS→$CUR_ASSERTS）" >&2
+    echo "新增是好事，但必须同 PR 跑 bash scripts/verify.sh --bless 提交基线，否则新断言不在指纹保护范围内。" >&2
+    exit 1
   fi
-  if [ "$CUR_ASSERTS" -gt "$BASE_ASSERTS" ]; then
-    echo "基线可上调：asserts $BASE_ASSERTS→$CUR_ASSERTS"
-  fi
-  if [ "$CUR_TESTS" -eq "$BASE_TESTS" ] && [ "$CUR_ASSERTS" -eq "$BASE_ASSERTS" ]; then
-    echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
-  else
-    echo "确认后跑 bash scripts/verify.sh --bless 更新基线"
-  fi
+  echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
 fi
 
 echo "== assert guard =="

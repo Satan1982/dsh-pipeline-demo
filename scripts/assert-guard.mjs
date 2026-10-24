@@ -107,9 +107,9 @@ if (removed.length) {
 }
 
 if (added.length) {
-  console.log('断言有新增（允许，但基线没更新）：');
-  for (const a of added) console.log(`  + ${a.line}`);
-  console.log('确认后跑 bash scripts/verify.sh --bless 更新基线。');
-} else {
-  console.log(`断言基线持平：${current.size} 种`);
+  console.error('拒绝：以下断言是新增的，但基线没更新（新断言不在指纹保护范围内）：');
+  for (const a of added) console.error(`  + ${a.line}  (基线 ${a.was} 次，现在 ${a.now} 次)`);
+  console.error('新增断言后必须同 PR 跑 bash scripts/verify.sh --bless 提交基线，并在 PR 里说明新增了什么。');
+  process.exit(1);
 }
+console.log(`断言基线持平：${current.size} 种`);

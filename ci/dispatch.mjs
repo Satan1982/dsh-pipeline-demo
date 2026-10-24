@@ -45,6 +45,14 @@ const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
 
+// 计划任务里的 PATH 不含 node/git；显式把当前 node 与 git 所在目录拼进去，
+// 否则被调起的 headless agent 在 verify.sh 里跑 `node` 会 command not found。
+const CHILD_PATH = [
+  path.dirname(process.execPath),
+  path.dirname(GIT),
+  process.env.PATH,
+].filter(Boolean).join(path.delimiter);
+
 const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
 
 // ---------- 基础设施 ----------
@@ -211,7 +219,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     // issue 打了 model:strong 就用强模型路由；复杂任务用 29B 容易漏改
     const useStrong = (issue.labels ?? []).some((l) => l.name === 'model:strong');
-    const runEnv = { PATH: process.env.PATH };
+    const runEnv = { PATH: CHILD_PATH };
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
     log(`${tag} 启动 headless（cwd=${wt}${useStrong ? ', model=strong' : ''}）`);
@@ -363,7 +371,7 @@ ${logText.slice(-8000)}
 现在开始。`;
 
     const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-      cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: process.env.PATH },
+      cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: CHILD_PATH },
     });
     const secs = Math.round((Date.now() - t0) / 1000);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s`);
