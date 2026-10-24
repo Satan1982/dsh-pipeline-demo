@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide } from './index.js';
+import { add, minOf, subtract, multiply, fib, divide } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -33,6 +33,12 @@ test('fib rejects bad input', () => {
 test('divide', () => {
   assert.equal(divide(6, 3), 2);
   assert.equal(divide(10, 2), 5);
+});
+
+test('minOf', () => {
+  assert.equal(minOf(3, 9), 3);
+  assert.equal(minOf(-2, -5), -5);
+  assert.equal(minOf(5, 5), 5);
 });
 
 test('divide rejects zero divisor', () => {
