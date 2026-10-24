@@ -62,6 +62,17 @@ export function toFahrenheit(c) {
   return c * (9 / 5) + 32;
 }
 
+export function sumRange(from, to) {
+  if (from > to) {
+    throw new RangeError('sumRange expects from <= to');
+  }
+  let sum = 0;
+  for (let i = from; i <= to; i += 1) {
+    sum += i;
+  }
+  return sum;
+}
+
 export function fib(n) {
   if (!Number.isInteger(n) || n < 0) {
     throw new TypeError('fib expects a non-negative integer');

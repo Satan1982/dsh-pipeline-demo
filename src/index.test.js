@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd, toCelsius, toFahrenheit } from './index.js';
+import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd, toCelsius, toFahrenheit, sumRange } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -100,4 +100,10 @@ test('toCelsius', () => {
 test('toFahrenheit', () => {
   assert.equal(toFahrenheit(0), 32);
   assert.equal(toFahrenheit(100), 212);
+});
+
+test('sumRange', () => {
+  assert.equal(sumRange(1, 5), 15);
+  assert.equal(sumRange(3, 3), 3);
+  assert.throws(() => sumRange(5, 1), RangeError);
 });
