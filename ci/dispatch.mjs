@@ -33,6 +33,7 @@ const BASH      = 'C:/Program Files/Git/bin/bash.exe';
 const ASKPASS   = 'D:/code/.secrets/askpass.sh';
 const REPO_DIR  = 'D:/code/dsh-pipeline-demo';
 const WT_ROOT   = 'D:/code/.worktrees';
+const STRONG_PATCH = 'D:/code/.secrets/headless-model-strong.yml';
 const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 仅用于验证重试状态机：前 N 次尝试强制失败，不真正调模型
@@ -208,11 +209,16 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       throw new Error(`[debug] 强制第 ${attempt} 次尝试失败（DSH_DEBUG_FAIL_ATTEMPTS=${DEBUG_FAIL}）`);
     }
 
-    log(`${tag} 启动 headless（cwd=${wt}）`);
+    // issue 打了 model:strong 就用强模型路由；复杂任务用 29B 容易漏改
+    const useStrong = (issue.labels ?? []).some((l) => l.name === 'model:strong');
+    const runEnv = { PATH: process.env.PATH };
+    if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
+
+    log(`${tag} 启动 headless（cwd=${wt}${useStrong ? ', model=strong' : ''}）`);
     const t0 = Date.now();
     const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
       cwd: wt, input: prompt, timeout: TIMEOUT,
-      env: { PATH: process.env.PATH },
+      env: runEnv,
     });
     const secs = Math.round((Date.now() - t0) / 1000);
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
