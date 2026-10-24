@@ -164,9 +164,22 @@ node --use-system-ca ci/dispatch.mjs
 
 两种形态都只做「领取 → 干活 → 推分支 → 开 PR」，**不会自动合 PR**。
 
+> **A 需要提权**：实测本机 DSH 进程是 `zhao\administrator` 但 `elevated: False`，
+> `Register-ScheduledTask` 和 `schtasks /Create` 都直接 `Access is denied`（连
+> `cmd.exe /c exit 0` 的最小任务都一样）。所以 `install-task.ps1` 必须在**提权的**
+> PowerShell 里跑一次：右键「以管理员身份运行」→
+> `powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\dsh-pipeline-demo\ci\install-task.ps1`
+>
+> 在那之前只有 B 可用——DSH 一关，调度器就停。
+
 > 计划任务里的 PATH 不含 node/git，所以 `dispatch.mjs` 会把当前 node 与 git 的目录
 > 拼进子进程 PATH（`CHILD_PATH`），否则被调起的 agent 在 `verify.sh` 里跑 `node`
 > 会 `command not found`。
+
+> 全局 `insteadOf` 规则把 `https://github.com/` 重写成 `ghfast.top` 镜像，而全局
+> `credential.helper=manager` 给镜像的凭据是错的：实测走 GCM 时 `git fetch` 3/3 报
+> `remote: Repository not found.`，禁用 GCM、只用 `GIT_ASKPASS` 后 3/3 成功（~2s）。
+> 因此 `dispatch.mjs` 的所有 git 调用都带 `-c credential.helper=`。
 
 ## 已知限制
 
