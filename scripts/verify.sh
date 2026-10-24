@@ -64,11 +64,24 @@ else
     echo "拒绝：断言数量从 $BASE_ASSERTS 降到 $CUR_ASSERTS（禁止删断言凑绿）" >&2
     exit 1
   fi
-  if [ "$CUR_TESTS" -gt "$BASE_TESTS" ] || [ "$CUR_ASSERTS" -gt "$BASE_ASSERTS" ]; then
-    echo "基线可上调：tests $BASE_TESTS→$CUR_TESTS, asserts $BASE_ASSERTS→$CUR_ASSERTS（确认后跑 bash scripts/verify.sh --bless）"
-  else
-    echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
+  if [ "$CUR_TESTS" -gt "$BASE_TESTS" ]; then
+    echo "基线可上调：tests $BASE_TESTS→$CUR_TESTS"
   fi
+  if [ "$CUR_ASSERTS" -gt "$BASE_ASSERTS" ]; then
+    echo "基线可上调：asserts $BASE_ASSERTS→$CUR_ASSERTS"
+  fi
+  if [ "$CUR_TESTS" -eq "$BASE_TESTS" ] && [ "$CUR_ASSERTS" -eq "$BASE_ASSERTS" ]; then
+    echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
+  else
+    echo "确认后跑 bash scripts/verify.sh --bless 更新基线"
+  fi
+fi
+
+echo "== assert guard =="
+if [ "$BLESS" = "1" ]; then
+  node scripts/assert-guard.mjs --bless
+else
+  node scripts/assert-guard.mjs
 fi
 
 echo "== build =="

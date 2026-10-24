@@ -11,6 +11,7 @@
 
 - Never weaken or delete a test to make the gate pass. If a test is wrong, fix the test *and* the code in the same PR with a reason in the description.
 - **Test baseline is enforced, not advised.** `scripts/test-baseline.txt` holds `<tests> <asserts>`. `verify.sh` refuses to pass when either number drops. Adding tests is fine but prints a reminder to run `bash scripts/verify.sh --bless`; lowering the baseline in the same PR that deletes tests is rejected by the CI step "Test baseline must not shrink".
+- **Assertion *content* is fingerprinted too.** `scripts/assert-baseline.txt` stores `<count> <sha256-16> <normalized line>` for every `assert.*` line. Rewriting an assertion (even `2` -> `2.0`) or deleting one fails `assert guard`; new assertions only print a reminder. The CI step "Assertion content must not be rewritten" compares against the base branch, so re-blessing cannot hide a change. To legitimately change an assertion: fix the code first, then run `bash scripts/verify.sh --bless` and say why in the PR.
 - Never edit `.github/workflows/*` unless the task is explicitly about CI.
 - Do not add a dependency without a license check and a human approval.
 - One PR = one vertical slice = runnable end to end.

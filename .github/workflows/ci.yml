@@ -17,7 +17,7 @@ jobs:
           node-version: 22
       - name: Gate
         run: bash scripts/verify.sh
-      - name: Test baseline must not shrink
+      - name: Test counts must not shrink
         if: github.event_name == 'pull_request'
         run: |
           BASE="${{ github.base_ref }}"
@@ -34,4 +34,13 @@ jobs:
           if [ -n "$OLDA" ] && [ "$NEWA" -lt "$OLDA" ]; then
             echo "::error::断言基线被降低（$OLDA -> $NEWA），禁止同时删断言和降基线"
             exit 1
+          fi
+      - name: Assertion content must not be rewritten
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE="${{ github.base_ref }}"
+          if git show "origin/$BASE:scripts/assert-baseline.txt" > /tmp/assert-base.txt 2>/dev/null; then
+            node scripts/assert-guard.mjs --baseline /tmp/assert-base.txt
+          else
+            echo "base branch has no assert-baseline.txt yet, skipping"
           fi
