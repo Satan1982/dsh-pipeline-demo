@@ -16,7 +16,7 @@
  *   DSH_TASK_TIMEOUT_MS    单任务超时，默认 30 分钟
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
@@ -47,9 +47,9 @@ const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
 
-// 随包运行时根目录（node/bin/node.exe 往上两级）。verify.sh 的打包步骤需要 pnpm，
-// 计划任务环境里没有任何包管理器，必须由调度器显式给出。
-const BUNDLE_DIR = path.dirname(path.dirname(process.execPath));
+// 随包运行时根目录：.../dependencies/node/bin/node.exe 上溯三级才是 dependencies。
+// 上溯两级会落到 .../dependencies/node，PNPM_CLI 随之指向不存在的 node/pnpm/bin。
+const BUNDLE_DIR = path.dirname(path.dirname(path.dirname(process.execPath)));
 const PNPM_CLI = process.env.PNPM_CLI || path.join(BUNDLE_DIR, 'pnpm', 'bin', 'pnpm.cjs');
 const FAIL_STORE = path.join(REPO_DIR, 'docs', 'failures.jsonl');
 
@@ -122,6 +122,37 @@ const git = (args, opts = {}) =>
     cwd: opts.cwd ?? REPO_DIR,
     env: { ...GIT_ENV, ...(opts.env ?? {}) },
   });
+
+// ---------- 单实例锁 ----------
+// 计划任务每 5 分钟一轮，人（或 agent）也可能手动跑一次；两个进程会抢同一个
+// worktree 路径和分支，表现为「agent 未产生任何改动」这种假故障。用文件锁串行化。
+const LOCK_FILE = path.join(LOG_DIR, 'dispatch.lock');
+const LOCK_STALE_MS = TIMEOUT + 10 * 60 * 1000;
+
+function acquireLock() {
+  if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+  const me = { pid: process.pid, at: new Date().toISOString() };
+  const write = () => writeFileSync(LOCK_FILE, JSON.stringify(me));
+  const release = () => { try { unlinkSync(LOCK_FILE); } catch { /* 已删 */ } };
+
+  try {
+    writeFileSync(LOCK_FILE, JSON.stringify(me), { flag: 'wx' });
+    return { ok: true, release };
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+  }
+
+  let cur = null;
+  try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { cur = null; }
+  let alive = false;
+  if (cur?.pid) { try { process.kill(cur.pid, 0); alive = true; } catch { alive = false; } }
+  const age = cur?.at ? Date.now() - Date.parse(cur.at) : Infinity;
+  if (cur && alive && age < LOCK_STALE_MS) return { ok: false, holder: cur };
+
+  log(`接管陈旧锁（pid=${cur?.pid ?? '?'} 存活=${alive} 停了 ${Math.round(age / 60000)} 分钟）`);
+  write();
+  return { ok: true, release };
+}
 
 // ---------- 并发原语 ----------
 
@@ -291,6 +322,13 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const secs = Math.round((Date.now() - t0) / 1000);
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s ${tail ? '→ ' + tail : ''}`);
+    // 只留最后 3 行不够排障：完整输出落盘，事后能看清 agent 为什么什么都没做。
+    try {
+      if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+      writeFileSync(path.join(LOG_DIR, `issue-${n}-attempt-${attempt}.log`),
+        `exit=${r.code} ${secs}s\n===== stdout =====\n${r.out}\n===== stderr =====\n${r.err}\n`);
+    } catch { /* 落盘失败不影响主流程 */ }
+    const outTail = (r.out || '').trim().split('\n').filter(Boolean).slice(-12).join('\n');
 
     // agent 不应碰 origin/main
     await git(['fetch', 'origin', 'main', '--quiet']);
@@ -301,7 +339,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
     const ahead = parseInt((await run(GIT, ['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt })).out.trim() || '0', 10);
-    if (!status && ahead === 0) throw new Error('agent 未产生任何改动');
+    if (!status && ahead === 0) {
+      throw new Error(`agent 未产生任何改动（exit=${r.code}）。输出尾部：\n${outTail.slice(-1500)}`);
+    }
 
     // 1) 独立门禁：不接受作者自评
     const gate = await verifyWorktree(wt);
@@ -537,6 +577,12 @@ async function cleanupStaleWorking() {
 
 async function main() {
   log(`调度器启动 repo=${REPO} once=${ONCE} dry=${DRY} maxAttempts=${MAX_ATTEMPTS}`);
+  const lock = acquireLock();
+  if (!lock.ok) {
+    log(`已有调度器在跑（pid=${lock.holder.pid} 起于 ${lock.holder.at}），本次直接退出`);
+    return;
+  }
+  process.on('exit', lock.release);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
   await pollOnce();

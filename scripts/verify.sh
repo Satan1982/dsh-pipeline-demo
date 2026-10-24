@@ -13,12 +13,20 @@ BASE_FILE="scripts/test-baseline.txt"
 pack() {
   if command -v npm >/dev/null 2>&1; then
     npm pack --silent --pack-destination dist
-  elif [ -n "${PNPM_CLI:-}" ]; then
-    node "$PNPM_CLI" pack --pack-destination dist
-  else
+    return
+  fi
+
+  # PNPM_CLI 由调度器给出；路径拼错时在这里就报清楚，别让 node 抛 MODULE_NOT_FOUND。
+  local pnpm_cli="${PNPM_CLI:-}"
+  if [ -n "$pnpm_cli" ] && [ ! -f "$pnpm_cli" ]; then
+    echo "PNPM_CLI 指向不存在的文件：$pnpm_cli" >&2
+    exit 1
+  fi
+  if [ -z "$pnpm_cli" ]; then
     echo "no packer available: install npm or set PNPM_CLI to pnpm.cjs" >&2
     exit 1
   fi
+  node "$pnpm_cli" pack --pack-destination dist
 }
 
 echo "== lint =="
