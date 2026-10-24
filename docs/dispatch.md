@@ -219,3 +219,16 @@ node --use-system-ca ci/dispatch.mjs
 - 指纹 = 归一化（抹掉 sha、时间、耗时、绝对路径）后的签名哈希，同类错误换张工单也是同一指纹。
 - 命中同指纹时，调度器把「上次根因 + 上次修法」直接插进 prompt。
 - 指纹不同但同一工单反复失败 = 在瞎试，这个信号人工看日志时一眼可见。
+
+## 可靠性补丁（2026-10-25 实测）
+
+| 故障 | 现象 | 修法 |
+|---|---|---|
+| 两个调度器并发 | 计划任务每 5 分钟一轮，手动 `--once` 撞上去，两个进程抢同一 worktree 与分支，互相 `worktree remove --force`，外部表现是「agent 未产生任何改动」这种假故障 | `.logs/dispatch.lock` 单实例锁（`writeFileSync(...,{flag:'wx'})` + pid 存活探测 + 超时接管），第二个进程打一行日志后直接退出 |
+| `BUNDLE_DIR` 拼错 | `node/bin/node.exe` 只上溯两级落到 `dependencies/node`，`PNPM_CLI` 指向不存在的文件，门禁打包步骤必挂 | 上溯三级到 `dependencies`；`verify.sh` 遇到不存在的 `PNPM_CLI` 直接报路径，不再让 node 抛 `MODULE_NOT_FOUND` |
+| 29B 模型撞 TPM | 长推理任务跑一半 `RATE_LIMIT: 429 {"code":50602,"message":"... TPM limit reached"}`，agent 停在「Now I'll add ...」不再动手，退出码 0 或 1 都可能是这个原因 | 这类任务挂 `model:strong`（DeepSeek-V4.1-Flash），实测 #27 同题 29B 三次全废、strong 一次成 |
+
+排障落盘物（都在 `.logs/`，已 gitignore）：
+- `dispatch.log`：调度器自身日志，>5MB 轮转为 `.1`
+- `issue-<n>-attempt-<m>.log`：该次 headless 的完整 stdout/stderr
+- `issue-<n>-attempt-<m>.prompt.md`：该次实际喂给 agent 的提示词，用来确认记忆库/上一轮失败原因有没有真的注入

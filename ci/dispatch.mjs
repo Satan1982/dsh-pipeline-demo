@@ -303,6 +303,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
     const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints, attempt, priorFailure });
+    // 提示词落盘：重试时能直接看清调度器到底喂了 agent 什么（记忆库有没有生效）。
+    try {
+      if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+      writeFileSync(path.join(LOG_DIR, `issue-${n}-attempt-${attempt}.prompt.md`), prompt);
+    } catch { /* 日志写不了不影响任务本身 */ }
 
     if (DEBUG_FAIL && attempt <= DEBUG_FAIL) {
       throw new Error(`[debug] 强制第 ${attempt} 次尝试失败（DSH_DEBUG_FAIL_ATTEMPTS=${DEBUG_FAIL}）`);
