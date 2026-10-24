@@ -16,7 +16,7 @@
  *   DSH_TASK_TIMEOUT_MS    单任务超时，默认 30 分钟
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'node:fs';
 import path from 'node:path';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
@@ -53,7 +53,20 @@ const CHILD_PATH = [
   process.env.PATH,
 ].filter(Boolean).join(path.delimiter);
 
-const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
+// 计划任务里 stdout 无处可去，必须自己落盘，否则无人值守跑完什么都看不到。
+const LOG_DIR = 'D:/code/dsh-pipeline-demo/.logs';
+const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
+const log = (m) => {
+  const line = `[${new Date().toISOString().slice(11, 19)}] ${m}`;
+  console.log(line);
+  try {
+    if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+    if (existsSync(LOG_FILE) && statSync(LOG_FILE).size > 5 * 1024 * 1024) {
+      renameSync(LOG_FILE, `${LOG_FILE}.1`);
+    }
+    appendFileSync(LOG_FILE, `${line}\n`);
+  } catch { /* 日志失败不能影响主流程 */ }
+};
 
 // ---------- 基础设施 ----------
 
