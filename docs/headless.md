@@ -42,8 +42,13 @@ printf '%s' "在 src/index.js 加 subtract 并补测试，然后跑 verify.sh" |
 | 路由 | 状态 | 说明 |
 |---|---|---|
 | siliconflow / Xing4.0-29B | ✅ 可用 | 免费、256K 上下文，小任务 10–60s |
+| siliconflow / DeepSeek-V4.1-Flash | ✅ 可用 | 1.7–2.2s 首字，跨多文件的复杂任务明显更稳，按量计费 |
+| siliconflow / Kimi-K2.7-Code | ✅ 可用 | 1.7s，代码向；备用 |
 | zhipu / glm-4.7-flash | ⚠️ 可用但限流 | 多次触发 `429 code 1305`，不适合无人值守 |
 | lemonade 本地 30B | ⚠️ 排队 | 单 slot 被 Hindsight 抽取占用时，请求直接挂住（实测 90s 超时） |
+
+切换强模型：`DSH_HEADLESS_PATCH=D:/code/.secrets/headless-model-strong.yml bash ci/headless-task.sh -`。
+调度器里给 issue 加 `model:strong` label 即可自动切换，见 `docs/dispatch.md`。
 
 ## 已知坑
 

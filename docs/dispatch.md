@@ -73,10 +73,58 @@ Issue 模板：`.github/ISSUE_TEMPLATE/agent-task.yml`，新建 issue 时选「�
 
 调度器重启时会清理孤儿 `agent:working` label（上一个进程崩了会留下），否则那些 issue 会被永久跳过。
 
+## 并发（已实现）
+
+`DSH_CONCURRENCY`（默认 2）控制同时跑几个 issue。每个 issue 有独立的 worktree
+`D:/code/.worktrees/issue-<N>` 和独立分支 `agent/issue-<N>`，互不干扰。
+
+`.git/worktrees` 本身不是并发安全的，`setupWorktree()` 与 worktree 删除都走进程内
+`locked()` 互斥，避免 `git worktree add` 同时写同一份元数据。
+
+实测（3 个 issue，并发 2）：#9/#10 同时领取 → 各约 2 分 40 秒完成（PR #11、#12）→
+立刻领取 #8 → 4 分 17 秒全部收尾，三个分支 CI 全绿。
+
+## CI 失败回环（已实现）
+
+PR 的 CI 红了不需要人再打 label：`checkAgentPRs()` 会
+
+1. 列出 open PR 中分支名形如 `agent/issue-<N>` 的；
+2. 取该分支最新一次 `completed` 的 ci run，`conclusion=failure` 才处理；
+3. 从 `actions/runs/<id>/jobs` 找失败 job，再从 `actions/jobs/<job_id>/logs` 取纯文本日志；
+4. 把日志回灌给 headless，要求复现并修好；
+5. 提交 `agent: fix CI for issue #N`、推回同一分支、评论一条带
+   `<!-- ci-retry-run:<runId> -->` 的说明（同一次 run 只触发一次修复）。
+
+实测：往 `agent/issue-6` 推了一个语法错误的 commit（`1b90001`），run 40105361670 失败
+→ 调度器 162 秒后自动修复并推 `4c02e51` → 新 run 40105723850 success。
+
+修复轮次与首次实现共用 `DSH_MAX_ATTEMPTS`（默认 3），超限把 issue 打到 `agent:failed`
+并请人接手。注意 headless 修复时可能 exit=1 但改动是有效的，所以判定只看「有没有产生
+新 commit」，不看退出码。
+
+## 模型选择（`model:strong`）
+
+默认走 `siliconflow/Xing4.0-29B`（免费）。复杂需求（多文件协调、要补契约细节）给 issue
+加 `model:strong` label，调度器会把 `DSH_HEADLESS_PATCH` 换成
+`D:/code/.secrets/headless-model-strong.yml`，改用 `deepseek-ai/DeepSeek-V4.1-Flash`。
+
+同一任务的对照实验（Issue #14 vs #15，任务都是「新增 stats 模块 + 改 verify.sh 让两个
+测试文件都跑」）：
+
+| | strong (PR #16) | 29B (PR #17) |
+|---|---|---|
+| 耗时 | 94 秒 | 253 秒（2.7×） |
+| 断言数 | 5 条，含「median 不修改输入」的不可变契约 | 4 条，只有基本路径 + 空数组 |
+| 文件卫生 | 保持末尾换行 | 把 `package.json`、`src/stats.js` 的末尾换行改没了 |
+| CI | 绿 | 绿 |
+
+两者实现都正确，但 strong 在「不该改的地方没乱改」和「顺手补契约」上明显更稳。结论：
+日常小改动用 29B 省钱，一次要动 3 个以上文件或需要判断「改哪里才不越界」时加 `model:strong`。
+
 ## 已知限制
 
-- **串行执行**：一次处理一个 issue。并发要改造成 worktree 池 + 并发槽位。
 - **label 索引延迟**：刚创建的 issue 立刻跑 `--once` 可能查不到（实测间隔约 10s）。
-- **CI 失败不回环**：agent 在 worktree 里自己跑 `verify.sh` 通过了，如果云端 CI 因环境差异红了（Node 版本等），调度器不会自动重试，要人重新打 label。
-- **模型能力上限**：当前 siliconflow/Xing4.0-29B，小改动干净，复杂需求需要换更强模型或人工拆小。
+- **PR 仍要人合**：并发的是实现阶段，PR 一个一个合；两个 issue 改同一文件会产生冲突，要人裁决。
+- **模型能力上限**：29B 对「跨 3 个文件、需要判断改动边界」的任务会漏东西（见上表），复杂需求加 `model:strong` 或人工拆小。
 - **Node 证书**：脚本会自动用 `--use-system-ca` 重启自己，否则 api.github.com 报 `unable to verify the first certificate`。
+- **无失败指纹库**：同一类失败第三次重试还是从头试，没有跨 issue 的历史教训（Hindsight 里可以补，尚未接）。
