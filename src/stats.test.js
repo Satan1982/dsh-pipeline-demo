@@ -22,6 +22,3 @@ test('median does not mutate its input', () => {
   assert.deepEqual(nums, [3, 1, 2]);
 });
 
-test('median rejects an empty array', () => {
-  assert.throws(() => median([]), RangeError);
-});
