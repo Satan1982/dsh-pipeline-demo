@@ -20,6 +20,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE = path.join(ROOT, 'scripts', 'assert-baseline.txt');
 const SRC = path.join(ROOT, 'src');
 const BLESS = process.argv.includes('--bless');
+// CI 用 base 分支的旧基线做对比：这时新增断言是合法的（PR 自己的基线已经登记它们，
+// 由本地 verify 保证），只有「旧基线里的断言被删/改写」才是问题。
+const ALLOW_ADDITIONS = process.argv.includes('--allow-additions');
 const baseArg = process.argv.indexOf('--baseline');
 const BASELINE_OVERRIDE = baseArg >= 0 ? process.argv[baseArg + 1] : null;
 
@@ -107,9 +110,14 @@ if (removed.length) {
 }
 
 if (added.length) {
-  console.error('拒绝：以下断言是新增的，但基线没更新（新断言不在指纹保护范围内）：');
-  for (const a of added) console.error(`  + ${a.line}  (基线 ${a.was} 次，现在 ${a.now} 次)`);
-  console.error('新增断言后必须同 PR 跑 bash scripts/verify.sh --bless 提交基线，并在 PR 里说明新增了什么。');
-  process.exit(1);
+  if (ALLOW_ADDITIONS) {
+    console.log(`断言有新增：${added.length} 条（base 分支对比放行，本 PR 基线已登记）`);
+    for (const a of added) console.log(`  + ${a.line}`);
+  } else {
+    console.error('拒绝：以下断言是新增的，但基线没更新（新断言不在指纹保护范围内）：');
+    for (const a of added) console.error(`  + ${a.line}  (基线 ${a.was} 次，现在 ${a.now} 次)`);
+    console.error('新增断言后必须同 PR 跑 bash scripts/verify.sh --bless 提交基线，并在 PR 里说明新增了什么。');
+    process.exit(1);
+  }
 }
 console.log(`断言基线持平：${current.size} 种`);

@@ -40,7 +40,7 @@ jobs:
         run: |
           BASE="${{ github.base_ref }}"
           if git show "origin/$BASE:scripts/assert-baseline.txt" > /tmp/assert-base.txt 2>/dev/null; then
-            node scripts/assert-guard.mjs --baseline /tmp/assert-base.txt
+            node scripts/assert-guard.mjs --baseline /tmp/assert-base.txt --allow-additions
           else
             echo "base branch has no assert-baseline.txt yet, skipping"
           fi
