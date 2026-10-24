@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, multiply, fib } from './index.js';
+import { add, subtract, multiply, fib } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
   assert.equal(add(-1, 1), 0);
+});
+
+test('subtract', () => {
+  assert.equal(subtract(5, 3), 2);
+  assert.equal(subtract(2, 5), -3);
+  assert.equal(subtract(-1, -4), 3);
+  assert.equal(subtract(-1, 1), -2);
 });
 
 test('multiply', () => {
