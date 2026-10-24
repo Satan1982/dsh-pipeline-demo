@@ -102,6 +102,25 @@ PR 的 CI 红了不需要人再打 label：`checkAgentPRs()` 会
 并请人接手。注意 headless 修复时可能 exit=1 但改动是有效的，所以判定只看「有没有产生
 新 commit」，不看退出码。
 
+## 测试基线守卫（挡住「删测试凑绿」）
+
+prompt 里写「禁止删测试」不管用——实测 PR #13 就把 `divide rejects zero divisor` 整条删了。
+现在改成机器强制：
+
+- `scripts/test-baseline.txt` 存 `<测试数> <断言数>`，当前 `17 41`。
+- `scripts/verify.sh` 跑完测试后解析 `ℹ tests` / `ℹ fail`，再数一遍 `assert.`，任一低于基线就
+  `exit 1`；高于基线只提示，跑 `bash scripts/verify.sh --bless` 才更新文件。
+- CI 额外一步 "Test baseline must not shrink"：对比 `origin/<base_branch>` 的基线文件，降低就红。
+  这一步挡的是「同一个 PR 里既删测试又降基线」这种绕过。
+
+实测三条路径（2026-10-24）：
+
+```
+删掉 stats 的一个 test   → ℹ tests 16 → 拒绝：测试数量从 17 降到 16
+只删一条 assert          → 拒绝：断言数量从 41 降到 40
+新增 test                → 基线可上调：tests 17→18, asserts 41→42 → --bless 后 18 42
+```
+
 ## 模型选择（`model:strong`）
 
 默认走 `siliconflow/Xing4.0-29B`（免费）。复杂需求（多文件协调、要补契约细节）给 issue

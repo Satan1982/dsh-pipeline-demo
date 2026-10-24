@@ -10,8 +10,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Gate
         run: bash scripts/verify.sh
+      - name: Test baseline must not shrink
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE="${{ github.base_ref }}"
+          OLD=$(git show "origin/$BASE:scripts/test-baseline.txt" 2>/dev/null | cut -d' ' -f1 || true)
+          NEW=$(cut -d' ' -f1 scripts/test-baseline.txt)
+          echo "tests baseline: ${OLD:-<none>} -> $NEW"
+          if [ -n "$OLD" ] && [ "$NEW" -lt "$OLD" ]; then
+            echo "::error::测试基线被降低（$OLD -> $NEW），禁止同时删测试和降基线"
+            exit 1
+          fi
+          OLDA=$(git show "origin/$BASE:scripts/test-baseline.txt" 2>/dev/null | cut -d' ' -f2 || true)
+          NEWA=$(cut -d' ' -f2 scripts/test-baseline.txt)
+          echo "asserts baseline: ${OLDA:-<none>} -> $NEWA"
+          if [ -n "$OLDA" ] && [ "$NEWA" -lt "$OLDA" ]; then
+            echo "::error::断言基线被降低（$OLDA -> $NEWA），禁止同时删断言和降基线"
+            exit 1
+          fi
