@@ -33,4 +33,4 @@ export function fib(n) {
   return a;
 }
 
-export const BROKEN = (
+export const BROKEN = 0;
