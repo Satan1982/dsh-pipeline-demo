@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd } from './index.js';
+import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd, toCelsius, toFahrenheit } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -90,4 +90,14 @@ test('isEven', () => {
 test('isOdd', () => {
   assert.equal(isOdd(3), true);
   assert.equal(isOdd(0), false);
+});
+
+test('toCelsius', () => {
+  assert.equal(toCelsius(32), 0);
+  assert.equal(toCelsius(212), 100);
+});
+
+test('toFahrenheit', () => {
+  assert.equal(toFahrenheit(0), 32);
+  assert.equal(toFahrenheit(100), 212);
 });
