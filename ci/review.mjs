@@ -44,8 +44,11 @@ const BASELINES = ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt'];
 /**
  * @param {{files: Array<{filename: string, status?: string, patch?: string}>}} diff
  */
+const GATE_FILES = ['scripts/verify.sh', 'scripts/assert-guard.mjs', 'ci/dispatch.mjs', 'ci/review.mjs'];
+
 export function reviewDiff(diff) {
   const files = diff?.files ?? [];
+  const allowGate = Boolean(diff?.allowGate);
   const findings = [];
   const add = (severity, rule, message, file) => findings.push({ severity, rule, message, file });
 
@@ -87,9 +90,12 @@ export function reviewDiff(diff) {
       }
     }
 
-    // 门禁脚本本身是保护对象：改了要人看一眼
-    if (f.filename === 'scripts/verify.sh' || f.filename === 'scripts/assert-guard.mjs') {
-      add('warn', 'gate-modified', '修改了门禁脚本本身，合并前请人工确认没有放宽标准', f.filename);
+    // 门禁脚本本身是保护对象：默认阻断。确需改门禁的工单打 allow:gate label 放行。
+    if (GATE_FILES.includes(f.filename)) {
+      add(allowGate ? 'warn' : 'block', 'gate-modified',
+        allowGate
+          ? '修改了门禁脚本（已按 allow:gate 放行，合并前仍请人工确认没有放宽标准）'
+          : '修改了门禁脚本本身；确需修改请在 issue 上打 allow:gate label 后重跑', f.filename);
     }
   }
 
@@ -122,7 +128,7 @@ export function formatFindings(result) {
 /**
  * 在 worktree 里真正跑一次评审：取 base...HEAD 的 diff 再判定。
  */
-export function reviewWorktree(cwd, base = 'origin/main') {
+export function reviewWorktree(cwd, base = 'origin/main', options = {}) {
   const git = (args) => spawnSync('C:/Program Files/Git/cmd/git.exe', args, {
     cwd, encoding: 'utf8', timeout: 60_000,
   });
@@ -136,14 +142,15 @@ export function reviewWorktree(cwd, base = 'origin/main') {
     const p = git(['diff', `${base}...HEAD`, '--', filename]);
     return { filename, patch: p.stdout };
   });
-  return reviewDiff({ files });
+  return reviewDiff({ files, allowGate: Boolean(options.allowGate) });
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
   const cwd = process.cwd();
-  const base = process.argv[2] ?? 'origin/main';
-  const r = reviewWorktree(cwd, base);
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const base = positional[0] ?? 'origin/main';
+  const r = reviewWorktree(cwd, base, { allowGate: process.argv.includes('--allow-gate') });
   console.log(formatFindings(r));
   console.log(`\n${r.ok ? 'REVIEW: OK' : 'REVIEW: BLOCKED'}（新增 ${r.totalAdded} 行）`);
   process.exit(r.ok ? 0 : 1);

@@ -200,7 +200,7 @@ node --use-system-ca ci/dispatch.mjs
 | `test-removed` / `assert-removed` | block | 删用例、删断言（比等 CI 红更早一步） |
 | `baseline-unsynced` | block | 改了测试却没 `--bless`（PR #22 就是这么混过去的） |
 | `dependency-added` | block | 新增依赖未人工批准 |
-| `gate-modified` | warn | 动了 `verify.sh` / `assert-guard.mjs` |
+| `gate-modified` | block | 动了门禁脚本（`verify.sh` / `assert-guard.mjs` / `ci/dispatch.mjs` / `ci/review.mjs`）；确需改动时在 issue 打 `allow:gate` label，降为提示 |
 | `diff-large` | warn | 单次新增 > 400 行 |
 
 同时 `runTask` 不再采信 agent 的自述：headless 结束后调度器自己在同一 worktree 里跑一遍

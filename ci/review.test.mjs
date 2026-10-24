@@ -68,3 +68,22 @@ test('formatFindings 区分阻断与提示', () => {
   assert.ok(s.includes('✗ 阻断'));
   assert.equal(formatFindings({ findings: [] }), '评审通过：没有发现问题。');
 });
+
+test('改门禁脚本默认阻断', () => {
+  const r = reviewDiff({ files: [
+    file('scripts/verify.sh', '-set -euo pipefail\n+set +e'),
+  ] });
+  assert.equal(r.ok, false);
+  const f = r.findings.find((x) => x.rule === 'gate-modified');
+  assert.equal(f.severity, 'block');
+});
+
+test('allow:gate 放行后仍提示人工确认', () => {
+  const r = reviewDiff({ files: [
+    file('scripts/verify.sh', '-set -euo pipefail\n+set +e'),
+  ], allowGate: true });
+  assert.equal(r.ok, true);
+  const f = r.findings.find((x) => x.rule === 'gate-modified');
+  assert.equal(f.severity, 'warn');
+  assert.ok(formatFindings(r).includes('allow:gate'));
+});

@@ -271,8 +271,8 @@ async function verifyWorktree(wt) {
 }
 
 // 提交之后才能拿到 base...HEAD 的 diff，所以评审放在 commit 之后、push 之前。
-function reviewAfterCommit(wt, base = 'origin/main') {
-  const r = reviewWorktree(wt, base);
+function reviewAfterCommit(wt, base = 'origin/main', options = {}) {
+  const r = reviewWorktree(wt, base, options);
   if (r.ok) return { ok: true, findings: r.findings };
   return { ok: false, detail: `评审层拒绝（改动未推送）：\n${formatFindings(r)}` };
 }
@@ -315,6 +315,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     // issue 打了 model:strong 就用强模型路由；复杂任务用 29B 容易漏改
     const useStrong = (issue.labels ?? []).some((l) => l.name === 'model:strong');
+    // 改门禁脚本默认被评审层阻断，issue 打 allow:gate 才放行（人工在 issue 上表态）
+    const allowGate = (issue.labels ?? []).some((l) => l.name === 'allow:gate');
     const runEnv = { PATH: CHILD_PATH };
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
@@ -363,7 +365,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
 
     // 2) 评审层：机械判定，push 之前拦
-    const review = reviewAfterCommit(wt);
+    const review = reviewAfterCommit(wt, 'origin/main', { allowGate });
     if (!review.ok) {
       recordFailure({ text: review.detail, issue: n, attempt, reason: review.detail }, FAIL_STORE);
       throw new Error(review.detail);
