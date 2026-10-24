@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd, isPositive, toCelsius, toFahrenheit, sumRange, absValue } from './index.js';
+import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube, isEven, isOdd, isPositive, toCelsius, toFahrenheit, sumRange, absValue, negate } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -122,4 +122,9 @@ test('absValue', () => {
 
 test('absValue rejects non-finite input', () => {
   assert.throws(() => absValue("x"), TypeError);
+});
+
+test('negate', () => {
+  assert.equal(negate(3), -3);
+  assert.equal(negate(0), 0);
 });

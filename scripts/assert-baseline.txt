@@ -18,6 +18,7 @@
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
+1 472e9472f37f0ad2 assert.equal(negate(3), -3);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
@@ -27,6 +28,7 @@
 1 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
+1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');

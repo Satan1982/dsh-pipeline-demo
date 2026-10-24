@@ -46,6 +46,10 @@ export function cube(n) {
   return n * n * n;
 }
 
+export function negate(n) {
+  return n === 0 ? 0 : -n;
+}
+
 export function absValue(n) {
   if (!Number.isFinite(n)) {
     throw new TypeError('absValue expects a finite number');
