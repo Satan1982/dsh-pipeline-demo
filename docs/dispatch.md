@@ -140,6 +140,34 @@ prompt 里写「禁止删测试」不管用——实测 PR #13 就把 `divide re
 两者实现都正确，但 strong 在「不该改的地方没乱改」和「顺手补契约」上明显更稳。结论：
 日常小改动用 29B 省钱，一次要动 3 个以上文件或需要判断「改哪里才不越界」时加 `model:strong`。
 
+## 无人值守
+
+两种宿主形态，差别只在「谁负责定时拉起」：
+
+**A. Windows 计划任务（重启存活）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ci\install-task.ps1 -EveryMinutes 5
+powershell -ExecutionPolicy Bypass -File ci\install-task.ps1 -Remove
+```
+
+每轮只跑 `--once` 就退出，进程崩溃不影响下一次触发；`MultipleInstances IgnoreNew` 防止上一轮没跑完时叠加；单轮 40 分钟硬上限，卡死会被系统杀掉。token 由 `dispatch.mjs` 自己从
+`D:\code\.secrets\github-token.txt` 读，不写进任务定义。
+
+**B. 当前终端常驻**
+
+```bash
+node --use-system-ca ci/dispatch.mjs
+```
+
+默认每 60 秒一轮（`DSH_POLL_INTERVAL` 按秒调），Ctrl+C 停。
+
+两种形态都只做「领取 → 干活 → 推分支 → 开 PR」，**不会自动合 PR**。
+
+> 计划任务里的 PATH 不含 node/git，所以 `dispatch.mjs` 会把当前 node 与 git 的目录
+> 拼进子进程 PATH（`CHILD_PATH`），否则被调起的 agent 在 `verify.sh` 里跑 `node`
+> 会 `command not found`。
+
 ## 已知限制
 
 - **label 索引延迟**：刚创建的 issue 立刻跑 `--once` 可能查不到（实测间隔约 10s）。
