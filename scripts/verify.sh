@@ -20,10 +20,12 @@ if command -v npm >/dev/null 2>&1; then
 else
   node --check src/index.js
   node --check src/index.test.js
+  node --check src/stats.js
+  node --check src/stats.test.js
 fi
 
 echo "== unit test =="
-node --test src/index.test.js
+node --test src/index.test.js src/stats.test.js
 
 echo "== build =="
 rm -rf dist
