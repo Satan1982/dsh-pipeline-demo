@@ -31,7 +31,7 @@ test('fib rejects bad input', () => {
 });
 
 test('divide', () => {
-  assert.equal(divide(6, 3), 2);
+  assert.equal(divide(6, 3), 2.0);
   assert.equal(divide(10, 2), 5);
 });
 

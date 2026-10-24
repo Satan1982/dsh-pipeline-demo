@@ -7,7 +7,6 @@
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
-1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
@@ -29,6 +28,7 @@
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
+1 cf630d5797194489 assert.equal(divide(6, 3), 2.0);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
