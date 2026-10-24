@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf } from './index.js';
+import { add, subtract, multiply, fib, divide, minOf, maxOf, clamp, roundTo, powOf, square, cube } from './index.js';
 
 test('add', () => {
   assert.equal(add(2, 3), 5);
@@ -70,4 +70,14 @@ test('powOf', () => {
   assert.equal(powOf(3, 2), 9);
   assert.equal(powOf(-2, 3), -8);
   assert.equal(powOf(2, -1), 0.5);
+});
+
+test('square', () => {
+  assert.equal(square(4), 16);
+  assert.equal(square(-3), 9);
+});
+
+test('cube', () => {
+  assert.equal(cube(2), 8);
+  assert.equal(cube(-2), -8);
 });
