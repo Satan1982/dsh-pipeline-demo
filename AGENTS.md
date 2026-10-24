@@ -27,3 +27,16 @@
 This machine has two git installs. The dsh-ops one at `/ucrt64/bin/git` fails GitHub TLS
 with `CRYPT_E_NO_REVOCATION_CHECK`; the system one at `C:/Program Files/Git/cmd/git`
 works. Use the system git for anything that talks to GitHub.
+
+The bundled Node at `resources/runtime/primary-runtime/dependencies/node/bin` has no npm;
+`scripts/verify.sh` falls back to `pnpm pack` via `PNPM_CLI` when npm is absent.
+
+## Releasing
+
+Token lives outside the repo at `D:\code\.secrets\github-token.txt` (never commit it).
+Push main and optionally a tag with:
+
+```
+bash /d/code/.secrets/gh-push.sh            # main only
+bash /d/code/.secrets/gh-push.sh v0.1.1     # main + tag -> triggers release.yml
+```
