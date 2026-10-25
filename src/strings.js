@@ -34,4 +34,16 @@ export function countVowels(s) {
   return (s.match(/[aeiou]/gi) || []).length;
 }
 
+export function toKebabCase(s) {
+  if (typeof s !== 'string') {
+    throw new TypeError('toKebabCase expects a string');
+  }
+  return s
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase())
+    .join('-');
+}
+
 export { isPalindrome };

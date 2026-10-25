@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { capitalize, countVowels, isPalindrome, reverseWords } from './strings.js';
+import { capitalize, countVowels, isPalindrome, reverseWords, toKebabCase } from './strings.js';
 
 test('isPalindrome recognizes a classic palindrome ignoring case and punctuation', () => {
   assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
@@ -52,4 +52,12 @@ test('capitalize returns empty string for empty input', () => {
 
 test('capitalize leaves already-uppercase strings unchanged', () => {
   assert.equal(capitalize('ABC'), 'ABC');
+});
+
+test('toKebabCase lowercases and joins words with hyphens', () => {
+  assert.equal(toKebabCase('Hello World'), 'hello-world');
+});
+
+test('toKebabCase returns an empty string for empty input', () => {
+  assert.equal(toKebabCase(''), '');
 });
