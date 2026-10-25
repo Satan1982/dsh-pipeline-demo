@@ -25,6 +25,7 @@
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
 1 4504ea416efc986c assert.equal(r.verdict, 'skipped');
+1 46180e9ada8d893b assert.equal(countVowels(''), 0);
 1 472e9472f37f0ad2 assert.equal(negate(3), -3);
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
@@ -68,6 +69,7 @@
 1 91a4b94e3232a88d assert.equal(roundTo(0, 2), 0);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
+1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
@@ -121,6 +123,7 @@
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
+1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f5a2813d25e1a939 assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
 1 f6a69174d4915857 assert.equal(headlessKind(out, '', 0), 'llm-rate-limit');
 1 f6f7efafadedcbed assert.match(formatSemantic(r), /跳过/);
