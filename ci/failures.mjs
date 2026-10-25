@@ -114,7 +114,28 @@ export function recordFailure({ text, issue, attempt = 1, reason, fix }, file = 
   const dir = path.dirname(file);
   if (dir && dir !== '.' && !existsSync(dir)) mkdirSync(dir, { recursive: true });
   appendFileSync(file, `${JSON.stringify(rec)}\n`);
+  trimStore(file);
   return rec;
+}
+
+// 记忆库会一直长：每次失败追加一行，跑几个月就是几千行，喂 prompt 也喂不动。
+// 超过上限就按时间淘汰最老的记录（保留每行原样，不做重算），并把淘汰条数打到 stderr，
+// 让「记忆被剪过」这件事看得见。
+export const MAX_STORE_LINES = Number(process.env.DSH_FAILURES_MAX_LINES ?? 500);
+
+export function trimStore(file = DEFAULT_STORE, maxLines = MAX_STORE_LINES) {
+  try {
+    if (!existsSync(file)) return { before: 0, after: 0, dropped: 0 };
+    const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '');
+    if (lines.length <= maxLines) return { before: lines.length, after: lines.length, dropped: 0 };
+    const kept = lines.slice(lines.length - maxLines);
+    writeFileSync(file, `${kept.join('\n')}\n`);
+    const dropped = lines.length - kept.length;
+    console.error(`[failures] 记忆库超上限 ${maxLines} 行，淘汰最早的 ${dropped} 条`);
+    return { before: lines.length, after: kept.length, dropped };
+  } catch {
+    return { before: 0, after: 0, dropped: 0 };
+  }
 }
 
 // 这段文本会插进 agent 的 prompt：告诉它「这件事以前发生过，根因和修法如下」。

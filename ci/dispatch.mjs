@@ -24,6 +24,7 @@ import { headlessKind } from './headless-kind.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewSemantically, formatSemantic } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
+import { decideAcceptance } from './verdict.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -41,6 +42,9 @@ const REPO_DIR  = 'D:/code/dsh-pipeline-demo';
 const WT_ROOT   = 'D:/code/.worktrees';
 const STRONG_PATCH = 'D:/code/.secrets/headless-model-strong.yml';
 const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
+// 解冲突比正常写代码窄得多（只合并已有代码，不改设计），所以给它更短的预算：
+// 2026-10-25 实测 29B 在一次 4 文件冲突上跑了 522 秒仍 exit=1，拖长只会白等。
+const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
@@ -336,6 +340,7 @@ function reviewAfterCommit(wt, base = 'origin/main', options = {}) {
 async function runTask(issue, attempt = 1, priorFailure = '') {
   const n = issue.number;
   const tag = `[issue #${n}]${attempt > 1 ? `(第 ${attempt} 次)` : ''}`;
+  const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
   log(`${tag} 领取：${issue.title}`);
 
   const sections = parseSections(issue.body);
@@ -451,16 +456,32 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
     // 而这一段是提需求的人写的、agent 改不动，由调度器亲自跑一遍才算数。
     const acceptanceCmds = String(pick(sections, '验收命令') || '').trim();
+    if (!acceptanceCmds) {
+      // P0-6：没有验收命令的工单不进交付流程 —— 否则「做完了」全靠 agent 自述。
+      // 例外：确实写不出可执行验收的工单，打 `acceptance:optional` 明确豁免。
+      if (!labels.includes('acceptance:optional')) {
+        const detail = 'issue 缺少 `### 验收命令` 段：调度器没有可执行的验收，不生成 PR（确需豁免请打 `acceptance:optional` 标签）';
+        recordFailure({ text: detail, issue: n, attempt, reason: 'missing acceptance command' }, FAIL_STORE);
+        throw new Error(detail);
+      }
+      log(`${tag} 没有验收命令，但工单标了 acceptance:optional，继续`);
+    }
+    let acceptanceVerdict = 'none';
     if (acceptanceCmds) {
       const res = await run(BASH, ['-lc', acceptanceCmds], {
         cwd: wt, timeout: 300_000, env: { PATH: CHILD_PATH, PNPM_CLI },
       });
-      if (res.code !== 0) {
-        const detail = `验收命令未通过（exit=${res.code}）：\n${acceptanceCmds}\n\n${(res.err || res.out || '').slice(-2000)}`;
+      // 退出码 0 只说明「命令没崩」，不说明「验收过了」：有 VERDICT 行就以它为准。
+      const decision = decideAcceptance(res, { strict: labels.includes('verdict:strict') });
+      acceptanceVerdict = decision.verdict;
+      const output = `${res.out ?? ''}\n${res.err ?? ''}`.trim();
+      if (!decision.ok) {
+        const detail = `验收未通过（${decision.detail}）：\n${acceptanceCmds}\n\n${output.slice(-2000)}`;
         recordFailure({ text: detail, issue: n, attempt, reason: 'acceptance command failed' }, FAIL_STORE);
         throw new Error(detail);
       }
-      log(`${tag} 验收命令通过（${acceptanceCmds.split('\n').length} 行）`);
+      if (decision.verdict === 'unknown') log(`${tag} ⚠ ${decision.detail}`);
+      log(`${tag} 验收命令通过（${acceptanceCmds.split('\n').length} 行，裁决=${decision.verdict}）`);
     }
 
     if (status) {
@@ -521,8 +542,13 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
         `- 语义评审：${formatSemantic(semantic).split('\n')[0]}`,
-        `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行）` : 'issue 里没有给 `### 验收命令`'}`,
+        `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
+        '',
+        '## 需要人工确认（调度器不做）',
+        '- 这份改动是否符合你真正想要的东西 —— 机器只能验「写了的东西对不对」，不能验「该不该写」。',
+        '- 合并动作本身：本流水线不会自动 merge，也不会自动打 tag / 发版。',
+        '- 若验收命令没有打印 `VERDICT: PASS`，说明这次只是「命令没崩」，人工要自己看一眼输出。',
         '', '---', 'CI 通过后请人工 review 再合并。',
       ].join('\n'),
     });
@@ -756,23 +782,31 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
 
   const t0 = Date.now();
   const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-    cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: CHILD_PATH },
+    cwd: wt, input: prompt, timeout: REBASE_AGENT_TIMEOUT_MS, env: { PATH: CHILD_PATH },
   });
-  log(`[issue #${issueN}][rebase] 冲突解决 agent 结束 exit=${r.code} ${Math.round((Date.now() - t0) / 1000)}s`);
+  const secs = Math.round((Date.now() - t0) / 1000);
+  // 解冲突是最容易「跑很久还没结论」的一步，输出必须留档，否则事后只剩一行 exit=1。
+  const outPath = path.join(LOG_DIR, `issue-${issueN}-rebase.log`);
+  try {
+    writeFileSync(outPath, `# ${new Date().toISOString()} exit=${r.code} ${secs}s\n\n## stdout\n${r.out}\n\n## stderr\n${r.err}\n`);
+  } catch { /* 留档失败不影响判定 */ }
+  log(`[issue #${issueN}][rebase] 冲突解决 agent 结束 exit=${r.code} ${secs}s`);
+  // 失败时把这行尾巴带进 issue 评论，人工接手不用再翻机器上的日志。
+  const tail = `${(r.err || '').trim()}\n\n${(r.out || '').trim()}`.trim().slice(-800);
 
   const left = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out.trim();
-  if (left) return { ok: false, reason: `仍有未解决冲突：${left.replace(/\n/g, ', ')}` };
+  if (left) return { ok: false, tail, reason: `仍有未解决冲突：${left.replace(/\n/g, ', ')}` };
 
   const rebaseDir = (await run(GIT, ['rev-parse', '--git-path', 'rebase-merge'], { cwd: wt })).out.trim();
   if (rebaseDir && existsSync(path.resolve(wt, rebaseDir))) {
-    return { ok: false, reason: 'rebase 仍停在半途（agent 没有走完 rebase --continue）' };
+    return { ok: false, tail, reason: 'rebase 仍停在半途（agent 没有走完 rebase --continue）' };
   }
 
   const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
   if (status) {
     await run(GIT, ['add', '-A'], { cwd: wt });
     const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
-    if (amend.code !== 0) return { ok: false, reason: `解冲突后的改动 amend 失败：${amend.err.trim().slice(0, 200)}` };
+    if (amend.code !== 0) return { ok: false, tail, reason: `解冲突后的改动 amend 失败：${amend.err.trim().slice(0, 200)}` };
   }
   return { ok: true };
 }
@@ -834,7 +868,7 @@ async function rebaseAgentBranch(pr, issueN) {
         if (!resolved.ok) {
           await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
           await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-            body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}；${resolved.reason}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+            body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}；${resolved.reason}），需人工处理。\n\n<details><summary>解冲突 agent 输出（末 800 字）</summary>\n\n\`\`\`\n${resolved.tail || '（无输出）'}\n\`\`\`\n\n</details>\n\n<!-- auto-rebase:${pr.head.sha} -->`,
           }).catch(() => {});
           await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
           log(`${tag} 冲突解决失败，转人工：${conflicts} / ${resolved.reason.replace(/\n/g, ' ')}`);

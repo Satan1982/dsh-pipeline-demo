@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  normalize, signature, fingerprint, recordFailure, lookup, formatPriorFailures, loadStore, repairStore,
+  normalize, signature, fingerprint, recordFailure, lookup, formatPriorFailures, loadStore, repairStore, trimStore,
 } from './failures.mjs';
 
 test('normalize 抹掉每次都会变的部分', () => {
@@ -122,6 +122,25 @@ test('repairStore 用新算法重算并去重', () => {
     const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
     assert.equal(new Set(lines.map((r) => r.fp)).size, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('trimStore 把记忆库剪到上限并保留最新的记录', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dsh-fail-trim-'));
+  const file = path.join(dir, 'failures.jsonl');
+  try {
+    for (let i = 0; i < 6; i += 1) {
+      recordFailure({ text: `根因 ${i}\n尾巴`, issue: i, attempt: 1 }, file);
+    }
+    const res = trimStore(file, 2);
+    assert.equal(res.before, 6);
+    assert.equal(res.after, 2);
+    assert.equal(res.dropped, 4);
+    const left = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(left.length, 2);
+    assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
