@@ -278,6 +278,16 @@ function pick(sections, ...keys) {
   return '';
 }
 
+// issue 里的验收命令几乎总是包在 ``` 代码块里。直接把围栏当命令跑，bash 会把
+// “VERDICT:” 当成命令名（实测 `/usr/bin/bash: line 10: VERDICT:: command not found`），
+// 于是明明验收通过却被判成「没打印 VERDICT 行」。这里只剥最外层的一对围栏。
+function stripFence(text) {
+  return String(text ?? '')
+    .replace(/^\s*```[a-zA-Z0-9_-]*[ \t]*\r?\n/, '')
+    .replace(/\r?\n?\s*```\s*$/, '')
+    .trim();
+}
+
 function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, priorFailure = '', readonly = false }) {
   const readonlyBlock = readonly
     ? `\n## 只读任务（最高优先级）\n这是只读工单：只做调查/验证并给出结论，**绝对不要创建、修改或删除任何文件**，包括临时脚本和 wrapper。\n- 只读检查用 \`node -e\` 或 \`grep\` 完成，不落盘；\n- 结论写进最终回答（文件路径 + 行号 + 事实），调度器会把它贴到 issue 上；\n- 不要为了「产生改动」而提交或写文件。\n`
@@ -469,7 +479,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
     // 而这一段是提需求的人写的、agent 改不动，由调度器亲自跑一遍才算数。
-    const acceptanceCmds = String(pick(sections, '验收命令') || '').trim();
+    const acceptanceCmds = stripFence(pick(sections, '验收命令'));
     if (!acceptanceCmds) {
       // P0-6：没有验收命令的工单不进交付流程 —— 否则「做完了」全靠 agent 自述。
       // 例外：确实写不出可执行验收的工单，打 `acceptance:optional` 明确豁免。
