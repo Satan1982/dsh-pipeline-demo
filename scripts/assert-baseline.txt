@@ -24,9 +24,11 @@
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
 1 472e9472f37f0ad2 assert.equal(negate(3), -3);
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
+1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
+1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
@@ -47,6 +49,7 @@
 1 7978bcfd36da7752 assert.equal(isPositive(0), false);
 1 7a2d3e81d7836769 assert.equal(res.fps, 1);
 1 7aa8ecae03f50247 assert.ok(r.findings.some((f) => f.rule === 'assert-removed'));
+1 7b57bbc4cf4a2ddd assert.equal(isPalindrome(''), true);
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
@@ -83,6 +86,7 @@
 3 c89c8148c69a08d6 assert.equal(fingerprint(a), fingerprint(b));
 1 c9104e64a26a2488 assert.equal(sumRange(3, 3), 3);
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
+1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 1 cd198ae7248c5b40 assert.ok(r.findings.some((f) => f.rule === 'test-removed'));
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
