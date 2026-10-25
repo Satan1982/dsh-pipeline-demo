@@ -43,6 +43,7 @@
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
 1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
+1 56734436da90d0af assert.equal(cube(0), 0);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
