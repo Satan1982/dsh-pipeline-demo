@@ -34,4 +34,12 @@ export function countVowels(s) {
   return (s.match(/[aeiou]/gi) || []).length;
 }
 
+export function repeatText(s, n) {
+  if (typeof s !== 'string') {
+    throw new TypeError('repeatText expects a string');
+  }
+  if (n <= 0) return '';
+  return s.repeat(n);
+}
+
 export { isPalindrome };
