@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countVowels, isPalindrome, reverseWords } from './strings.js';
+import { capitalize, countVowels, isPalindrome, reverseWords } from './strings.js';
 
 test('isPalindrome recognizes a classic palindrome ignoring case and punctuation', () => {
   assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
@@ -40,4 +40,16 @@ test('countVowels counts every uppercase vowel', () => {
 
 test('countVowels returns 0 for an empty string', () => {
   assert.equal(countVowels(''), 0);
+});
+
+test('capitalize uppercases the first character', () => {
+  assert.equal(capitalize('abc'), 'Abc');
+});
+
+test('capitalize returns empty string for empty input', () => {
+  assert.equal(capitalize(''), '');
+});
+
+test('capitalize leaves already-uppercase strings unchanged', () => {
+  assert.equal(capitalize('ABC'), 'ABC');
 });

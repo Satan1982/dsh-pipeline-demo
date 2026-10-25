@@ -51,6 +51,7 @@
 1 74c3214719308fdd assert.ok(rec);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
 1 77d034bd9159d035 assert.equal(rec.fix, '删掉坏行');
+1 780285e9a7a85b0c assert.equal(capitalize('ABC'), 'ABC');
 1 7978bcfd36da7752 assert.equal(isPositive(0), false);
 1 7a2d3e81d7836769 assert.equal(res.fps, 1);
 1 7aa8ecae03f50247 assert.ok(r.findings.some((f) => f.rule === 'assert-removed'));
@@ -77,6 +78,7 @@
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
 1 a5a768c434d2455c assert.equal(cube(-2), -8);
 1 a745b939375945c0 assert.equal(formatFindings({ findings: [] }), '评审通过：没有发现问题。');
+1 a79526c232c68eaa assert.equal(capitalize('abc'), 'Abc');
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
@@ -93,6 +95,7 @@
 1 bead3790b8ad00ab assert.equal(loadStore(file).size, 1);
 1 c472b006b5fcbe49 assert.equal(headlessKind('Now I will add the function', '', 0), 'agent-no-change');
 1 c47f2e6597dcd890 assert.match(p, /"verdict":"pass"\|"block"/);
+1 c4ea3c534f4caf59 assert.equal(capitalize(''), '');
 1 c5672a99d6c8291f assert.equal(minOf(-2, -5), -5);
 1 c58083f2b5f9e892 assert.equal(headlessKind('== verify: FAILED ==\n拒绝：测试数量从 40 降到 39', '', 1), 'agent-gate-red');
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
