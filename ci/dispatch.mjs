@@ -495,13 +495,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       log(`${tag} ℹ 任务期间 origin/main 前进（外部合并：${tip}），继续`);
     }
 
-    // .dsh/PLAN.md 是调度器自己写的工作笔记（已加进 info/exclude）；万一 exclude 没生效，
-    // 也不能把它当成「agent 改了文件」——#60 就因此把一次进程崩溃误判成「干了活但验收失败」。
-    const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out
-      .split(NL)
-      .filter((line) => line.trim() && !/^\?\?\s+\.dsh\//.test(line.trim()))
-      .join(NL)
-      .trim();
+    const status = await worktreeStatus(wt);
     // 判「有没有干活」看的是文件变化，不是提交数：agent 为了绕开门禁会造空提交
     // （PR #40 就发生过），用 rev-list 计数会被它骗过去。
     const changedFiles = (await run(GIT, ['diff', '--name-only', 'origin/main...HEAD'], { cwd: wt })).out.trim();
@@ -766,7 +760,7 @@ ${logText.slice(-8000)}
     const secs = Math.round((Date.now() - t0) / 1000);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s`);
 
-    const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+    const status = await worktreeStatus(wt);
     if (!status) throw new Error('CI 修复未产生任何改动');
 
     const gate = await verifyWorktree(wt);
@@ -837,7 +831,7 @@ async function resolveBaselineOnlyRebase(wt, files) {
   if (bless.code !== 0) {
     return { ok: false, reason: `重算基线时门禁未通过：${(bless.out + bless.err).trim().slice(-600)}` };
   }
-  const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+  const status = await worktreeStatus(wt);
   if (status) {
     await run(GIT, ['add', '-A'], { cwd: wt });
     const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
@@ -864,8 +858,13 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
 现在开始。`;
 
   const t0 = Date.now();
+  // 解多文件源码冲突是这条流水线里最难的一步：29B 实测一次 41 秒成功、一次 522 秒失败，
+  // 所以默认换强模型（可用 DSH_REBASE_MODEL=weak 退回旧行为）。
+  const rebasePatch = process.env.DSH_REBASE_MODEL === 'weak' ? '' : STRONG_PATCH;
+  const rebaseEnv = { PATH: CHILD_PATH };
+  if (rebasePatch) rebaseEnv.DSH_HEADLESS_PATCH = rebasePatch;
   const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-    cwd: wt, input: prompt, timeout: REBASE_AGENT_TIMEOUT_MS, env: { PATH: CHILD_PATH },
+    cwd: wt, input: prompt, timeout: REBASE_AGENT_TIMEOUT_MS, env: rebaseEnv,
   });
   const secs = Math.round((Date.now() - t0) / 1000);
   // 解冲突是最容易「跑很久还没结论」的一步，输出必须留档，否则事后只剩一行 exit=1。
@@ -885,7 +884,7 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
     return { ok: false, tail, reason: 'rebase 仍停在半途（agent 没有走完 rebase --continue）' };
   }
 
-  const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+  const status = await worktreeStatus(wt);
   if (status) {
     await run(GIT, ['add', '-A'], { cwd: wt });
     const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
@@ -970,6 +969,17 @@ async function rebaseAgentBranch(pr, issueN) {
 // GitHub 的 mergeable_state 是懒计算的：刚推送过、或它自己还没算完时返回 'unknown'，
 // 靠它决定「要不要 rebase」会漏掉真实的冲突（实测 #52 挂了几小时一直是 dirty，调度器一次都没触发）。
 // 所以自己做一次本地探测：fetch 分支后用 merge-tree 试合，冲突文件一目了然。
+// 「agent 到底改了什么」的唯一入口：.dsh/PLAN.md 是调度器自己写的工作笔记（已加进 info/exclude），
+// 万一 exclude 没生效也不能把它当成 agent 的改动——#60 就因此把一次进程崩溃误判成「干了活但验收失败」。
+async function worktreeStatus(wt) {
+  const out = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out;
+  return out
+    .split(NL)
+    .filter((line) => line.trim() && !/^\?\?\s+\.dsh\//.test(line.trim()))
+    .join(NL)
+    .trim();
+}
+
 async function branchConflictFiles(branch) {
   const f = await git(['fetch', 'origin', branch, '--quiet']);
   if (f.code !== 0) return null; // 网络问题：这一轮先不判
