@@ -42,6 +42,9 @@ const WT_ROOT   = 'D:/code/.worktrees';
 const STRONG_PATCH = 'D:/code/.secrets/headless-model-strong.yml';
 const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
+// 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
+// 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
+const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
 // 仅用于验证重试状态机：前 N 次尝试强制失败，不真正调模型
 const DEBUG_FAIL = Number(process.env.DSH_DEBUG_FAIL_ATTEMPTS ?? 0);
 const CONCURRENCY = Math.max(1, Number(process.env.DSH_CONCURRENCY ?? 2));
@@ -885,7 +888,7 @@ async function checkAgentPRs() {
     // 同一个提交最多试 3 次——工具修好之后还有机会重试，但不会每分钟空转。
     const rebaseTries = list.filter((c) => c.body?.includes(`auto-rebase:${pr.head.sha}`)).length;
     const conflicts = await branchConflictFiles(pr.head.ref);
-    if (conflicts && conflicts.length && rebaseTries < 3) {
+    if (conflicts && conflicts.length && rebaseTries < REBASE_MAX_TRIES) {
       await rebaseAgentBranch(pr, issueN);
       continue;
     }
