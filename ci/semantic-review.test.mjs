@@ -53,6 +53,15 @@ test('提示词里带验收标准与实际 diff', () => {
   assert.match(p, /"verdict":"pass"\|"block"/);
 });
 
+test('提示词里带改动文件清单，并禁止否认清单内的文件', () => {
+  const p = buildReviewPrompt({
+    issueNumber: 7, title: 't', goal: 'g', acceptance: 'a', diffText: '+x',
+    files: [{ status: 'M', path: 'src/index.js' }],
+  });
+  assert.match(p, /- M {2}src\/index\.js/);
+  assert.match(p, /不要声称它没被修改/);
+});
+
 test('mock 文件可以强制 block，且不调用网络', async () => {
   const dir = tmp();
   const mock = path.join(dir, 'verdict.json');

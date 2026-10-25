@@ -69,6 +69,7 @@
 2 8f0694b9c090fb9d assert.equal(f.severity, 'block');
 1 91a4b94e3232a88d assert.equal(roundTo(0, 2), 0);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
+1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
@@ -116,6 +117,7 @@
 1 e1a7d1447921ba98 assert.equal(isOdd(0), false);
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
+1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
 5 e87721083461fadd assert.equal(r.verdict, 'block');
 1 ea4d4e985c585f4d assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');

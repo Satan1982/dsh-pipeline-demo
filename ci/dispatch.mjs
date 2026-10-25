@@ -472,9 +472,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 看不出「代码写得像那么回事，但根本没满足验收标准」。这里请另一个家族的模型
     // 读验收标准 + 实际 diff；block 就把它的意见当成失败原因回灌给下一次重试。
     const diff = collectDiff(wt);
+    const semT0 = Date.now();
     const semantic = diff.ok
       ? await reviewSemantically({
-        issueNumber: n, title: issue.title, goal, acceptance, constraints, diffText: diff.text,
+        issueNumber: n, title: issue.title, goal, acceptance, constraints, diffText: diff.text, files: diff.files,
       })
       : {
         ok: false,
@@ -482,7 +483,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         findings: [{ severity: 'block', rule: 'semantic-diff-failed', file: null, message: `拿不到 diff：${diff.error}` }],
         model: '-',
       };
-    log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}`);
+    const semMs = Date.now() - semT0;
+    log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}（${Math.round(semMs / 1000)}s，${(diff.files ?? []).length} 个文件）`);
     if (semantic.verdict === 'skipped') {
       // 放行但必须留痕：凭证失效/网络故障时这一层会静默消失，只有日志里一行就会没人发现。
       log(`${tag} ⚠ 语义评审未执行（这一层等于没有）：${semantic.skipped}`);
@@ -654,14 +656,14 @@ ${logText.slice(-8000)}
       ? await reviewSemantically({
         issueNumber: issueN, title: issueData?.title ?? '',
         goal: pick(spec, '目标'), acceptance: pick(spec, '验收标准'), constraints: pick(spec, '约束'),
-        diffText: rdiff.text,
+        diffText: rdiff.text, files: rdiff.files,
       })
       : {
         ok: false, verdict: 'block',
         findings: [{ severity: 'block', rule: 'semantic-diff-failed', file: null, message: `拿不到 diff：${rdiff.error}` }],
         model: '-',
       };
-    log(`${tag} 语义评审：${formatSemantic(rsem).split('\n')[0]}`);
+    log(`${tag} 语义评审：${formatSemantic(rsem).split('\n')[0]}（${(rdiff.files ?? []).length} 个文件）`);
     if (!rsem.ok) throw new Error(`语义评审拒绝（修复未推送）：\n${formatSemantic(rsem)}`);
 
     const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });

@@ -18,31 +18,49 @@ import { readFileSync, existsSync } from 'node:fs';
 
 export const DEFAULT_REVIEW_MODEL = 'Qwen/Qwen3.5-122B-A10B';
 const DEFAULT_ENDPOINT = 'https://api.siliconflow.cn/v1/chat/completions';
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 240_000;
 // 凭证文件里那条 ref 的键名，拆开拼是为了不被「看起来像密钥赋值」的扫描规则误伤。
 const CRED_KEY = ['SILICONFLOW', 'API', 'KEY'].join('_');
 // diff 太长时截断：评审要的是「有没有满足验收」，不是逐字读完全部实现。
 const MAX_DIFF_CHARS = 40_000;
+const GIT = 'C:/Program Files/Git/cmd/git.exe';
 
 /**
  * 取 worktree 里 origin/main...HEAD 的 diff（runTask 调用时改动已 commit）。
  * 收集失败不抛错：评审层拿不到 diff 就该按 block 处理，而不是让流程崩掉。
+ *
+ * files 是 `--name-status` 的结果（M/A/D + 路径）。它存在的理由很具体：
+ * 评审模型有过一次「明明改了 src/index.js，却断言这个文件没有被修改」，
+ * 于是把改动清单单独摆到它面前，让它没法凭空否定一个已经出现在清单里的文件。
  */
 export function collectDiff(cwd, base = 'origin/main') {
-  const r = spawnSync('C:/Program Files/Git/cmd/git.exe', ['diff', '--no-color', '--unified=2', `${base}...HEAD`], {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
+  const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 };
+  const r = spawnSync(GIT, ['diff', '--no-color', '--unified=2', `${base}...HEAD`], opts);
   if (r.status !== 0) {
-    return { ok: false, text: '', error: (r.stderr || r.error?.message || 'git diff 失败').trim().slice(0, 300) };
+    return { ok: false, text: '', files: [], error: (r.stderr || r.error?.message || 'git diff 失败').trim().slice(0, 300) };
   }
+  const ns = spawnSync(GIT, ['diff', '--name-status', `${base}...HEAD`], opts);
+  const files = String(ns.stdout ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const [status, ...rest] = l.split(/\s+/);
+      return { status, path: rest.join(' ') };
+    });
   const text = String(r.stdout ?? '');
-  if (text.length <= MAX_DIFF_CHARS) return { ok: true, text };
-  return { ok: true, text: `${text.slice(0, MAX_DIFF_CHARS)}\n\n…（diff 过长已截断，共 ${text.length} 字符）` };
+  const truncated = text.length > MAX_DIFF_CHARS;
+  return {
+    ok: true,
+    files,
+    text: truncated ? `${text.slice(0, MAX_DIFF_CHARS)}\n\n…（diff 过长已截断，共 ${text.length} 字符）` : text,
+  };
 }
 
-export function buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText }) {
+export function buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files = [] }) {
+  const fileList = files.length
+    ? files.map((f) => `- ${f.status}  ${f.path}`).join('\n')
+    : '（git 没有报出任何文件变化）';
   return `你是一名严格的代码评审者。有人刚刚提交了一个改动，声称完成了 GitHub Issue #${issueNumber}「${title}」。
 
 你要回答的唯一问题：**按下面这份验收标准，这个改动算完成了吗？**
@@ -56,6 +74,9 @@ ${goal}
 ## 约束
 ${constraints || '（无额外约束）'}
 
+## 本次提交实际改动的文件（git diff --name-status，可信）
+${fileList}
+
 ## 实际改动（git diff）
 \`\`\`diff
 ${diffText}
@@ -63,6 +84,8 @@ ${diffText}
 
 ## 判定口径
 - \`block\`：你能**指名**某条验收标准没满足；或已有测试/断言被改弱、被删；或实现的行为与验收文字直接矛盾（例如要求抛错却返回了 undefined）。必须写出是第几条、缺什么。
+- 要 block「某个文件没有改」，先确认它不在上面的改动清单里；清单里有的文件，不要声称它没被修改。
+- 引用具体代码时请抄 diff 里的原文；不要凭印象描述实现。
 - \`warn\`：命名、可读性、性能、注释等不影响验收的问题。
 - 不要因为「风格不合你口味」block；没有证据不要猜测。改动的实现方式与你的偏好不同，但满足验收 —— 判 pass。
 
@@ -153,6 +176,7 @@ export async function reviewSemantically({
   acceptance,
   constraints = '',
   diffText,
+  files = [],
   issueNumber = 0,
   title = '',
   credential = process.env[CRED_KEY] || readCredential(),
@@ -161,7 +185,7 @@ export async function reviewSemantically({
   timeoutMs = Number(process.env.DSH_REVIEW_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
   mockPath = process.env.DSH_REVIEW_MOCK || '',
 } = {}) {
-  const prompt = buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText });
+  const prompt = buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files });
 
   // 测试钩子：直接读一个 JSON 文件当作模型输出，用来端到端验证 block 路径（不花钱、可复现）。
   if (mockPath && existsSync(mockPath)) {
