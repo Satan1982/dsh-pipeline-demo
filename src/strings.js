@@ -12,6 +12,14 @@ function isPalindrome(text) {
   return true;
 }
 
+export function capitalize(s) {
+  if (typeof s !== 'string') {
+    throw new TypeError('capitalize expects a string');
+  }
+  if (s.length === 0) return '';
+  return s[0].toUpperCase() + s.slice(1);
+}
+
 export function reverseWords(s) {
   if (typeof s !== 'string') {
     throw new TypeError('reverseWords expects a string');
