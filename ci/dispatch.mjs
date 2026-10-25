@@ -506,8 +506,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       throw new Error(detail);
     }
 
-    const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
-    if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
+    await pushWithRetry(wt, `${branch}:${branch}`);
 
     const pr = await api('POST', `/repos/${REPO}/pulls`, {
       title: `[agent] #${n} ${issue.title}`.slice(0, 250),
@@ -561,6 +560,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 }
 
 // ---------- 轮询 ----------
+
+// github.com 的 git 通道会间歇性重置连接（实测 push 报 `Recv failure: Connection was reset`，
+// 几秒后重试就成功），所以 push 也要退避重试，不能一次失败就把整轮 rebase 判死。
+async function pushWithRetry(cwd, refspec, extraArgs = []) {
+  const backoff = [3000, 7000, 15000, 30000];
+  let last = null;
+  for (let i = 0; i <= backoff.length; i += 1) {
+    last = await run(GIT, ['-c', 'credential.helper=', 'push', ...extraArgs, 'origin', refspec], { cwd, env: GIT_ENV });
+    if (last.code === 0) return;
+    if (i < backoff.length) await new Promise((r) => setTimeout(r, backoff[i]));
+  }
+  throw new Error(`push 失败（退避重试 ${backoff.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
+}
 
 async function pollOnce() {
   const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`);
@@ -677,8 +689,7 @@ ${logText.slice(-8000)}
     log(`${tag} 语义评审：${formatSemantic(rsem).split('\n')[0]}（${(rdiff.files ?? []).length} 个文件）`);
     if (!rsem.ok) throw new Error(`语义评审拒绝（修复未推送）：\n${formatSemantic(rsem)}`);
 
-    const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
-    if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
+    await pushWithRetry(wt, `${branch}:${branch}`);
 
     await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
       body: `🔧 CI 失败自动修复完成（run ${runInfo.id}，耗时 ${secs}s），已推送新提交到 ${branch}。\n\n<!-- ci-retry-run:${runInfo.id} -->`,
@@ -836,8 +847,7 @@ async function rebaseAgentBranch(pr, issueN) {
     const gate = await verifyWorktree(wt);
     if (!gate.ok) throw new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}`);
 
-    const push = await run(GIT, ['-c', 'credential.helper=', 'push', '--force-with-lease', 'origin', `${tmpBranch}:${branch}`], { cwd: wt, env: GIT_ENV });
-    if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
+    await pushWithRetry(wt, `${tmpBranch}:${branch}`, ['--force-with-lease']);
 
     await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
       body: `🔄 分支 ${branch} 已自动 rebase 到最新 main，CI 会重跑。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
