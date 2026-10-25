@@ -76,6 +76,8 @@ const CHILD_PATH = [
 
 // 计划任务里 stdout 无处可去，必须自己落盘，否则无人值守跑完什么都看不到。
 const LOG_DIR = 'D:/code/dsh-pipeline-demo/.logs';
+// 换行常量：本文件里避免在模板字符串中写转义（历史上被脚本改坏过两次）。
+const NL = String.fromCharCode(10);
 const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
 const log = (m) => {
   const line = `[${new Date().toISOString().slice(11, 19)}] ${m}`;
@@ -292,6 +294,50 @@ function stripFence(text) {
     .trim();
 }
 
+// 规则与计划物化（P0-3）：把 issue 的三段验收变成工作区里的一页 PLAN.md。
+// agent 读文件比读 5 KB 提示词更可靠，人工也能在 worktree 里直接对照。
+function writePlan(wt, { n, title, goal, acceptance, constraints, cmds }) {
+  const body = [
+    `# issue #${n}：${title}`,
+    '',
+    '这份文件由调度器按 issue 生成，是本次任务的唯一验收清单。',
+    '',
+    '## 目标',
+    goal.trim() || '（issue 没写目标）',
+    '',
+    '## 验收标准',
+    acceptance.trim() || '（issue 没写验收标准）',
+    '',
+    '## 验收命令（调度器会自己跑一遍，必须 exit 0）',
+    cmds.trim()
+      ? ['```', cmds.trim(), '```'].join(NL)
+      : '（没有提供验收命令——本工单不允许进交付流程）',
+    '',
+    '## 约束',
+    constraints.trim() || '（issue 没写约束）',
+    '',
+    '## 硬性红线（pre-commit 钩子会挡）',
+    '- 不许删/改已有测试与断言来凑绿；基线必须 `bash scripts/verify.sh --bless` 同步。',
+    '- 不许改 `.github/workflows/`、`scripts/verify.sh`、`scripts/assert-guard.mjs`、`ci/*`（需要时在 issue 打 `allow:gate`）。',
+    '- 不许留调试占位符、断点语句、只跑单个用例的标记或调试日志（评审层会逐条列出具体行）。',
+    '- 不许加依赖；一 PR 一个垂直切片。',
+  ].join(NL);
+  try {
+    const dir = path.join(wt, '.dsh');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'PLAN.md'), `${body}${NL}`);
+    // 不污染 PR：把它们排除在工作区之外（worktree 共享同一份 .git/info/exclude）。
+    const exclude = run(GIT, ['rev-parse', '--git-path', 'info/exclude'], { cwd: wt });
+    if (exclude.code === 0) {
+      const file = path.resolve(wt, exclude.out.trim());
+      const cur = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      if (!cur.includes('.dsh/')) appendFileSync(file, `${cur.endsWith(NL) || !cur ? '' : NL}.dsh/${NL}`);
+    }
+  } catch (e) {
+    log(`⚠ 写 PLAN.md 失败（不影响任务）：${e.message}`);
+  }
+}
+
 function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, priorFailure = '', readonly = false }) {
   const readonlyBlock = readonly
     ? `\n## 只读任务（最高优先级）\n这是只读工单：只做调查/验证并给出结论，**绝对不要创建、修改或删除任何文件**，包括临时脚本和 wrapper。\n- 只读检查用 \`node -e\` 或 \`grep\` 完成，不落盘；\n- 结论写进最终回答（文件路径 + 行号 + 事实），调度器会把它贴到 issue 上；\n- 不要为了「产生改动」而提交或写文件。\n`
@@ -375,6 +421,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   const goal = pick(sections, '目标');
   const acceptance = pick(sections, '验收标准');
   const constraints = pick(sections, '约束');
+  // 原始验收命令（可能带 ``` 围栏）：PLAN.md 里保留原样给人看，执行时再剥围栏。
+  const acceptanceCmdsRaw = pick(sections, '验收命令');
 
   // 验收标准门禁：没有可执行验收标准就不启动
   if (!goal || !acceptance) {
@@ -389,6 +437,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
   try {
     await setupWorktree(branch, wt, 'origin/main');
+    writePlan(wt, { n: issue.number, title: issue.title, goal, acceptance, constraints, cmds: acceptanceCmdsRaw });
 
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
     // 只读工单：查代码/审计类任务不该产生改动。提示词里先立规矩，
@@ -483,7 +532,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
     // 而这一段是提需求的人写的、agent 改不动，由调度器亲自跑一遍才算数。
-    const acceptanceCmds = stripFence(pick(sections, '验收命令'));
+    const acceptanceCmds = stripFence(acceptanceCmdsRaw);
     if (!acceptanceCmds) {
       // P0-6：没有验收命令的工单不进交付流程 —— 否则「做完了」全靠 agent 自述。
       // 例外：确实写不出可执行验收的工单，打 `acceptance:optional` 明确豁免。
