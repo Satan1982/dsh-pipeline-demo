@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isPalindrome, reverseWords } from './strings.js';
+import { countVowels, isPalindrome, reverseWords } from './strings.js';
 
 test('isPalindrome recognizes a classic palindrome ignoring case and punctuation', () => {
   assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
@@ -28,4 +28,16 @@ test('reverseWords returns an empty string for empty input', () => {
 
 test('reverseWords collapses consecutive whitespace and trims the ends', () => {
   assert.equal(reverseWords('  a  b  '), 'b a');
+});
+
+test('countVowels counts vowels ignoring case', () => {
+  assert.equal(countVowels('hello'), 2);
+});
+
+test('countVowels counts every uppercase vowel', () => {
+  assert.equal(countVowels('AEIOU'), 5);
+});
+
+test('countVowels returns 0 for an empty string', () => {
+  assert.equal(countVowels(''), 0);
 });

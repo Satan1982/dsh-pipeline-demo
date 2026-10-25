@@ -19,4 +19,11 @@ export function reverseWords(s) {
   return s.trim().split(/\s+/).filter(Boolean).reverse().join(' ');
 }
 
+export function countVowels(s) {
+  if (typeof s !== 'string') {
+    throw new TypeError('countVowels expects a string');
+  }
+  return (s.match(/[aeiou]/gi) || []).length;
+}
+
 export { isPalindrome };
