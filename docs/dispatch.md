@@ -323,3 +323,31 @@ test -f dist/x.tgz
 
 每份工单在工作区里还有一份 `.dsh/PLAN.md`（目标 / 验收标准 / 验收命令 / 约束 / 红线），
 由调度器按 issue 生成、已排除在提交之外；agent 与评审层看的是同一份。
+
+## 记忆回流到 Hindsight（`ci/distill-failures.mjs`）
+
+指纹库只在「本机这个仓库」里滚，换一台机器就重新踩同样的坑。`ci/distill-failures.mjs` 把
+`docs/failures.jsonl` 归并成一份摘要（出现次数最多的 N 条根因 + 修法 + 相关工单，调用栈已剪掉），
+写进 Hindsight 的独立 bank `pipeline::failures`，三台机器都能 recall 到。
+
+```
+node ci/distill-failures.mjs --dry            # 只看摘要，不写
+node ci/distill-failures.mjs                  # 写入 Hindsight（默认 bank pipeline::failures）
+node ci/distill-failures.mjs --bank some::bank --top 20
+```
+
+凭证从 `~/.hindsight/coding-agent.json` 读（apiUrl / apiToken），不落到仓库里。
+实测 2026-10-26：摘要含 14 个根因，写入返回 `status=200`，bank 列表里出现 `pipeline::failures`。
+
+## 发版（`ci/release.sh`）
+
+发版是唯一「人说了算、但步骤机械」的动作，写成脚本就不会漏跑门禁或把 tag 打在没验证的提交上：
+
+```
+bash ci/release.sh patch           # 0.1.0 -> 0.1.1，只在本地产出提交与 tag
+bash ci/release.sh patch --push    # 顺带推送 main + tag，触发 release.yml 生成 Release
+bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
+```
+
+步骤固定为：工作区必须干净 → 跑 `scripts/verify.sh` → 改 `package.json` 版本 → 提交 `Release vX.Y.Z`
+→ 打 annotated tag → （加 `--push` 时）退避重试推送并打印 Release 链接。
