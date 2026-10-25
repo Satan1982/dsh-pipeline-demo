@@ -12,4 +12,11 @@ function isPalindrome(text) {
   return true;
 }
 
+export function reverseWords(s) {
+  if (typeof s !== 'string') {
+    throw new TypeError('reverseWords expects a string');
+  }
+  return s.trim().split(/\s+/).filter(Boolean).reverse().join(' ');
+}
+
 export { isPalindrome };
