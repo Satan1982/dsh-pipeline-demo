@@ -59,6 +59,16 @@ const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
+// https 通道会间歇性不通（实测同一天里 10 次全通、8 次全失败两个极端）。仓库上挂了一把
+// write 部署密钥，于是留一条走 ssh.github.com:443 的备用通道：两种协议独立，谁通走谁。
+const SSH_WRAPPER = 'D:/code/.secrets/ssh-git.sh';
+const SSH_REMOTE = `ssh://git@ssh.github.com:443/${REPO}.git`;
+const SSH_ENV = { ...GIT_ENV, GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
+
+function networkError(r) {
+  const t = `${r?.err ?? ''}${r?.out ?? ''}`;
+  return /Failed to connect|Connection was reset|Recv failure|Could not resolve host|Connection timed out|early EOF/i.test(t);
+}
 
 // 随包运行时根目录：.../dependencies/node/bin/node.exe 上溯三级才是 dependencies。
 // 上溯两级会落到 .../dependencies/node，PNPM_CLI 随之指向不存在的 node/pnpm/bin。
@@ -169,7 +179,15 @@ async function fetchWithRetry(args = ['origin', '--quiet'], cwd = REPO_DIR) {
     if (last.code === 0) return last;
     if (i < FETCH_BACKOFF_MS.length) await new Promise((r) => setTimeout(r, FETCH_BACKOFF_MS[i]));
   }
-  throw new Error(`git fetch 失败（退避重试 ${FETCH_BACKOFF_MS.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
+  if (networkError(last)) {
+    // 换协议再试：SSH 端点与 https 走不同的主机与端口，抖动很少同时命中两边。
+    log('[net] https 取不到，改走 SSH 端点');
+    const viaSsh = await run(GIT, ['-c', 'credential.helper=', 'fetch', SSH_REMOTE,
+      '+refs/heads/*:refs/remotes/origin/*'], { cwd, env: SSH_ENV });
+    if (viaSsh.code === 0) return viaSsh;
+    last = viaSsh;
+  }
+  throw new Error(`git fetch 失败（退避重试 ${FETCH_BACKOFF_MS.length + 1} 次 + SSH 端点）: ${last.err.trim().slice(0, 200)}`);
 }
 
 // ---------- 单实例锁 ----------
@@ -681,7 +699,14 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
     if (last.code === 0) return;
     if (i < backoff.length) await new Promise((r) => setTimeout(r, backoff[i]));
   }
-  throw new Error(`push 失败（退避重试 ${backoff.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
+  if (networkError(last)) {
+    log('[net] https 推不上去，改走 SSH 端点');
+    const viaSsh = await run(GIT, ['-c', 'credential.helper=', 'push', ...extraArgs, SSH_REMOTE, refspec],
+      { cwd, env: SSH_ENV });
+    if (viaSsh.code === 0) return;
+    last = viaSsh;
+  }
+  throw new Error(`push 失败（退避重试 ${backoff.length + 1} 次 + SSH 端点）: ${last.err.trim().slice(0, 200)}`);
 }
 
 async function pollOnce() {
