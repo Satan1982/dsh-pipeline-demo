@@ -19,6 +19,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
+import { headlessKind } from './headless-kind.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
@@ -351,7 +352,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
     const ahead = parseInt((await run(GIT, ['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt })).out.trim() || '0', 10);
     if (!status && ahead === 0) {
-      throw new Error(`agent 未产生任何改动（exit=${r.code}）。输出尾部：\n${outTail.slice(-1500)}`);
+      const kind = headlessKind(r.out, r.err, r.code);
+      throw new Error(`[headless] ${kind}｜agent 未产生任何改动（exit=${r.code}）\n输出尾部：\n${outTail.slice(-1500)}`);
     }
 
     // 1) 独立门禁：不接受作者自评

@@ -13,8 +13,9 @@
  * 用 append-only 是为了可审计：改了判定逻辑也不会丢掉历史。
  */
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_STORE = 'docs/failures.jsonl';
 
@@ -38,12 +39,27 @@ export function normalize(text) {
     .join('\n');
 }
 
-// 指纹只看「症状骨架」的前几行（真正的错误行+关键上下文），忽略栈帧噪声。
+// 指纹只看「症状骨架」：错误种类 + 命中规则名，忽略栈帧与每次不同的尾巴。
+// 早期版本取前 6 行，结果同一个「独立门禁未通过」因为尾部 verify 输出不同被拆成 6 个指纹，
+// 记忆库等于失效——2026-10-25 改成「首行 + 规则集合」。
 export function signature(text) {
-  const lines = normalize(text)
+  const norm = normalize(text);
+  const lines = norm
     .split('\n')
+    .map((l) => l.replace(/^Error: /, ''))
     .filter((l) => !/^at\s/.test(l) && !/^node:internal/.test(l) && !/^<path>/.test(l));
-  return lines.slice(0, 6).join('\n').slice(0, 600);
+
+  // 首行经常是「exit code 1」「Error」这种没有信息量的壳子；遇到它要往下找到
+  // 第一行真正的症状，否则所有 exit=1 的失败会被并成同一个指纹。
+  const GENERIC = /^(?:exit(?:=|\scode)?\s*\d+|error|failed|失败)$/i;
+  const normed = lines.map((l) => l.replace(/\bexit=\d+\b/g, 'exit=*'));
+  const head = (normed.find((l) => !GENERIC.test(l.trim())) ?? normed[0] ?? '').slice(0, 200);
+
+  // 评审层与门禁的判定都写在 [rule] 里，抽出来当下半段：同类根因必同指纹，
+  // 不同规则（baseline-unsynced vs debug-residue）仍是不同指纹。
+  const rules = [...new Set([...norm.matchAll(/\[([a-z][a-z0-9-]*)\]/g)].map((m) => m[1]))].sort();
+
+  return rules.length ? `${head} | rules=${rules.join(',')}` : head;
 }
 
 export function fingerprint(text) {
@@ -115,4 +131,36 @@ export function formatPriorFailures(text, file = DEFAULT_STORE, limit = 2) {
     r.reason ? `上次现象：${r.reason.split('\n').slice(0, 6).join('\n')}` : '',
     r.fix ? `上次修法：${r.fix}` : '上次没有记录修法——这次务必把根因写进提交说明。',
   ].filter(Boolean).join('\n')).join('\n\n');
+}
+
+/**
+ * 判定逻辑改过之后，旧记录的 fp 是旧算法算的，命中会失败。repair 用当前算法重算并回写。
+ * 追加写的账本可能留下同一 (fp, issue, attempt) 的重复行，这里一并去重。
+ */
+export function repairStore(file = DEFAULT_STORE) {
+  const lines = readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+  const seen = new Map();
+  for (const line of lines) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const text = rec.reason ?? rec.sig ?? '';
+    const key = `${fingerprint(text)}|${rec.issue}|${rec.attempt}`;
+    if (!seen.has(key)) seen.set(key, { ...rec, fp: fingerprint(text), sig: signature(text) });
+  }
+  const out = [...seen.values()].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  writeFileSync(file, `${out.map((r) => JSON.stringify(r)).join('\n')}\n`);
+  return { before: lines.length, after: out.length, fps: new Set(out.map((r) => r.fp)).size };
+}
+
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMain) {
+  const [cmd = 'show', file = DEFAULT_STORE] = process.argv.slice(2);
+  if (cmd === 'repair') {
+    console.log(JSON.stringify(repairStore(file)));
+  } else {
+    const store = loadStore(file);
+    const rows = [...store.values()].sort((a, b) => b.count - a.count);
+    console.log(`records=${store.size} fps=${rows.length}`);
+    for (const r of rows) console.log(`  ${r.fp} x${r.count} issues=${r.issues.join(',')}`);
+  }
 }
