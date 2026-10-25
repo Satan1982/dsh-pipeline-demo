@@ -27,3 +27,11 @@ test('分类结果本身是稳定字符串，可直接进指纹库', () => {
   const b = headlessKind('RATE_LIMIT: 429: TPM limit reached', '', 1);
   assert.equal(a, b);
 });
+
+test('Windows NTSTATUS 退出码是进程没起来，不是「什么都没做」', () => {
+  // 0xC0000142 = 3221225794，实测并发高峰偶发，重试一次通常就好
+  assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
+  assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
+  // 普通退出码不受影响
+  assert.equal(headlessKind('', '', 1), 'agent-exit-1');
+});

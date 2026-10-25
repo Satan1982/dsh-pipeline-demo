@@ -495,7 +495,13 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       log(`${tag} ℹ 任务期间 origin/main 前进（外部合并：${tip}），继续`);
     }
 
-    const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+    // .dsh/PLAN.md 是调度器自己写的工作笔记（已加进 info/exclude）；万一 exclude 没生效，
+    // 也不能把它当成「agent 改了文件」——#60 就因此把一次进程崩溃误判成「干了活但验收失败」。
+    const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out
+      .split(NL)
+      .filter((line) => line.trim() && !/^\?\?\s+\.dsh\//.test(line.trim()))
+      .join(NL)
+      .trim();
     // 判「有没有干活」看的是文件变化，不是提交数：agent 为了绕开门禁会造空提交
     // （PR #40 就发生过），用 rev-list 计数会被它骗过去。
     const changedFiles = (await run(GIT, ['diff', '--name-only', 'origin/main...HEAD'], { cwd: wt })).out.trim();

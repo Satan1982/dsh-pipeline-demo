@@ -15,6 +15,9 @@ const KINDS = [
 ];
 
 export function headlessKind(out, err, code) {
+  // Windows NTSTATUS（>= 0xC0000000）不是「agent 什么也没做」，而是进程根本没起来：
+  // 实测 0xC0000142（DLL 初始化失败）在并发高峰偶发，重试一次通常就好。
+  if (Number(code) >= 0xC0000000) return 'headless-crash';
   const hay = `${out ?? ''}\n${err ?? ''}`;
   for (const [kind, re] of KINDS) if (re.test(hay)) return kind;
   return code === 0 ? 'agent-no-change' : `agent-exit-${code}`;
