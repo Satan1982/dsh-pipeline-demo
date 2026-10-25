@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt } from './text.js';
+import { words, wordCount, initials, excerpt, chunk } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -61,4 +61,30 @@ test('excerpt returns an empty string for non-positive n', () => {
 
 test('excerpt rejects non-string input', () => {
   assert.throws(() => excerpt(123, 3), TypeError);
+});
+
+test('chunk splits text into fixed-length pieces', () => {
+  assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
+});
+
+test('chunk keeps the shorter final piece', () => {
+  assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
+});
+
+test('chunk returns an empty array for empty input', () => {
+  assert.deepEqual(chunk('', 3), []);
+});
+
+test('chunk rejects a non-positive size', () => {
+  assert.throws(() => chunk('abc', 0), RangeError);
+  assert.throws(() => chunk('abc', -1), RangeError);
+});
+
+test('chunk rejects a non-integer size', () => {
+  assert.throws(() => chunk('abc', 1.5), RangeError);
+  assert.throws(() => chunk('abc', NaN), RangeError);
+});
+
+test('chunk rejects non-string input', () => {
+  assert.throws(() => chunk(123, 2), TypeError);
 });
