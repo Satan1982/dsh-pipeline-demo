@@ -467,10 +467,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
     const t0 = Date.now();
-    const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-      cwd: wt, input: prompt, timeout: TIMEOUT,
-      env: runEnv,
-    });
+    const r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
     const secs = Math.round((Date.now() - t0) / 1000);
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s ${tail ? '→ ' + tail : ''}`);
@@ -481,6 +478,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `exit=${r.code} ${secs}s\n===== stdout =====\n${r.out}\n===== stderr =====\n${r.err}\n`);
     } catch { /* 落盘失败不影响主流程 */ }
     const outTail = (r.out || '').trim().split('\n').filter(Boolean).slice(-12).join('\n');
+    // 重试后仍然是 NTSTATUS：进程根本没起来，别让它走进「验收」流程（那会报错误的原因）。
+    if (Number(r.code) >= 0xC0000000) {
+      throw new Error(`[headless] headless-crash｜进程在启动阶段失败（exit=${r.code}），未产生任何改动`);
+    }
 
     // agent 不应碰 origin/main。但并发跑时人（或另一个调度器）也可能在这期间合并了 main，
     // 所以不能只看「origin/main 变没变」——那会把别人的合法合并当成 agent 越界（#49 就这么被误杀过）。
@@ -754,9 +755,7 @@ ${logText.slice(-8000)}
 
 现在开始。`;
 
-    const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-      cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: CHILD_PATH },
-    });
+    const r = await runHeadless(wt, prompt, { PATH: CHILD_PATH }, TIMEOUT);
     const secs = Math.round((Date.now() - t0) / 1000);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s`);
 
@@ -863,9 +862,7 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
   const rebasePatch = process.env.DSH_REBASE_MODEL === 'weak' ? '' : STRONG_PATCH;
   const rebaseEnv = { PATH: CHILD_PATH };
   if (rebasePatch) rebaseEnv.DSH_HEADLESS_PATCH = rebasePatch;
-  const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
-    cwd: wt, input: prompt, timeout: REBASE_AGENT_TIMEOUT_MS, env: rebaseEnv,
-  });
+  const r = await runHeadless(wt, prompt, rebaseEnv, REBASE_AGENT_TIMEOUT_MS);
   const secs = Math.round((Date.now() - t0) / 1000);
   // 解冲突是最容易「跑很久还没结论」的一步，输出必须留档，否则事后只剩一行 exit=1。
   const outPath = path.join(LOG_DIR, `issue-${issueN}-rebase.log`);
@@ -969,6 +966,20 @@ async function rebaseAgentBranch(pr, issueN) {
 // GitHub 的 mergeable_state 是懒计算的：刚推送过、或它自己还没算完时返回 'unknown'，
 // 靠它决定「要不要 rebase」会漏掉真实的冲突（实测 #52 挂了几小时一直是 dirty，调度器一次都没触发）。
 // 所以自己做一次本地探测：fetch 分支后用 merge-tree 试合，冲突文件一目了然。
+// headless 的进程链是 bash -> dsh.cmd -> Electron。实测偶发 0xC0000142（DLL 初始化失败）：
+// 3 秒退出、stdout/stderr 全空、什么都没做。这是「进程没起来」，不该耗掉一次重试预算，
+// 所以在这里原地重试几次；真的起不来才把 NTSTATUS 交给上层分类。
+async function runHeadless(cwd, prompt, env, timeout) {
+  let last = null;
+  for (let i = 1; i <= 3; i += 1) {
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env });
+    if (Number(last.code) < 0xC0000000) return last;
+    log(`[headless] 子进程启动失败 exit=${last.code}（Windows NTSTATUS），5 秒后重试 ${i}/3`);
+    if (i < 3) await new Promise((r) => setTimeout(r, 5000));
+  }
+  return last;
+}
+
 // 「agent 到底改了什么」的唯一入口：.dsh/PLAN.md 是调度器自己写的工作笔记（已加进 info/exclude），
 // 万一 exclude 没生效也不能把它当成 agent 的改动——#60 就因此把一次进程崩溃误判成「干了活但验收失败」。
 async function worktreeStatus(wt) {
