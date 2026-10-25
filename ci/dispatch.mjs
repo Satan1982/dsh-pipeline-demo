@@ -336,6 +336,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const useStrong = forceStrong || attempt > 1;
     // 改门禁脚本默认被评审层阻断，issue 打 allow:gate 才放行（人工在 issue 上表态）
     const allowGate = (issue.labels ?? []).some((l) => l.name === 'allow:gate');
+    // 只读工单：允许「没有改动」正常收尾（结论贴 issue 评论，不开 PR）
+    const readonly = (issue.labels ?? []).some((l) => l.name === 'readonly:ok');
     const runEnv = { PATH: CHILD_PATH };
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
@@ -365,8 +367,23 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
 
     const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
-    const ahead = parseInt((await run(GIT, ['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt })).out.trim() || '0', 10);
-    if (!status && ahead === 0) {
+    // 判「有没有干活」看的是文件变化，不是提交数：agent 为了绕开门禁会造空提交
+    // （PR #40 就发生过），用 rev-list 计数会被它骗过去。
+    const changedFiles = (await run(GIT, ['diff', '--name-only', 'origin/main...HEAD'], { cwd: wt })).out.trim();
+    if (!status && !changedFiles) {
+      // 只读工单（查代码、做审计、回答问题）本来就不该产生改动。要求它改文件的门禁
+      // 与「不要修改任何文件」的验收标准互斥，所以给一个显式出口：
+      // issue 打 readonly:ok 时，把 agent 的结论贴成评论就算完成，不开 PR。
+      if (readonly) {
+        await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+        await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
+        await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:done'] }).catch(() => {});
+        await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+          body: `✅ 只读任务完成（未改动任何文件，按 readonly:ok 放行）\n\n${outTail.slice(-2000)}`,
+        }).catch(() => {});
+        log(`${tag} done（只读，无 PR）`);
+        return;
+      }
       const kind = headlessKind(r.out, r.err, r.code);
       throw new Error(`[headless] ${kind}｜agent 未产生任何改动（exit=${r.code}）\n输出尾部：\n${outTail.slice(-1500)}`);
     }

@@ -107,6 +107,14 @@ export function reviewDiff(diff) {
       null);
   }
 
+  // 空 diff 不算「干活」：agent 为了满足「必须有改动」可以造一个空提交（PR #40 就是这样），
+  // 到了评审层必须当阻断——没有文件变化的 PR 没有可评审的内容，也不该让 CI 白跑一遍。
+  if (files.length === 0) {
+    add('block', 'no-file-change',
+      '这次提交没有任何文件变化（可能是为了绕过「必须有改动」而造的空提交）；只读任务请打 readonly:ok',
+      null);
+  }
+
   if (totalAdded > 400) {
     add('warn', 'diff-large', `单次改动 ${totalAdded} 行，建议拆成更小的垂直切片`, null);
   }

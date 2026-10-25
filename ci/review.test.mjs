@@ -87,3 +87,14 @@ test('allow:gate 放行后仍提示人工确认', () => {
   assert.equal(f.severity, 'warn');
   assert.ok(formatFindings(r).includes('allow:gate'));
 });
+
+test('空 diff 被阻断（agent 造空提交绕开「必须有改动」）', () => {
+  const r = reviewDiff({ files: [] });
+  assert.equal(r.ok, false);
+  assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
+});
+
+test('有文件变化的 diff 不会被空 diff 规则误伤', () => {
+  const r = reviewDiff({ files: [{ filename: 'src/x.js', patch: '+export const x = 1;\n' }] });
+  assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
+});
