@@ -42,3 +42,9 @@ Push main and optionally a tag with:
 bash /d/code/.secrets/gh-push.sh            # main only
 bash /d/code/.secrets/gh-push.sh v0.1.1     # main + tag -> triggers release.yml
 ```
+
+## 自动化出口
+
+- 默认：CI 绿即停，PR 等人工合并（打 tag / 发版永远人工）。
+- 工单加 `merge:auto` 标签：CI 绿且 `mergeable_state=clean` 时调度器自己 squash 合并、关单。
+- 每个 worktree 里有一份调度器生成的 `.dsh/PLAN.md`（目标/验收标准/验收命令/约束/红线），改代码前先读它。

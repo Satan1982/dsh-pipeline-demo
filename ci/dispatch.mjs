@@ -1006,6 +1006,36 @@ async function checkAgentPRs() {
 
     const { data: runs } = await api('GET', `/repos/${REPO}/actions/runs?branch=${encodeURIComponent(pr.head.ref)}&per_page=5`);
     const ci = ((runs?.workflow_runs) ?? []).find((r) => r.name === 'ci' && r.status === 'completed');
+    // CI 绿 + 分支可合并时的出口：默认停下等人工合并（产品调研里没有一家自动合并），
+    // 但工单打了 merge:auto 就按约定自动 squash 合并并关单——这是唯一一条「无人值守跑到底」的路径。
+    if (ci && ci.conclusion === 'success') {
+      const { data: issueData } = await api('GET', `/repos/${REPO}/issues/${issueN}`);
+      const labels = (issueData?.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
+      const mergeState = (await api('GET', `/repos/${REPO}/pulls/${pr.number}`))?.data?.mergeable_state;
+      if (!labels.includes('merge:auto')) {
+        log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），等人工合并（未打 merge:auto）`);
+        continue;
+      }
+      if (mergeState !== 'clean') {
+        log(`[issue #${issueN}][prs] #${pr.number} CI 绿但不可合并（${mergeState ?? 'unknown'}），本轮不合并`);
+        continue;
+      }
+      const merged = await api('PUT', `/repos/${REPO}/pulls/${pr.number}/merge`, {
+        merge_method: 'squash',
+        commit_title: `${issueData.title} (#${issueN})`,
+      });
+      if (!(merged.status >= 200 && merged.status < 300)) {
+        log(`[issue #${issueN}][prs] 自动合并失败：${JSON.stringify(merged.data).slice(0, 200)}`);
+        continue;
+      }
+      log(`[issue #${issueN}][prs] 已按 merge:auto 合并 #${pr.number} → ${String(merged.data.sha).slice(0, 7)}`);
+      await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+        body: `✅ 已按 \`merge:auto\` 自动 squash 合并 PR #${pr.number}（commit ${String(merged.data.sha).slice(0, 7)}）。`,
+      }).catch(() => {});
+      await api('DELETE', `/repos/${REPO}/git/refs/heads/${pr.head.ref}`).catch(() => {});
+      await api('PATCH', `/repos/${REPO}/issues/${issueN}`, { state: 'closed' }).catch(() => {});
+      continue;
+    }
     if (!ci || ci.conclusion !== 'failure') continue;
     if (list.some((c) => c.body?.includes(`ci-retry-run:${ci.id}`))) continue; // 这个 run 已处理过
 
