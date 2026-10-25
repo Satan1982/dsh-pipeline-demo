@@ -48,3 +48,10 @@ bash /d/code/.secrets/gh-push.sh v0.1.1     # main + tag -> triggers release.yml
 - 默认：CI 绿即停，PR 等人工合并（打 tag / 发版永远人工）。
 - 工单加 `merge:auto` 标签：CI 绿且 `mergeable_state=clean` 时调度器自己 squash 合并、关单。
 - 每个 worktree 里有一份调度器生成的 `.dsh/PLAN.md`（目标/验收标准/验收命令/约束/红线），改代码前先读它。
+
+## 验收与红线（调度器侧）
+
+- 工单必须有 `### 验收命令` 段：调度器自己 `bash -lc` 执行它，`exit 0` 才允许开 PR；确实不需要就加 `acceptance:optional`。
+- 验收命令最后一行打印 `VERDICT: PASS` 或 `VERDICT: FAIL <原因>`：`FAIL` 一律失败，`PASS` 但 `exit != 0` 也失败；工单打了 `verdict:strict` 则没有 VERDICT 行直接失败。
+- 红线不靠提示词：worktree 的 `core.hooksPath` 指向 `.githooks`，`commit` 时由 `ci/precommit.mjs` 跑机械评审（禁止改 `.github/workflows/`、禁止调试占位符、禁止删测试/断言；改门禁需 `DSH_ALLOW_GATE=1` 且工单带 `allow:gate`）。
+- 失败指纹落在 `docs/failures.jsonl`（上限 500 行，超出淘汰最早的），重试时同一指纹的历史修法会回灌给 agent。
