@@ -35,11 +35,12 @@ const GIT = 'C:/Program Files/Git/cmd/git.exe';
  */
 export function collectDiff(cwd, base = 'origin/main') {
   const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 };
-  const r = spawnSync(GIT, ['diff', '--no-color', '--unified=2', `${base}...HEAD`], opts);
+  // 永远排除 .dsh/：那是调度器写给 agent 的内部笔记，不是给人 review 的改动。
+  const r = spawnSync(GIT, ['diff', '--no-color', '--unified=2', `${base}...HEAD`, '--', '.', ':(exclude).dsh'], opts);
   if (r.status !== 0) {
     return { ok: false, text: '', files: [], error: (r.stderr || r.error?.message || 'git diff 失败').trim().slice(0, 300) };
   }
-  const ns = spawnSync(GIT, ['diff', '--name-status', `${base}...HEAD`], opts);
+  const ns = spawnSync(GIT, ['diff', '--name-status', `${base}...HEAD`, '--', '.', ':(exclude).dsh'], opts);
   const files = String(ns.stdout ?? '')
     .split('\n')
     .map((l) => l.trim())
@@ -275,5 +276,5 @@ export function formatSemantic(result) {
   if (result.verdict === 'skipped') return `${head}跳过（${result.skipped}）`;
   const lines = result.findings.map((f) => `${f.severity === 'block' ? '✗ 阻断' : '⚠ 提示'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
   if (lines.length === 0) return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
-  return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model}）\n${lines.join('\n')}`;
+  return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model ?? 'panel'}）\n${lines.join('\n')}`;
 }

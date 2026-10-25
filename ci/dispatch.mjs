@@ -566,6 +566,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
 
     if (status) {
+      // agent 有时会用 git add -f 把调度器自己写的 .dsh/PLAN.md 一起提交（实测 #64），
+      // 那是内部笔记：从索引里摘掉，别让它进 PR，也别让评审团把它算成越界改动。
+      await run(GIT, ['rm', '-r', '--cached', '--quiet', '.dsh'], { cwd: wt });
       await run(GIT, ['add', '-A'], { cwd: wt });
       const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
         'commit', '-m', `agent: issue #${n}`], { cwd: wt });
