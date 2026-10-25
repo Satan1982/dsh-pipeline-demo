@@ -17,7 +17,7 @@
  *   DSH_TASK_TIMEOUT_MS    单任务超时，默认 30 分钟
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
@@ -80,6 +80,25 @@ const log = (m) => {
     appendFileSync(LOG_FILE, `${line}\n`);
   } catch { /* 日志失败不能影响主流程 */ }
 };
+
+// 每次尝试都会落一份 prompt 和一份完整输出；无人值守跑几天就是几千个文件。
+// 只清理「目录里看起来像尝试产物」的文件，别的（锁、轮转后的 .1）一律不碰。
+const LOG_RETENTION_DAYS = Number(process.env.DSH_LOG_RETENTION_DAYS || 7);
+function pruneLogs() {
+  let removed = 0;
+  try {
+    if (!existsSync(LOG_DIR)) return 0;
+    const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 3600 * 1000;
+    for (const name of readdirSync(LOG_DIR)) {
+      if (!/^issue-\d+-attempt-\d+\.(log|prompt\.md)$/.test(name)) continue;
+      const p = path.join(LOG_DIR, name);
+      try {
+        if (statSync(p).mtimeMs < cutoff) { unlinkSync(p); removed += 1; }
+      } catch { /* 单个文件删不掉不影响其它 */ }
+    }
+  } catch { /* 目录读不了就算了 */ }
+  return removed;
+}
 
 // ---------- 基础设施 ----------
 
@@ -419,6 +438,21 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       throw new Error(gate.detail);
     }
 
+    // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
+    // 而这一段是提需求的人写的、agent 改不动，由调度器亲自跑一遍才算数。
+    const acceptanceCmds = String(pick(sections, '验收命令') || '').trim();
+    if (acceptanceCmds) {
+      const res = await run(BASH, ['-lc', acceptanceCmds], {
+        cwd: wt, timeout: 300_000, env: { PATH: CHILD_PATH, PNPM_CLI },
+      });
+      if (res.code !== 0) {
+        const detail = `验收命令未通过（exit=${res.code}）：\n${acceptanceCmds}\n\n${(res.err || res.out || '').slice(-2000)}`;
+        recordFailure({ text: detail, issue: n, attempt, reason: 'acceptance command failed' }, FAIL_STORE);
+        throw new Error(detail);
+      }
+      log(`${tag} 验收命令通过（${acceptanceCmds.split('\n').length} 行）`);
+    }
+
     if (status) {
       await run(GIT, ['add', '-A'], { cwd: wt });
       const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
@@ -449,6 +483,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         model: '-',
       };
     log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}`);
+    if (semantic.verdict === 'skipped') {
+      // 放行但必须留痕：凭证失效/网络故障时这一层会静默消失，只有日志里一行就会没人发现。
+      log(`${tag} ⚠ 语义评审未执行（这一层等于没有）：${semantic.skipped}`);
+    }
     if (!semantic.ok) {
       const detail = `语义评审拒绝（改动未推送）：\n${formatSemantic(semantic)}`;
       recordFailure({ text: detail, issue: n, attempt, reason: detail.slice(0, 1500) }, FAIL_STORE);
@@ -471,6 +509,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
         `- 语义评审：${formatSemantic(semantic).split('\n')[0]}`,
+        `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行）` : 'issue 里没有给 `### 验收命令`'}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
         '', '---', 'CI 通过后请人工 review 再合并。',
       ].join('\n'),
@@ -604,9 +643,26 @@ ${logText.slice(-8000)}
       'commit', '-m', `agent: fix CI for issue #${issueN}`], { cwd: wt });
     if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
 
-    // 修复本身也会写出脏东西（历史上出现过 BROKEN 占位行），所以修复提交同样过评审层
+    // 修复提交同样过语义评审：CI 变绿不等于满足验收（修 CI 时很容易顺手把断言改弱）。
     const review = reviewAfterCommit(wt, 'HEAD~1');
     if (!review.ok) throw new Error(review.detail);
+
+    const { data: issueData } = await api('GET', `/repos/${REPO}/issues/${issueN}`);
+    const spec = parseSections(issueData?.body);
+    const rdiff = collectDiff(wt, 'HEAD~1');
+    const rsem = rdiff.ok
+      ? await reviewSemantically({
+        issueNumber: issueN, title: issueData?.title ?? '',
+        goal: pick(spec, '目标'), acceptance: pick(spec, '验收标准'), constraints: pick(spec, '约束'),
+        diffText: rdiff.text,
+      })
+      : {
+        ok: false, verdict: 'block',
+        findings: [{ severity: 'block', rule: 'semantic-diff-failed', file: null, message: `拿不到 diff：${rdiff.error}` }],
+        model: '-',
+      };
+    log(`${tag} 语义评审：${formatSemantic(rsem).split('\n')[0]}`);
+    if (!rsem.ok) throw new Error(`语义评审拒绝（修复未推送）：\n${formatSemantic(rsem)}`);
 
     const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
     if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
@@ -628,19 +684,72 @@ ${logText.slice(-8000)}
   }
 }
 
+// 分支落后 main 且真的冲突时，CI 那套修不了（推送前就 405）。自动 rebase 一次：
+// 干净 rebase → force-with-lease 推回分支，CI 会重跑；真冲突 → 评论 + agent:failed 转人工。
+async function rebaseAgentBranch(pr, issueN) {
+  const branch = pr.head.ref;
+  const wt = path.join(WT_ROOT, `issue-${issueN}-rebase`);
+  const tmpBranch = `tmp/rebase-${issueN}`;
+  const tag = `[issue #${issueN}][rebase]`;
+  log(`${tag} 分支与 main 冲突，尝试自动 rebase`);
+  try {
+    await locked(async () => {
+      const f = await git(['fetch', 'origin', '--quiet']);
+      if (f.code !== 0) throw new Error(`git fetch 失败: ${f.err.trim().slice(0, 200)}`);
+      await git(['worktree', 'remove', '--force', wt]);
+      await git(['branch', '-D', tmpBranch]);
+      const add = await git(['worktree', 'add', wt, '-b', tmpBranch, `origin/${branch}`]);
+      if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    });
+
+    const rb = await run(GIT, ['rebase', 'origin/main'], { cwd: wt });
+    if (rb.code !== 0) {
+      const conflicts = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out.trim();
+      await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
+      await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+        body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+      }).catch(() => {});
+      await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
+      log(`${tag} 自动 rebase 失败，转人工：${conflicts.replace(/\n/g, ', ')}`);
+      return;
+    }
+
+    const gate = await verifyWorktree(wt);
+    if (!gate.ok) throw new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}`);
+
+    const push = await run(GIT, ['-c', 'credential.helper=', 'push', '--force-with-lease', 'origin', `${tmpBranch}:${branch}`], { cwd: wt, env: GIT_ENV });
+    if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
+
+    await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+      body: `🔄 分支 ${branch} 已自动 rebase 到最新 main，CI 会重跑。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+    }).catch(() => {});
+    log(`${tag} 自动 rebase 完成，已推送`);
+  } catch (e) {
+    log(`${tag} 自动 rebase 出错：${String(e.message).split('\n')[0]}`);
+  } finally {
+    await locked(() => git(['worktree', 'remove', '--force', wt])).catch(() => {});
+  }
+}
+
 async function checkAgentPRs() {
   const { data: prs } = await api('GET', `/repos/${REPO}/pulls?state=open&per_page=20`);
   for (const pr of Array.isArray(prs) ? prs : []) {
     const m = /^agent\/issue-(\d+)$/.exec(pr.head.ref);
     if (!m) continue;
     const issueN = Number(m[1]);
+    const { data: comments } = await api('GET', `/repos/${REPO}/issues/${issueN}/comments?per_page=100`);
+    const list = Array.isArray(comments) ? comments : [];
+
+    // 冲突分支：CI 修不了（推送前就 405），先尝试自动 rebase 一次。
+    const { data: prDetail } = await api('GET', `/repos/${REPO}/pulls/${pr.number}`);
+    if (prDetail?.mergeable_state === 'dirty' && !list.some((c) => c.body.includes(`auto-rebase:${pr.head.sha}`))) {
+      await rebaseAgentBranch(pr, issueN);
+      continue;
+    }
 
     const { data: runs } = await api('GET', `/repos/${REPO}/actions/runs?branch=${encodeURIComponent(pr.head.ref)}&per_page=5`);
     const ci = ((runs?.workflow_runs) ?? []).find((r) => r.name === 'ci' && r.status === 'completed');
     if (!ci || ci.conclusion !== 'failure') continue;
-
-    const { data: comments } = await api('GET', `/repos/${REPO}/issues/${issueN}/comments?per_page=100`);
-    const list = Array.isArray(comments) ? comments : [];
     if (list.some((c) => c.body.includes(`ci-retry-run:${ci.id}`))) continue; // 这个 run 已处理过
 
     const attempts = list.filter((c) => c.body.includes('CI 失败自动修复')).length;
@@ -720,6 +829,8 @@ async function main() {
   }
   process.on('exit', lock.release);
   log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
+  const pruned = pruneLogs();
+  if (pruned) log(`清理 ${pruned} 个超过 ${LOG_RETENTION_DAYS} 天的尝试日志`);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
   await pollOnce();
@@ -733,6 +844,11 @@ async function main() {
       log(`锁已被接管（pid=${process.pid} 不再是持有者），常驻进程退出`);
       return;
     }
+    // 心跳：每轮把锁的时间刷成现在。没有它，一个只是「闲了很久」的常驻进程会被别的进程
+    // 判成陈旧锁接管，而它自己还在轮询——两边都以为自己是主人。
+    try {
+      writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+    } catch { /* 刷不动就等下一轮 */ }
     try {
       await pollOnce();
       await checkAgentPRs();

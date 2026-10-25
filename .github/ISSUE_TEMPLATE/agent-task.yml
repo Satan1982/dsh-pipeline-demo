@@ -25,6 +25,20 @@ body:
       required: true
 
   - type: textarea
+    id: acceptance_cmd
+    attributes:
+      label: 验收命令（可选，强约束）
+      description: |
+        一段 shell 命令，调度器会**自己**在 agent 的工作目录里跑一遍，全部 exit 0 才允许开 PR。
+        与上面的「验收标准」不同：这段是提需求的人写的，agent 改不动，用来防止 agent 自己写的测试自证。
+        留空则只靠门禁 + 语义评审。
+      placeholder: |
+        node -e "import('./src/index.js').then(m => { if (m.divide(6,3) !== 2) process.exit(1); })"
+        bash scripts/verify.sh
+    validations:
+      required: false
+
+  - type: textarea
     id: constraints
     attributes:
       label: 约束（可选）
