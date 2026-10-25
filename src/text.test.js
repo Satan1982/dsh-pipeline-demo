@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials } from './text.js';
+import { words, wordCount, initials, excerpt } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -40,4 +40,25 @@ test('initials rejects an empty string', () => {
 
 test('initials rejects non-string input', () => {
   assert.throws(() => initials(123), TypeError);
+});
+
+test('excerpt returns the first n characters with an ellipsis when longer', () => {
+  assert.equal(excerpt('abcdef', 3), 'abc…');
+});
+
+test('excerpt returns the whole text when it fits within n', () => {
+  assert.equal(excerpt('ab', 5), 'ab');
+});
+
+test('excerpt keeps the whole text when its length equals n', () => {
+  assert.equal(excerpt('abc', 3), 'abc');
+});
+
+test('excerpt returns an empty string for non-positive n', () => {
+  assert.equal(excerpt('abcdef', 0), '');
+  assert.equal(excerpt('abcdef', -2), '');
+});
+
+test('excerpt rejects non-string input', () => {
+  assert.throws(() => excerpt(123, 3), TypeError);
 });

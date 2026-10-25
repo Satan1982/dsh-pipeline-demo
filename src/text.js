@@ -9,6 +9,16 @@ export function wordCount(text) {
   return words(text).length;
 }
 
+export function excerpt(text, n) {
+  if (typeof text !== 'string') {
+    throw new TypeError('excerpt expects a string');
+  }
+  if (n <= 0) {
+    return '';
+  }
+  return text.length > n ? `${text.slice(0, n)}…` : text;
+}
+
 export function initials(fullName) {
   if (typeof fullName !== 'string') {
     throw new TypeError('initials expects a string');

@@ -22,6 +22,7 @@
 1 1e3dd1e22654a683 assert.equal(classifyConflicts(['scripts/assert-baseline.txt']).kind, 'baseline-only');
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
+1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
 1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
@@ -49,11 +50,13 @@
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
+1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
+1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
 1 52b02ce216326c65 assert.deepEqual(parseVerdict('VERDICT: FAIL median([]) 返回 0'), { verdict: 'fail', reason: 'median([]) 返回 0' });
 3 53095f4c2a89c4b9 assert.equal(d.ok, false);
@@ -70,6 +73,7 @@
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
+1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
@@ -99,6 +103,7 @@
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
 1 8e00575670332508 assert.equal(cube(2), 8);
 2 8f0694b9c090fb9d assert.equal(f.severity, 'block');
+1 8fc54f849508e5e5 assert.equal(excerpt('abcdef', -2), '');
 1 91a4b94e3232a88d assert.equal(roundTo(0, 2), 0);
 1 923b98e0a068a735 assert.ok(!out.includes('node:internal'));
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
@@ -168,6 +173,7 @@
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
 1 e1a7d1447921ba98 assert.equal(isOdd(0), false);
+1 e243cecc44f7d973 assert.equal(excerpt('abc', 3), 'abc');
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
