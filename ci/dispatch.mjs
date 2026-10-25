@@ -630,6 +630,20 @@ async function cleanupStaleWorking() {
   }
 }
 
+// 拉起脱离父进程的常驻 --serve。父进程退出后它继续跑（工具调用进程树被回收也不该带走它，
+// 所以真正的补位动作交给计划任务里的 --once）。
+function startResident() {
+  const child = spawn(process.execPath, ['--use-system-ca', SELF, '--serve'], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    cwd: REPO_DIR,
+    env: { ...process.env, DSH_DISPATCH_CHILD: '1' },
+  });
+  child.unref();
+  return child.pid;
+}
+
 async function main() {
   // --ensure：只负责「保证有一个人在跑」。要么报出已经有的那个，要么脱离父进程拉起一个
   // 常驻的 --serve。它自己不等任务、不持锁，所以登录自启/计划任务反复调用都安全。
@@ -639,16 +653,26 @@ async function main() {
       console.log(`常驻调度器已在运行（pid=${holder.pid}，起于 ${holder.at}）`);
       return;
     }
-    const child = spawn(process.execPath, ['--use-system-ca', SELF, '--serve'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      cwd: REPO_DIR,
-      env: { ...process.env, DSH_DISPATCH_CHILD: '1' },
-    });
-    child.unref();
-    console.log(`已拉起常驻调度器（pid=${child.pid}）`);
+    console.log(`已拉起常驻调度器（pid=${startResident()}）`);
     return;
+  }
+
+  // 计划任务每 5 分钟用 --once 敲门。--ensure 手动拉起的常驻进程挂在当前工具调用的进程树上，
+  // 工具调用一结束就可能被回收（03:15 就是这样丢的），所以这里顺手补位：没有活着的常驻进程
+  // 就拉起一个，然后让位给它轮询。补位失败才退回单轮执行。
+  if (ONCE && !lockHolder()) {
+    let pid = null;
+    try {
+      pid = startResident();
+      log(`拉起常驻调度器（pid=${pid}），本轮交给它轮询`);
+    } catch (e) {
+      log(`拉起常驻调度器失败，本轮按单轮执行：${e.message}`);
+    }
+    if (pid) {
+      await new Promise((r) => setTimeout(r, 1200));
+      if (lockHolder()) return;
+      log('常驻进程没拿到锁，本轮自己跑一遍');
+    }
   }
 
   const lock = acquireLock();
