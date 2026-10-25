@@ -1,0 +1,20 @@
+#!/bin/sh
+# 红线执行层（P0-2）：默认就挡住，不依赖 agent 是否记得读 AGENTS.md。
+# 具体规则在 ci/precommit.mjs，与 push 前的机械评审共用同一套判定。
+set -e
+ROOT=$(git rev-parse --show-toplevel)
+
+NODE_BIN=${DSH_NODE:-}
+if [ -z "$NODE_BIN" ]; then
+  NODE_BIN=$(command -v node || true)
+fi
+if [ -z "$NODE_BIN" ]; then
+  # 本机 PATH 里通常没有 node；用 DSH 随包运行时兜底。
+  NODE_BIN="C:/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe"
+fi
+if [ ! -x "$NODE_BIN" ]; then
+  echo "✗ pre-commit 找不到 node（设 DSH_NODE 指向 node.exe 可解）" >&2
+  exit 1
+fi
+
+exec "$NODE_BIN" "$ROOT/ci/precommit.mjs"

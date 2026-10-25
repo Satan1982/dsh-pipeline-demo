@@ -256,6 +256,10 @@ async function setupWorktree(branch, wt, baseRef) {
     await git(['branch', '-D', branch]);
     const add = await git(['worktree', 'add', wt, '-b', branch, baseRef]);
     if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    // 红线执行层（P0-2）：打开仓库里的钩子目录。规则在 ci/precommit.mjs，
+    // agent 想「不读 AGENTS.md 硬推」时会被钩子直接挡在 commit 之前。
+    const hooks = await git(['config', 'core.hooksPath', '.githooks']);
+    if (hooks.code !== 0) log(`⚠ 没能启用 pre-commit 钩子：${hooks.err.trim().slice(0, 200)}`);
   });
 }
 
