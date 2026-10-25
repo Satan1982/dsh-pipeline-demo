@@ -207,6 +207,26 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 >
 > 而 B2（HKCU Run）不需要提权，是默认推荐路径。
 
+## 语义评审：两个模型组成的评审团（2026-10-26）
+
+单模型语义评审有一个结构性弱点：它和写代码的 agent 常常是同一家族、同一种盲区，
+「代码看着像那么回事但没满足验收」这种错，一个模型看不见时另一个也看不见。
+
+现在 push 之前跑的是**评审团**（`ci/semantic-review.mjs` 的 `reviewWithPanel`）：
+
+| 项 | 值 |
+| --- | --- |
+| 默认成员 | `Qwen/Qwen3.5-122B-A10B`、`moonshotai/Kimi-K2.7-Code`（不同家族） |
+| 覆盖方式 | `DSH_REVIEW_MODELS="a,b,c"`（逗号分隔，全部走 siliconflow） |
+| 执行方式 | 并行（`Promise.all`），各自独立读同一份 diff 与验收标准 |
+| 聚合规则 | 任一模型 block → block；至少一个真的跑过且都 pass → pass；全部 skipped → skipped |
+| 失败原因 | 阻断时把**所有**评审器的问题一起回灌给下一次重试 |
+| 实测耗时 | 最后一次真实 diff：**15s**（两个模型并行；单模型时期是 51–61s 串行） |
+
+边界（如实说明）：两个模型都跑不起来时（无凭证/超时）这层是 skipped，只在日志留
+`⚠ 语义评审未执行（这一层等于没有）`；评审团不能替代可执行的验收命令——
+`### 验收命令` + `VERDICT: PASS/FAIL` 才是硬裁决，评审团只补「验收标准解读」这一类判断。
+
 ## 评审层（push 之前拦）
 
 两层都在 commit 之后、push 之前跑；任何一层 block 都不推送，失败原因写进记忆库并自动重试。

@@ -204,9 +204,76 @@ export async function reviewSemantically({
   }
 }
 
+/**
+ * 评审团：机械评审只能看形状，单模型语义评审又会「自己评自己」（同家族模型对同类错法
+ * 经常一起看不见）。所以默认跑两个不同家族的模型，任一 block 即 block（保守），
+ * 至少一个真的跑过且都 pass 才算 pass。
+ */
+export const DEFAULT_PANEL = ['Qwen/Qwen3.5-122B-A10B', 'moonshotai/Kimi-K2.7-Code'];
+
+export function panelModels(raw = process.env.DSH_REVIEW_MODELS) {
+  const list = String(raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length ? list : DEFAULT_PANEL.slice();
+}
+
+function dedupeFindings(findings) {
+  const seen = new Set();
+  const out = [];
+  for (const f of findings) {
+    const key = `${f.severity}|${f.file ?? ''}|${f.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(f);
+  }
+  return out;
+}
+
+export function aggregateReviewers(reviewers) {
+  const ran = reviewers.filter((r) => r.verdict !== 'skipped');
+  const blocked = ran.filter((r) => r.verdict === 'block');
+  if (blocked.length) {
+    // 阻断时也把其它评审器的提示一并带上：回灌给下一次重试的失败原因越具体越好。
+    return { ok: false, verdict: 'block', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers };
+  }
+  if (ran.length) {
+    return { ok: true, verdict: 'pass', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers };
+  }
+  return {
+    ok: true,
+    verdict: 'skipped',
+    findings: [],
+    skipped: reviewers.map((r) => r.skipped || '跳过').join('；'),
+    reviewers,
+  };
+}
+
+/** 并行跑评审团；mockPaths 与 models 一一对应（测试用）。 */
+export async function reviewWithPanel(options = {}) {
+  const models = options.models ?? panelModels();
+  const mocks = options.mockPaths ?? null;
+  const reviewers = await Promise.all(
+    models.map(async (model, i) => {
+      const r = await reviewSemantically({ ...options, model, mockPath: mocks ? mocks[i] ?? '' : options.mockPath });
+      // 单个评审器在 mock 模式下会把 model 写成 mock:<path>；评审团要的是「哪个评审器说了什么」，
+      // 所以这里统一按调用时给的模型名记录。
+      return { ...r, model };
+    }),
+  );
+  return aggregateReviewers(reviewers);
+}
+
 export function formatSemantic(result) {
-  if (result.verdict === 'skipped') return `跳过（${result.skipped}）`;
+  const panel = Array.isArray(result.reviewers)
+    ? `评审团 ${result.reviewers.filter((r) => r.verdict !== 'skipped').length}/${result.reviewers.length} 有效（${result.reviewers
+        .map((r) => `${r.model}=${r.verdict}`)
+        .join('，')}）`
+    : '';
+  const head = panel ? `${panel}；` : '';
+  if (result.verdict === 'skipped') return `${head}跳过（${result.skipped}）`;
   const lines = result.findings.map((f) => `${f.severity === 'block' ? '✗ 阻断' : '⚠ 提示'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
-  if (lines.length === 0) return `${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model}）`;
-  return `${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model}）\n${lines.join('\n')}`;
+  if (lines.length === 0) return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
+  return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model}）\n${lines.join('\n')}`;
 }

@@ -1,3 +1,4 @@
+1 02a41e27ae823617 assert.match(skipped.skipped, /超时/);
 1 034a857be64208b3 assert.equal(powOf(-2, 3), -8);
 1 03bf59f8666e6c9f assert.equal(res.after, 2);
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
@@ -14,6 +15,7 @@
 12 171d4db9216880f9 assert.equal(r.ok, false);
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
 1 1ac79781a2ab86d3 assert.equal(sumRange(1, 5), 15);
+1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
 1 1b8cdc8589e2391a assert.equal(new Set(lines.map((r) => r.fp)).size, 1);
 1 1c0c5b59a648b57d assert.equal(repeatText('ab', -2), '');
 3 1c1455c3e8f456a5 assert.notEqual(fingerprint(a), fingerprint(b));
@@ -61,10 +63,12 @@
 1 52b02ce216326c65 assert.deepEqual(parseVerdict('VERDICT: FAIL median([]) 返回 0'), { verdict: 'fail', reason: 'median([]) 返回 0' });
 3 53095f4c2a89c4b9 assert.equal(d.ok, false);
 1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
+2 5472ab9d99af661c assert.equal(merged.verdict, 'block');
 1 56734436da90d0af assert.equal(cube(0), 0);
 1 579405978276dd0f assert.equal(d.ok, true);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
+1 5cd19d3b0ca3b5ff assert.equal(panelModels('').length, 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
@@ -72,16 +76,19 @@
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
+1 689bf358a088942b assert.equal(merged.verdict, 'pass');
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
 1 7062b3aa3f965cb8 assert.deepEqual(parseVerdict('全部断言通过'), { verdict: 'unknown', reason: '' });
+1 70cdfe13375bf45a assert.equal(skipped.verdict, 'skipped');
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 2 733fa19245e2866c assert.equal(f.severity, 'warn');
 1 74c3214719308fdd assert.ok(rec);
+1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
 1 77d034bd9159d035 assert.equal(rec.fix, '删掉坏行');
 1 780285e9a7a85b0c assert.equal(capitalize('ABC'), 'ABC');
@@ -109,6 +116,7 @@
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
+1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
@@ -124,6 +132,7 @@
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
 1 a596f1d7945025cf assert.equal(classifyConflicts(['', ' ']).kind, 'none');
 1 a5a768c434d2455c assert.equal(cube(-2), -8);
+1 a69b1cd2c53b8efe assert.equal(pass.ok, true);
 1 a745b939375945c0 assert.equal(formatFindings({ findings: [] }), '评审通过：没有发现问题。');
 1 a79526c232c68eaa assert.equal(capitalize('abc'), 'Abc');
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
@@ -132,11 +141,13 @@
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
 1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
+1 af8d4ba6f4541bcb assert.equal(merged.ok, false);
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
 1 b2379d4f9dbce23b assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
 1 b3c6f8b60b17f2c3 assert.equal(classifyConflicts(['src/test-baseline.txt']).kind, 'manual');
+1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
 1 b72bd1f74bdf14fc assert.equal(reverseWords(' a b '), 'b a');
 1 b8819833c8a92041 assert.ok(text.includes('共 2 个根因'));
 1 b8b03a457ccc6eeb assert.ok(formatFindings(r).includes('allow:gate'));
@@ -149,6 +160,7 @@
 1 bead3790b8ad00ab assert.equal(loadStore(file).size, 1);
 1 bf76e5ba6adfebc6 assert.match(d.detail, /RangeError/);
 1 c16f7fa143962e57 assert.equal(res.before, 6);
+1 c2922946bf57a58b assert.match(formatSemantic(merged), /评审团 2\/2 有效/);
 1 c472b006b5fcbe49 assert.equal(headlessKind('Now I will add the function', '', 0), 'agent-no-change');
 1 c47f2e6597dcd890 assert.match(p, /"verdict":"pass"\|"block"/);
 1 c4ea3c534f4caf59 assert.equal(capitalize(''), '');
@@ -159,6 +171,7 @@
 3 c89c8148c69a08d6 assert.equal(fingerprint(a), fingerprint(b));
 1 c9104e64a26a2488 assert.equal(sumRange(3, 3), 3);
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
+1 cc17d77254ce0af9 assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 1 cd198ae7248c5b40 assert.ok(r.findings.some((f) => f.rule === 'test-removed'));
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
@@ -178,6 +191,7 @@
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
+1 e78e3b3ae169eea3 assert.equal(pass.verdict, 'pass');
 1 e86ec0a676f628a8 assert.match(p, /调度器已经跑过的验收命令/);
 5 e87721083461fadd assert.equal(r.verdict, 'block');
 1 ea4d4e985c585f4d assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');
@@ -190,6 +204,7 @@
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
 1 f125fcb297933f94 assert.equal(classifyConflicts(undefined).kind, 'none');
+1 f30bc43c7cfb62c3 assert.equal(merged.reviewers.length, 2);
 1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f5a2813d25e1a939 assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
 1 f6a69174d4915857 assert.equal(headlessKind(out, '', 0), 'llm-rate-limit');

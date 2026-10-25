@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
-import { collectDiff, reviewSemantically, formatSemantic } from './semantic-review.mjs';
+import { collectDiff, reviewWithPanel, formatSemantic } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 
@@ -586,7 +586,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const diff = collectDiff(wt);
     const semT0 = Date.now();
     const semantic = diff.ok
-      ? await reviewSemantically({
+      ? await reviewWithPanel({
         issueNumber: n, title: issue.title, goal, acceptance, constraints, diffText: diff.text, files: diff.files,
         acceptanceNote: acceptanceCmds ? `调度器已在本 worktree 里执行过验收命令，全部 exit 0：\n\`\`\`\n${acceptanceCmds}\n\`\`\`` : '',
       })
@@ -781,7 +781,7 @@ ${logText.slice(-8000)}
     const spec = parseSections(issueData?.body);
     const rdiff = collectDiff(wt, 'HEAD~1');
     const rsem = rdiff.ok
-      ? await reviewSemantically({
+      ? await reviewWithPanel({
         issueNumber: issueN, title: issueData?.title ?? '',
         goal: pick(spec, '目标'), acceptance: pick(spec, '验收标准'), constraints: pick(spec, '约束'),
         diffText: rdiff.text, files: rdiff.files,

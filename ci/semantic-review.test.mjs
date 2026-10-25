@@ -4,7 +4,16 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { parseVerdict, buildReviewPrompt, formatSemantic, readCredential, reviewSemantically } from './semantic-review.mjs';
+import {
+  parseVerdict,
+  buildReviewPrompt,
+  formatSemantic,
+  readCredential,
+  reviewSemantically,
+  aggregateReviewers,
+  reviewWithPanel,
+  panelModels,
+} from './semantic-review.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'sem-review-'));
 
@@ -98,4 +107,65 @@ test('凭证文件按 refs 里的键名取值', () => {
   writeFileSync(file, `refs:\n  OTHER: x\n  ${key}: fake-value-for-test\n  LAST: y\n`);
   assert.equal(readCredential(file), 'fake-value-for-test');
   assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');
+});
+
+test('评审团聚合：任一模型 block 就是 block（保守）', () => {
+  const merged = aggregateReviewers([
+    { model: 'a', verdict: 'pass', findings: [{ severity: 'warn', rule: 'semantic', message: '风格偏长' }] },
+    { model: 'b', verdict: 'block', findings: [{ severity: 'block', rule: 'semantic', message: '没实现验收要求' }] },
+  ]);
+  assert.equal(merged.verdict, 'block');
+  assert.equal(merged.ok, false);
+  assert.equal(merged.findings.length, 2);
+});
+
+test('评审团聚合：两个都 pass 才算 pass，全跳过才是跳过', () => {
+  const pass = aggregateReviewers([
+    { model: 'a', verdict: 'pass', findings: [] },
+    { model: 'b', verdict: 'pass', findings: [] },
+  ]);
+  assert.equal(pass.verdict, 'pass');
+  assert.equal(pass.ok, true);
+
+  const skipped = aggregateReviewers([
+    { model: 'a', verdict: 'skipped', skipped: '超时' },
+    { model: 'b', verdict: 'skipped', skipped: '没有凭证' },
+  ]);
+  assert.equal(skipped.verdict, 'skipped');
+  assert.match(skipped.skipped, /超时/);
+});
+
+test('评审团聚合：一个跳过、一个 pass 仍算 pass（不当成没评审）', () => {
+  const merged = aggregateReviewers([
+    { model: 'a', verdict: 'skipped', skipped: '超时' },
+    { model: 'b', verdict: 'pass', findings: [] },
+  ]);
+  assert.equal(merged.verdict, 'pass');
+  assert.equal(merged.ok, true);
+});
+
+test('reviewWithPanel 逐个模型取自己的 mock，并把每个结论记在 reviewers 里', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'panel-'));
+  const okFile = path.join(dir, 'ok.json');
+  const badFile = path.join(dir, 'bad.json');
+  writeFileSync(okFile, JSON.stringify({ verdict: 'pass', findings: [] }));
+  writeFileSync(badFile, JSON.stringify({ verdict: 'block', findings: [{ severity: 'block', file: 'src/x.js', message: '缺少边界处理' }] }));
+
+  const merged = await reviewWithPanel({
+    goal: '加一个函数',
+    acceptance: '函数返回 1',
+    diffText: 'diff content',
+    models: ['m-ok', 'm-bad'],
+    mockPaths: [okFile, badFile],
+  });
+  assert.equal(merged.verdict, 'block');
+  assert.equal(merged.reviewers.length, 2);
+  assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
+  assert.match(formatSemantic(merged), /评审团 2\/2 有效/);
+  assert.match(formatSemantic(merged), /m-bad=block/);
+});
+
+test('panelModels 默认两个不同家族，可用环境变量覆盖', () => {
+  assert.equal(panelModels('').length, 2);
+  assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
 });
