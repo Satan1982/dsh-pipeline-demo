@@ -326,6 +326,9 @@ function writePlan(wt, { n, title, goal, acceptance, constraints, cmds }) {
     const dir = path.join(wt, '.dsh');
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'PLAN.md'), `${body}${NL}`);
+    // 光靠 .git/info/exclude 不够稳：#62 的 agent 一进来就看到 .dsh/PLAN.md 是「未跟踪改动」，
+    // 还在总结里专门解释了一遍。目录内再放一个 .gitignore，让任何 git 状态都看不见它。
+    writeFileSync(path.join(dir, '.gitignore'), `*${NL}`);
     // 不污染 PR：把它们排除在工作区之外（worktree 共享同一份 .git/info/exclude）。
     const exclude = run(GIT, ['rev-parse', '--git-path', 'info/exclude'], { cwd: wt });
     if (exclude.code === 0) {
