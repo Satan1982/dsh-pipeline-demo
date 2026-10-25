@@ -233,10 +233,61 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 
 - 判定口径写死在提示词里：能**指名**某条验收没满足 / 改弱了已有断言 / 与需求文字直接矛盾才 block，
   风格问题只 warn——避免它变成风格警察。
+- 提示词里除了 diff，还给两样证据：`git diff --name-status` 的**改动文件清单**，以及调度器**已经跑过的
+  验收命令**。原因见下节的两个误判。
 - 解析失败一律按 block（fail closed）：模型话说一半不能混成「通过」。
-- 评审模型超时、网络失败、没有凭证 → `skipped`，只记日志不阻断（评审层不该让流水线停摆）。
+- 评审模型超时、网络失败、没有凭证 → `skipped`，只记日志不阻断（评审层不该让流水线停摆）；
+  skipped 会单独打一行 `⚠ 语义评审未执行（这一层等于没有）`，因为它等于这层不存在。
+- 超时默认 240s（`DSH_REVIEW_TIMEOUT_MS`）。原来 120s，实测 `Qwen/Qwen3.5-122B-A10B` 常态跑不完，
+  两次都是 `This operation was aborted` → skipped，等于白挂一层。
 - `DSH_REVIEW_MOCK=<file>` 用文件内容代替模型输出，用于端到端验证 block 路径而不花钱。
 - 结论会写进 PR 的「## 自动检查」段，block 时的意见同时作为下一次重试的「上次失败原因」。
+
+**两次真误判（都改了提示词，不是改判据放宽）**
+
+1. `#48` 要求「为 cube 补断言」，而 `cube` 早在 `9b53a3d` 就随 `square` 一起合入了——这次只该改测试。
+   评审模型看到 diff 里没有 `src/index.js`，判 block：`cube(3) === 27 ... cannot be verified because
+   src/index.js is not modified`。**修法**：给出改动文件清单，并在口径里写明「需求可能已经被之前的合并
+   实现了，只要最终代码满足验收就判 pass」。
+2. 同一次运行里我还看到它把「实现方式与我预期不同」当理由。**修法**：口径加「引用具体代码时抄 diff 原文，
+   不要凭印象描述实现」。
+
+## 验收命令（`### 验收命令`，可执行强约束）
+
+Issue 模板里有一段可选字段：「验收命令」。调度器在机械评审通过后、commit 之前，**自己**在 worktree 里跑一遍：
+
+```bash
+node -e '...'        # 多条命令可以换行，整体交给 bash -lc
+test -f dist/x.tgz
+```
+
+- 任一条非 0 退出 → `验收命令未通过（exit=N）` → 记指纹库（`reason=acceptance command failed`）+ 自动重试。
+- 全 0 → 日志 `验收命令通过（N 行）`，PR body 的「自动检查」写明「已通过（N 行，调度器执行）」，
+  并把这段命令作为证据一起交给语义评审。
+- 为什么需要它：agent 自己写的测试可以「自证」——断言写得比需求弱，或者只覆盖示例里的那一种输入。
+  这一段是**人给的、agent 改不动的**判据。
+
+## 合并冲突自动 rebase
+
+两个 agent PR 改同一个文件时，先合并的那个会让后一个变成 `mergeable_state=dirty`，CI 修不了（推送前就 405）。
+
+`checkAgentPRs()` 每轮对 open PR 取一次详情，`mergeable_state === 'dirty'` 时调 `rebaseAgentBranch()`：
+
+1. `fetch` → 在 `D:/code/.worktrees/issue-<n>-rebase` 上检出 `tmp/rebase-<n>`；
+2. `git rebase origin/main`；
+3. 干净 → 跑 `verifyWorktree()` 门禁 → `push --force-with-lease origin tmp/rebase-<n>:agent/issue-<n>`，
+   评论 `🔄 分支 … 已自动 rebase 到最新 main`；
+4. 真冲突 → `rebase --abort`，列出冲突文件，评论 `⚠️ … 自动 rebase 失败（冲突文件：…）`，打 `agent:failed` 转人工。
+
+两种评论都带 `<!-- auto-rebase:<sha> -->`，同一个 sha 只处理一次（否则每轮都会重推）。
+
+## 日志保留
+
+`.logs/` 里每次尝试都落 `issue-<n>-attempt-<m>.log` 与 `.prompt.md`，无人值守跑几天就是几千个文件。
+
+- 启动时 `pruneLogs()` 删除超过 `DSH_LOG_RETENTION_DAYS`（默认 7 天）的尝试日志；
+- 只匹配 `issue-<n>-attempt-<m>.(log|prompt.md)`，别的文件（锁、`dispatch.log.1`、手工放的）一律不碰；
+- 实际删了会打一行 `清理 N 个超过 7 天的尝试日志`。
 
 ## 失败指纹库（`docs/failures.jsonl`）
 
