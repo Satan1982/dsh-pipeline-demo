@@ -79,6 +79,7 @@ test('square', () => {
 
 test('cube', () => {
   assert.equal(cube(2), 8);
+  assert.equal(cube(0), 0);
   assert.equal(cube(-2), -8);
 });
 
