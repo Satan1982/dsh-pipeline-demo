@@ -223,7 +223,10 @@ function pick(sections, ...keys) {
   return '';
 }
 
-function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, priorFailure = '' }) {
+function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, priorFailure = '', readonly = false }) {
+  const readonlyBlock = readonly
+    ? `\n## 只读任务（最高优先级）\n这是只读工单：只做调查/验证并给出结论，**绝对不要创建、修改或删除任何文件**，包括临时脚本和 wrapper。\n- 只读检查用 \`node -e\` 或 \`grep\` 完成，不落盘；\n- 结论写进最终回答（文件路径 + 行号 + 事实），调度器会把它贴到 issue 上；\n- 不要为了「产生改动」而提交或写文件。\n`
+    : '';
   const retryBlock = priorFailure
     ? `\n## 上次失败原因（这是第 ${attempt} 次尝试，必须针对性修复，不要重复同样的错误）\n${String(priorFailure).slice(0, 3000)}\n`
     : '';
@@ -234,7 +237,7 @@ function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, pri
     ? `\n## 历史同类失败（调度器记忆库）\n${known}\n\n先确认这次的根因是否与上次一致；一致就直接照上次的修法，不要重新试错。\n`
     : '';
   return `你正在一个隔离的 git worktree 里工作。任务来自 GitHub Issue #${n}：${title}
-${retryBlock}${knownBlock}
+${retryBlock}${knownBlock}${readonlyBlock}
 ## 目标
 ${goal}
 
@@ -318,7 +321,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     await setupWorktree(branch, wt, 'origin/main');
 
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
-    const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints, attempt, priorFailure });
+    // 只读工单：查代码/审计类任务不该产生改动。提示词里先立规矩，
+    // 否则 agent 会为了满足「必须有改动」的门禁去造 wrapper 脚本（PR #41 就是这样混出来的）。
+    const readonly = (issue.labels ?? []).some((l) => l.name === 'readonly:ok');
+    const prompt = buildPrompt({ n, title: issue.title, goal, acceptance, constraints, attempt, priorFailure, readonly });
     // 提示词落盘：重试时能直接看清调度器到底喂了 agent 什么（记忆库有没有生效）。
     try {
       if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
@@ -336,8 +342,6 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const useStrong = forceStrong || attempt > 1;
     // 改门禁脚本默认被评审层阻断，issue 打 allow:gate 才放行（人工在 issue 上表态）
     const allowGate = (issue.labels ?? []).some((l) => l.name === 'allow:gate');
-    // 只读工单：允许「没有改动」正常收尾（结论贴 issue 评论，不开 PR）
-    const readonly = (issue.labels ?? []).some((l) => l.name === 'readonly:ok');
     const runEnv = { PATH: CHILD_PATH };
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
@@ -370,6 +374,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 判「有没有干活」看的是文件变化，不是提交数：agent 为了绕开门禁会造空提交
     // （PR #40 就发生过），用 rev-list 计数会被它骗过去。
     const changedFiles = (await run(GIT, ['diff', '--name-only', 'origin/main...HEAD'], { cwd: wt })).out.trim();
+    // 只读工单出现任何改动就是违约：不开 PR、不推送，改动清单进记忆库
+    if (readonly && (status || changedFiles)) {
+      const list = [changedFiles, status].filter(Boolean).join('\n').trim();
+      recordFailure({ text: `[readonly] 只读工单产生了文件改动：\n${list}`, issue: n, attempt, reason: 'readonly-violation' }, FAIL_STORE);
+      throw new Error(`[readonly] 只读工单（readonly:ok）却改动了文件，已中止且不开 PR：\n${list}\n只读工单只应回答结论，不应写文件。`);
+    }
     if (!status && !changedFiles) {
       // 只读工单（查代码、做审计、回答问题）本来就不该产生改动。要求它改文件的门禁
       // 与「不要修改任何文件」的验收标准互斥，所以给一个显式出口：
