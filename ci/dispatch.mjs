@@ -155,6 +155,21 @@ const git = (args, opts = {}) =>
     env: { ...GIT_ENV, ...(opts.env ?? {}) },
   });
 
+// github.com:443 整晚会间歇性连不上（2026-10-25 实测：同一分钟 api.github.com 200、
+// github.com 超时或 Connection was reset）。fetch 挂在这里是链路抖，不是仓库或凭据的问题，
+// 所以任何「一定要拿到最新 main」的 fetch 都走这个退避（约 95 秒窗口）。
+const FETCH_BACKOFF_MS = [5000, 10000, 20000, 30000, 30000];
+
+async function fetchWithRetry(args = ['origin', '--quiet'], cwd = REPO_DIR) {
+  let last = null;
+  for (let i = 0; i <= FETCH_BACKOFF_MS.length; i += 1) {
+    last = await git(['fetch', ...args], { cwd });
+    if (last.code === 0) return last;
+    if (i < FETCH_BACKOFF_MS.length) await new Promise((r) => setTimeout(r, FETCH_BACKOFF_MS[i]));
+  }
+  throw new Error(`git fetch 失败（退避重试 ${FETCH_BACKOFF_MS.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
+}
+
 // ---------- 单实例锁 ----------
 // 计划任务每 5 分钟一轮，人（或 agent）也可能手动跑一次；两个进程会抢同一个
 // worktree 路径和分支，表现为「agent 未产生任何改动」这种假故障。用文件锁串行化。
@@ -236,8 +251,7 @@ function locked(fn) {
 
 async function setupWorktree(branch, wt, baseRef) {
   return locked(async () => {
-    const f = await git(['fetch', 'origin', '--quiet']);
-    if (f.code !== 0) throw new Error(`git fetch 失败: ${f.err.trim().slice(0, 200)}`);
+    await fetchWithRetry();
     await git(['worktree', 'remove', '--force', wt]);
     await git(['branch', '-D', branch]);
     const add = await git(['worktree', 'add', wt, '-b', branch, baseRef]);
@@ -819,17 +833,7 @@ async function rebaseAgentBranch(pr, issueN) {
   log(`${tag} 分支与 main 冲突，尝试自动 rebase`);
   try {
     await locked(async () => {
-      // github.com:443 会间歇性连不上（2026-10-25 实测：api.github.com 200，github.com 同时段超时，
-      // 几分钟后又恢复），这时 fetch 失败只是网络抖动，不该把分支判成「需要人工 rebase」。
-      // 退避窗口约 95 秒，覆盖这种分钟级的抖动。
-      let last = null;
-      const backoff = [5000, 10000, 20000, 30000, 30000];
-      for (let i = 0; i <= backoff.length; i += 1) {
-        last = await git(['fetch', 'origin', '--quiet']);
-        if (last.code === 0) return;
-        if (i < backoff.length) await new Promise((r) => setTimeout(r, backoff[i]));
-      }
-      throw new Error(`git fetch 失败（退避重试 ${backoff.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
+      await fetchWithRetry();
     });
 
     await locked(async () => {
