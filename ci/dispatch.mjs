@@ -22,6 +22,7 @@ import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
+import { collectDiff, reviewSemantically, formatSemantic } from './semantic-review.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -420,6 +421,27 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
     const warns = (review.findings ?? []).filter((f) => f.severity === 'warn');
 
+    // 3) 语义评审：机械规则只看 diff 的形状（删测试、漏 bless、动 workflows），
+    // 看不出「代码写得像那么回事，但根本没满足验收标准」。这里请另一个家族的模型
+    // 读验收标准 + 实际 diff；block 就把它的意见当成失败原因回灌给下一次重试。
+    const diff = collectDiff(wt);
+    const semantic = diff.ok
+      ? await reviewSemantically({
+        issueNumber: n, title: issue.title, goal, acceptance, constraints, diffText: diff.text,
+      })
+      : {
+        ok: false,
+        verdict: 'block',
+        findings: [{ severity: 'block', rule: 'semantic-diff-failed', file: null, message: `拿不到 diff：${diff.error}` }],
+        model: '-',
+      };
+    log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}`);
+    if (!semantic.ok) {
+      const detail = `语义评审拒绝（改动未推送）：\n${formatSemantic(semantic)}`;
+      recordFailure({ text: detail, issue: n, attempt, reason: detail.slice(0, 1500) }, FAIL_STORE);
+      throw new Error(detail);
+    }
+
     const push = await run(GIT, ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${branch}`], { cwd: wt, env: GIT_ENV });
     if (push.code !== 0) throw new Error(`push 失败: ${push.err.trim()}`);
 
@@ -435,6 +457,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 独立门禁 \`bash scripts/verify.sh\`：通过（调度器自己跑的，不采信 agent 自述）`,
         `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
+        `- 语义评审：${formatSemantic(semantic).split('\n')[0]}`,
+        ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
         '', '---', 'CI 通过后请人工 review 再合并。',
       ].join('\n'),
     });

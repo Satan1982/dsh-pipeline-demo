@@ -206,3 +206,45 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 > `powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\dsh-pipeline-demo\ci\install-task.ps1`
 >
 > 而 B2（HKCU Run）不需要提权，是默认推荐路径。
+
+## 评审层（push 之前拦）
+
+两层都在 commit 之后、push 之前跑；任何一层 block 都不推送，失败原因写进记忆库并自动重试。
+
+**机械规则**（`ci/review.mjs`，只看 diff 的形状）
+
+| 规则 | 级别 | 触发 |
+|---|---|---|
+| `forbidden-path` | block | 改动 `.github/workflows/` |
+| `debug-residue` | block | 新增 `BROKEN`、`debugger`、冲突标记、`.only(`、`TODO(agent)` |
+| `test-removed` / `assert-removed` | block | 测试文件里删掉了 `test(` / `it(` / `assert.` 行 |
+| `baseline-unsynced` | block | 改了 `src|ci` 的测试文件但两个基线文件都没动 |
+| `dependency-added` | block | `package.json` 新增依赖 |
+| `no-file-change` | block | 提交里一个文件都没变（agent 曾造空提交绕过「必须有改动」） |
+| `gate-modified` | block/warn | 改了门禁脚本本身（`verify.sh`/`assert-guard.mjs`/`dispatch.mjs`/`review.mjs`）；issue 打 `allow:gate` 降为提示 |
+| `diff-large` | warn | diff 超过 400 行 |
+
+**语义规则**（`ci/semantic-review.mjs`，让另一个家族的模型读验收标准 + 实际 diff）
+
+机械规则看不出「代码写得像那么回事、但根本没满足验收」——只实现示例里的那一种输入、把断言写得比需求弱、
+要求抛 `RangeError` 却返回 `undefined`。所以 push 之前把 issue 的「验收标准 + 约束 + `git diff`」交给
+`Qwen/Qwen3.5-122B-A10B`（`DSH_REVIEW_MODEL` 可改），只要它输出
+`{"verdict":"block","findings":[…]}` 就中止并重试。
+
+- 判定口径写死在提示词里：能**指名**某条验收没满足 / 改弱了已有断言 / 与需求文字直接矛盾才 block，
+  风格问题只 warn——避免它变成风格警察。
+- 解析失败一律按 block（fail closed）：模型话说一半不能混成「通过」。
+- 评审模型超时、网络失败、没有凭证 → `skipped`，只记日志不阻断（评审层不该让流水线停摆）。
+- `DSH_REVIEW_MOCK=<file>` 用文件内容代替模型输出，用于端到端验证 block 路径而不花钱。
+- 结论会写进 PR 的「## 自动检查」段，block 时的意见同时作为下一次重试的「上次失败原因」。
+
+## 失败指纹库（`docs/failures.jsonl`）
+
+每次失败都记一条 JSONL：`{fp, sig, issue, attempt, reason, fix, at}`。
+
+- `signature()` 先规范化（抹掉时间戳、耗时、绝对路径、`issue #N`、`exit=<n>`、`Error:` 前缀），
+  再取第一行「真症状」——首行是 `exit code 1` 这种空壳子时往下找第一行有信息量的，
+  最后拼上命中的规则名（`rules=[baseline-unsynced]`）。
+- 同一个根因不同尾巴会合并成同一个 `fp`，不同规则不会（实测：门禁红被拆成 6 个指纹 → 归并成 1 个）。
+- 重试时把「同一个根因出现过 N 次…上次现象/上次修法」注入提示词，让新的一次不必重踩。
+- `node ci/failures.mjs show` 看当前指纹分布，`node ci/failures.mjs repair` 按新算法重算历史记录。
