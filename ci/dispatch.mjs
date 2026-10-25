@@ -723,6 +723,46 @@ async function resolveBaselineOnlyRebase(wt, files) {
   return { ok: true };
 }
 
+// 源码文件真冲突时，让 agent 来解一次：两边功能都要保留、基线重算、门禁通过。
+// 只有它解不了才转人工——这样并行 PR 改同一个文件不会永远卡在人手上。
+async function resolveConflictsWithAgent(wt, issueN, files) {
+  const prompt = `分支 rebase 到最新 main 时发生了冲突，你只负责解决冲突，不要做别的功能改动。
+
+冲突文件：${files.join(', ')}
+
+## 要求
+1. 先读仓库根目录的 AGENTS.md，了解门禁和禁止事项。
+2. 运行 \`git rebase origin/main\`。冲突时逐个文件手工合并：**两边的功能都要保留**（main 上已有的函数/测试，本分支新增的函数/测试，一个都不许丢），不许为了让冲突消失而删掉任何一侧。
+3. 解决后 \`git add <文件>\`，再 \`git -c core.editor=true rebase --continue\`；如果又出现冲突，继续同样处理，直到 rebase 完成。
+4. rebase 完成后跑 \`bash scripts/verify.sh --bless\` 让基线跟上合并后的测试，再跑一次 \`bash scripts/verify.sh\` 确认通过。
+5. 不要 \`git push\`、不要开 PR，调度器会处理。
+6. 如果保留两边功能后确实无法解决，停下来，在输出里说明是哪个文件、为什么，不要硬删代码。
+
+现在开始。`;
+
+  const t0 = Date.now();
+  const r = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], {
+    cwd: wt, input: prompt, timeout: TIMEOUT, env: { PATH: CHILD_PATH },
+  });
+  log(`[issue #${issueN}][rebase] 冲突解决 agent 结束 exit=${r.code} ${Math.round((Date.now() - t0) / 1000)}s`);
+
+  const left = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out.trim();
+  if (left) return { ok: false, reason: `仍有未解决冲突：${left.replace(/\n/g, ', ')}` };
+
+  const rebaseDir = (await run(GIT, ['rev-parse', '--git-path', 'rebase-merge'], { cwd: wt })).out.trim();
+  if (rebaseDir && existsSync(path.resolve(wt, rebaseDir))) {
+    return { ok: false, reason: 'rebase 仍停在半途（agent 没有走完 rebase --continue）' };
+  }
+
+  const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+  if (status) {
+    await run(GIT, ['add', '-A'], { cwd: wt });
+    const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
+    if (amend.code !== 0) return { ok: false, reason: `解冲突后的改动 amend 失败：${amend.err.trim().slice(0, 200)}` };
+  }
+  return { ok: true };
+}
+
 async function rebaseAgentBranch(pr, issueN) {
   const branch = pr.head.ref;
   const wt = path.join(WT_ROOT, `issue-${issueN}-rebase`);
@@ -770,14 +810,21 @@ async function rebaseAgentBranch(pr, issueN) {
           return;
         }
       } else {
+        // 源码文件冲突：先让 agent 解一次（两边功能都要保留），解不了才转人工。
         const conflicts = cls.files.join(', ');
         await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
-        await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-          body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
-        }).catch(() => {});
-        await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
-        log(`${tag} 自动 rebase 失败，转人工：${conflicts}`);
-        return;
+        log(`${tag} 源码冲突（${conflicts}），交给 agent 解一次`);
+        const resolved = await resolveConflictsWithAgent(wt, issueN, cls.files);
+        if (!resolved.ok) {
+          await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
+          await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+            body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}；${resolved.reason}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+          }).catch(() => {});
+          await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
+          log(`${tag} 冲突解决失败，转人工：${conflicts} / ${resolved.reason.replace(/\n/g, ' ')}`);
+          return;
+        }
+        log(`${tag} 冲突已由 agent 解决，继续跑门禁`);
       }
     }
 
