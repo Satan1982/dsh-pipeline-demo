@@ -771,15 +771,17 @@ async function rebaseAgentBranch(pr, issueN) {
   log(`${tag} 分支与 main 冲突，尝试自动 rebase`);
   try {
     await locked(async () => {
-      // github.com:443 会间歇性连不上（2026-10-25 10:38 实测：api.github.com 200，github.com 超时），
-      // 这时 fetch 失败只是网络抖动，不该把分支判成「需要人工 rebase」。
+      // github.com:443 会间歇性连不上（2026-10-25 实测：api.github.com 200，github.com 同时段超时，
+      // 几分钟后又恢复），这时 fetch 失败只是网络抖动，不该把分支判成「需要人工 rebase」。
+      // 退避窗口约 95 秒，覆盖这种分钟级的抖动。
       let last = null;
-      for (let i = 1; i <= 3; i += 1) {
+      const backoff = [5000, 10000, 20000, 30000, 30000];
+      for (let i = 0; i <= backoff.length; i += 1) {
         last = await git(['fetch', 'origin', '--quiet']);
         if (last.code === 0) return;
-        if (i < 3) await new Promise((r) => setTimeout(r, 3000 * i));
+        if (i < backoff.length) await new Promise((r) => setTimeout(r, backoff[i]));
       }
-      throw new Error(`git fetch 失败（试了 3 次）: ${last.err.trim().slice(0, 200)}`);
+      throw new Error(`git fetch 失败（退避重试 ${backoff.length + 1} 次）: ${last.err.trim().slice(0, 200)}`);
     });
 
     await locked(async () => {
