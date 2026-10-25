@@ -847,8 +847,33 @@ async function rebaseAgentBranch(pr, issueN) {
   }
 }
 
+// GitHub 的 mergeable_state 是懒计算的：刚推送过、或它自己还没算完时返回 'unknown'，
+// 靠它决定「要不要 rebase」会漏掉真实的冲突（实测 #52 挂了几小时一直是 dirty，调度器一次都没触发）。
+// 所以自己做一次本地探测：fetch 分支后用 merge-tree 试合，冲突文件一目了然。
+async function branchConflictFiles(branch) {
+  const f = await git(['fetch', 'origin', branch, '--quiet']);
+  if (f.code !== 0) return null; // 网络问题：这一轮先不判
+  const r = await run(GIT, ['merge-tree', '--write-tree', '--name-only', 'origin/main', `origin/${branch}`], { cwd: REPO_DIR });
+  if (r.code === 0) return [];
+  // 第一行是合并后的 tree oid，之后是冲突文件；其它输出（例如 hint）忽略。
+  return r.out
+    .split('\n')
+    .slice(1)
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith('CONFLICT') && !s.includes(' '));
+}
+
 async function checkAgentPRs() {
   const { data: prs } = await api('GET', `/repos/${REPO}/pulls?state=open&per_page=20`);
+  const agentPrs = (Array.isArray(prs) ? prs : []).filter((pr) => /^agent\/issue-(\d+)$/.test(pr.head.ref));
+  if (agentPrs.length) {
+    const states = [];
+    for (const pr of agentPrs) {
+      const { data: d } = await api('GET', `/repos/${REPO}/pulls/${pr.number}`);
+      states.push(`#${pr.number}:${d?.mergeable_state ?? 'unknown'}`);
+    }
+    log(`[prs] 打开 ${agentPrs.length} 个 agent PR：${states.join(' ')}`);
+  }
   for (const pr of Array.isArray(prs) ? prs : []) {
     const m = /^agent\/issue-(\d+)$/.exec(pr.head.ref);
     if (!m) continue;
@@ -858,9 +883,9 @@ async function checkAgentPRs() {
 
     // 冲突分支：CI 修不了（推送前就 405），先尝试自动 rebase。
     // 同一个提交最多试 3 次——工具修好之后还有机会重试，但不会每分钟空转。
-    const { data: prDetail } = await api('GET', `/repos/${REPO}/pulls/${pr.number}`);
-    const rebaseTries = list.filter((c) => c.body.includes(`auto-rebase:${pr.head.sha}`)).length;
-    if (prDetail?.mergeable_state === 'dirty' && rebaseTries < 3) {
+    const rebaseTries = list.filter((c) => c.body?.includes(`auto-rebase:${pr.head.sha}`)).length;
+    const conflicts = await branchConflictFiles(pr.head.ref);
+    if (conflicts && conflicts.length && rebaseTries < 3) {
       await rebaseAgentBranch(pr, issueN);
       continue;
     }
@@ -868,9 +893,9 @@ async function checkAgentPRs() {
     const { data: runs } = await api('GET', `/repos/${REPO}/actions/runs?branch=${encodeURIComponent(pr.head.ref)}&per_page=5`);
     const ci = ((runs?.workflow_runs) ?? []).find((r) => r.name === 'ci' && r.status === 'completed');
     if (!ci || ci.conclusion !== 'failure') continue;
-    if (list.some((c) => c.body.includes(`ci-retry-run:${ci.id}`))) continue; // 这个 run 已处理过
+    if (list.some((c) => c.body?.includes(`ci-retry-run:${ci.id}`))) continue; // 这个 run 已处理过
 
-    const attempts = list.filter((c) => c.body.includes('CI 失败自动修复')).length;
+    const attempts = list.filter((c) => c.body?.includes('CI 失败自动修复')).length;
     if (attempts >= MAX_ATTEMPTS) {
       await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
       await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
