@@ -23,6 +23,7 @@ import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs'
 import { headlessKind } from './headless-kind.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewSemantically, formatSemantic } from './semantic-review.mjs';
+import { classifyConflicts } from './rebase-conflict.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -695,6 +696,33 @@ ${logText.slice(-8000)}
 
 // 分支落后 main 且真的冲突时，CI 那套修不了（推送前就 405）。自动 rebase 一次：
 // 干净 rebase → force-with-lease 推回分支，CI 会重跑；真冲突 → 评论 + agent:failed 转人工。
+// 冲突只落在基线文件时，正确解法不是挑一边：先取 main 的基线把 rebase 走完，
+// 再在合并后的测试文件上跑 --bless 重算，最后把结果折进最后一个提交。
+// 这样并行的 agent PR 不会因为「基线的数字不一样」互相卡死。
+async function resolveBaselineOnlyRebase(wt, files) {
+  const ours = await run(GIT, ['checkout', '--ours', '--', ...files], { cwd: wt });
+  if (ours.code !== 0) return { ok: false, reason: `checkout --ours 失败：${ours.err.trim().slice(0, 200)}` };
+  const add = await run(GIT, ['add', '--', ...files], { cwd: wt });
+  if (add.code !== 0) return { ok: false, reason: `git add 失败：${add.err.trim().slice(0, 200)}` };
+  const cont = await run(GIT, ['rebase', '--continue'], { cwd: wt, env: { ...process.env, GIT_EDITOR: 'true' } });
+  if (cont.code !== 0) return { ok: false, reason: `rebase --continue 失败：${(cont.err || cont.out).trim().slice(0, 300)}` };
+  const bless = await run(BASH, ['scripts/verify.sh', '--bless'], {
+    cwd: wt,
+    timeout: 15 * 60 * 1000,
+    env: { PATH: CHILD_PATH, PNPM_CLI },
+  });
+  if (bless.code !== 0) {
+    return { ok: false, reason: `重算基线时门禁未通过：${(bless.out + bless.err).trim().slice(-600)}` };
+  }
+  const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
+  if (status) {
+    await run(GIT, ['add', '-A'], { cwd: wt });
+    const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
+    if (amend.code !== 0) return { ok: false, reason: `基线重算后 amend 失败：${amend.err.trim().slice(0, 200)}` };
+  }
+  return { ok: true };
+}
+
 async function rebaseAgentBranch(pr, issueN) {
   const branch = pr.head.ref;
   const wt = path.join(WT_ROOT, `issue-${issueN}-rebase`);
@@ -713,14 +741,34 @@ async function rebaseAgentBranch(pr, issueN) {
 
     const rb = await run(GIT, ['rebase', 'origin/main'], { cwd: wt });
     if (rb.code !== 0) {
-      const conflicts = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out.trim();
-      await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
-      await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-        body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
-      }).catch(() => {});
-      await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
-      log(`${tag} 自动 rebase 失败，转人工：${conflicts.replace(/\n/g, ', ')}`);
-      return;
+      const conflictsRaw = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out;
+      const cls = classifyConflicts(conflictsRaw.split('\n'));
+
+      // 只有基线文件冲突时，可以按合并后的测试重算，不需要人。
+      if (cls.kind === 'baseline-only') {
+        log(`${tag} 冲突只在基线文件（${cls.files.join(', ')}），按合并后的测试重算`);
+        const resolved = await resolveBaselineOnlyRebase(wt, cls.files);
+        if (resolved.ok) {
+          log(`${tag} 基线已重算，继续跑门禁`);
+        } else {
+          await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
+          await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+            body: `⚠️ 分支 ${branch} 自动 rebase 时基线重算失败（${resolved.reason}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+          }).catch(() => {});
+          await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
+          log(`${tag} 基线重算失败，转人工：${resolved.reason.replace(/\n/g, ' ')}`);
+          return;
+        }
+      } else {
+        const conflicts = cls.files.join(', ');
+        await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
+        await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
+          body: `⚠️ 分支 ${branch} 与 main 冲突，自动 rebase 失败（冲突文件：${conflicts || '未知'}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+        }).catch(() => {});
+        await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
+        log(`${tag} 自动 rebase 失败，转人工：${conflicts}`);
+        return;
+      }
     }
 
     const gate = await verifyWorktree(wt);
@@ -749,9 +797,11 @@ async function checkAgentPRs() {
     const { data: comments } = await api('GET', `/repos/${REPO}/issues/${issueN}/comments?per_page=100`);
     const list = Array.isArray(comments) ? comments : [];
 
-    // 冲突分支：CI 修不了（推送前就 405），先尝试自动 rebase 一次。
+    // 冲突分支：CI 修不了（推送前就 405），先尝试自动 rebase。
+    // 同一个提交最多试 3 次——工具修好之后还有机会重试，但不会每分钟空转。
     const { data: prDetail } = await api('GET', `/repos/${REPO}/pulls/${pr.number}`);
-    if (prDetail?.mergeable_state === 'dirty' && !list.some((c) => c.body.includes(`auto-rebase:${pr.head.sha}`))) {
+    const rebaseTries = list.filter((c) => c.body.includes(`auto-rebase:${pr.head.sha}`)).length;
+    if (prDetail?.mergeable_state === 'dirty' && rebaseTries < 3) {
       await rebaseAgentBranch(pr, issueN);
       continue;
     }
