@@ -731,8 +731,18 @@ async function rebaseAgentBranch(pr, issueN) {
   log(`${tag} 分支与 main 冲突，尝试自动 rebase`);
   try {
     await locked(async () => {
-      const f = await git(['fetch', 'origin', '--quiet']);
-      if (f.code !== 0) throw new Error(`git fetch 失败: ${f.err.trim().slice(0, 200)}`);
+      // github.com:443 会间歇性连不上（2026-10-25 10:38 实测：api.github.com 200，github.com 超时），
+      // 这时 fetch 失败只是网络抖动，不该把分支判成「需要人工 rebase」。
+      let last = null;
+      for (let i = 1; i <= 3; i += 1) {
+        last = await git(['fetch', 'origin', '--quiet']);
+        if (last.code === 0) return;
+        if (i < 3) await new Promise((r) => setTimeout(r, 3000 * i));
+      }
+      throw new Error(`git fetch 失败（试了 3 次）: ${last.err.trim().slice(0, 200)}`);
+    });
+
+    await locked(async () => {
       await git(['worktree', 'remove', '--force', wt]);
       await git(['branch', '-D', tmpBranch]);
       const add = await git(['worktree', 'add', wt, '-b', tmpBranch, `origin/${branch}`]);

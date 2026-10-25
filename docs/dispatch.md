@@ -273,13 +273,22 @@ test -f dist/x.tgz
 
 `checkAgentPRs()` 每轮对 open PR 取一次详情，`mergeable_state === 'dirty'` 时调 `rebaseAgentBranch()`：
 
-1. `fetch` → 在 `D:/code/.worktrees/issue-<n>-rebase` 上检出 `tmp/rebase-<n>`；
+1. `fetch`（连不上 github.com 时重试 3 次，网络抖动不算「需要人工」）→ 在 `D:/code/.worktrees/issue-<n>-rebase`
+   上检出 `tmp/rebase-<n>`；
 2. `git rebase origin/main`；
 3. 干净 → 跑 `verifyWorktree()` 门禁 → `push --force-with-lease origin tmp/rebase-<n>:agent/issue-<n>`，
    评论 `🔄 分支 … 已自动 rebase 到最新 main`；
-4. 真冲突 → `rebase --abort`，列出冲突文件，评论 `⚠️ … 自动 rebase 失败（冲突文件：…）`，打 `agent:failed` 转人工。
+4. **冲突只落在 `scripts/test-baseline.txt` / `scripts/assert-baseline.txt`** → 不用人：取 main 的版本把 rebase
+   走完，再在合并后的测试文件上跑 `verify.sh --bless` 重算基线，amend 进最后一个提交，然后照第 3 步门禁 + 推送
+   （`ci/rebase-conflict.mjs` 的 `classifyConflicts()` 做这个分类，单测在 `ci/rebase-conflict.test.mjs`）；
+5. 其余任何文件冲突 → `rebase --abort`，列出冲突文件，评论 `⚠️ … 自动 rebase 失败（冲突文件：…）`，
+   打 `agent:failed` 转人工。
 
-两种评论都带 `<!-- auto-rebase:<sha> -->`，同一个 sha 只处理一次（否则每轮都会重推）。
+**为什么单独处理基线**：每个 agent PR 都会改这两个文件（新增测试/断言要同步计数），所以并行 PR 十有八九正好在
+它们上面撞车，而「要 88 还是 90」这种冲突有唯一正确答案——合并后的测试文件，重算即可。实测 2026-10-25 10:36：
+#55/#54/#50 三个 PR 依次自动重算基线并推送，CI 全绿，无人工介入；同批 #51 因 github.com 连不上没跑完。
+
+两种评论都带 `<!-- auto-rebase:<sha> -->`；同一个 sha 最多试 3 次（工具修好后仍有重试机会，又不会每分钟空转）。
 
 ## 日志保留
 
