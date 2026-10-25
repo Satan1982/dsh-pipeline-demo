@@ -27,6 +27,18 @@ export function reverseWords(s) {
   return s.trim().split(/\s+/).filter(Boolean).reverse().join(' ');
 }
 
+export function toTitleCase(s) {
+  if (typeof s !== 'string') {
+    throw new TypeError('toTitleCase expects a string');
+  }
+  return s
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 export function countVowels(s) {
   if (typeof s !== 'string') {
     throw new TypeError('countVowels expects a string');
