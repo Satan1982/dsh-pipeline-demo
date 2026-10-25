@@ -21,12 +21,14 @@
 3 1c1455c3e8f456a5 assert.notEqual(fingerprint(a), fingerprint(b));
 1 1c1c8571a290260b assert.equal(subtract(5, 3), 2);
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
+1 1cfce6d124d865d5 assert.throws(() => chunk('abc', -1), RangeError);
 1 1e3dd1e22654a683 assert.equal(classifyConflicts(['scripts/assert-baseline.txt']).kind, 'baseline-only');
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
+1 263ebe16098347ef assert.deepEqual(chunk('', 3), []);
 1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
 2 2bae680979f5f4ad assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt']);
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
@@ -38,11 +40,14 @@
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
 1 3bdf4e337d3417e3 assert.equal(r.kind, 'manual');
+1 3c370b34399d1276 assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
 1 3c7d29cbd0e44d6e assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
+1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
+1 4130087e065aeee8 assert.throws(() => chunk('abc', NaN), RangeError);
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
 1 44355f93774fa1c2 assert.deepEqual(words('a b c'), ['a', 'b', 'c']);
 1 4504ea416efc986c assert.equal(r.verdict, 'skipped');
@@ -54,6 +59,7 @@
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
+1 4a0af7bc7a29be85 assert.throws(() => chunk('abc', 1.5), RangeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
@@ -102,6 +108,7 @@
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
+1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
 1 8968b1fb9790feed assert.ok(r.findings.some((f) => f.rule === 'forbidden-path'));
@@ -140,6 +147,7 @@
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
+1 aec477efdecf8e09 assert.throws(() => chunk('abc', 0), RangeError);
 1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
 1 af8d4ba6f4541bcb assert.equal(merged.ok, false);
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
