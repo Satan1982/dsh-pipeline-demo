@@ -1,5 +1,6 @@
 1 034a857be64208b3 assert.equal(powOf(-2, 3), -8);
 1 03bf59f8666e6c9f assert.equal(res.after, 2);
+1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 0b5e0ffff796a07a assert.equal(add(-1, 1), 0);
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f98f04241274434 assert.equal(square(-3), 9);
@@ -18,6 +19,7 @@
 1 1c1c8571a290260b assert.equal(subtract(5, 3), 2);
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
 1 1e3dd1e22654a683 assert.equal(classifyConflicts(['scripts/assert-baseline.txt']).kind, 'baseline-only');
+1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
@@ -56,6 +58,7 @@
 1 56734436da90d0af assert.equal(cube(0), 0);
 1 579405978276dd0f assert.equal(d.ok, true);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
+1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
@@ -116,6 +119,7 @@
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
+1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
@@ -127,6 +131,7 @@
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
 1 ba7e8e2604057020 assert.equal(a, b);
 1 bc0048fe54601a1e assert.match(r.model, /^mock:/);
+1 bca4f35142462246 assert.equal(initials('grace brewster hopper'), 'GBH');
 1 bead3790b8ad00ab assert.equal(loadStore(file).size, 1);
 1 bf76e5ba6adfebc6 assert.match(d.detail, /RangeError/);
 1 c16f7fa143962e57 assert.equal(res.before, 6);
