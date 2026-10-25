@@ -153,7 +153,14 @@ function acquireLock() {
   if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
   const me = { pid: process.pid, at: new Date().toISOString() };
   const write = () => writeFileSync(LOCK_FILE, JSON.stringify(me));
-  const release = () => { try { unlinkSync(LOCK_FILE); } catch { /* 已删 */ } };
+  // 只有锁还是自己写的那份才删。常驻进程被接管后退出时若无条件 unlink，会把新持有者的锁删掉，
+  // 第三个进程再「接管」一次——2026-10-25 07:17 实测就是这样滚成「谁都没有锁、也没有常驻进程」。
+  const release = () => {
+    try {
+      if (JSON.parse(readFileSync(LOCK_FILE, 'utf8')).pid !== process.pid) return;
+      unlinkSync(LOCK_FILE);
+    } catch { /* 已经没了 */ }
+  };
 
   try {
     writeFileSync(LOCK_FILE, JSON.stringify(me), { flag: 'wx' });
@@ -168,6 +175,12 @@ function acquireLock() {
   try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { cur = null; }
   log(`接管陈旧锁（pid=${cur?.pid ?? '?'} 起于 ${cur?.at ?? '?'}）`);
   write();
+  // 两个进程可能同时判「陈旧」并各写一份锁；写完必须回头确认赢的是自己，否则让位。
+  if (!ownsLock()) {
+    let other = null;
+    try { other = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { /* 读不到就让上面那次重试 */ }
+    return { ok: false, holder: other ?? { pid: '?', at: '?' } };
+  }
   return { ok: true, release };
 }
 
