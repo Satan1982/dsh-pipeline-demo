@@ -6,8 +6,9 @@
  * 通过后自动推分支并开 PR。人只负责写 issue 和 review/merge。
  *
  * 用法:
- *   node ci/dispatch.mjs --once     跑一轮就退出（适合本地验证）
- *   node ci/dispatch.mjs            持续轮询（默认 60s）
+ *   node ci/dispatch.mjs --ensure   确保后台有常驻调度器（没有就脱离父进程拉起一个）
+ *   node ci/dispatch.mjs --serve    常驻轮询（--ensure 拉起时用它；不带参数默认也是它）
+ *   node ci/dispatch.mjs --once     跑一轮就退出（适合本地验证与计划任务）
  *   node ci/dispatch.mjs --dry-run  只列出待办 issue，不执行
  *
  * 环境变量:
@@ -43,6 +44,8 @@ const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 const DEBUG_FAIL = Number(process.env.DSH_DEBUG_FAIL_ATTEMPTS ?? 0);
 const CONCURRENCY = Math.max(1, Number(process.env.DSH_CONCURRENCY ?? 2));
 const ONCE      = process.argv.includes('--once');
+const ENSURE    = process.argv.includes('--ensure');
+const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
@@ -130,6 +133,21 @@ const git = (args, opts = {}) =>
 const LOCK_FILE = path.join(LOG_DIR, 'dispatch.lock');
 const LOCK_STALE_MS = TIMEOUT + 10 * 60 * 1000;
 
+// 谁在跑：只有「进程还活着且锁不算太旧」才算占用，否则视为陈旧可接管。
+function lockHolder() {
+  let cur = null;
+  try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { return null; }
+  if (!cur?.pid) return null;
+  let alive = false;
+  try { process.kill(cur.pid, 0); alive = true; } catch { alive = false; }
+  const age = cur.at ? Date.now() - Date.parse(cur.at) : Infinity;
+  return alive && age < LOCK_STALE_MS ? cur : null;
+}
+
+function ownsLock() {
+  try { return JSON.parse(readFileSync(LOCK_FILE, 'utf8')).pid === process.pid; } catch { return false; }
+}
+
 function acquireLock() {
   if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
   const me = { pid: process.pid, at: new Date().toISOString() };
@@ -143,14 +161,11 @@ function acquireLock() {
     if (e.code !== 'EEXIST') throw e;
   }
 
+  if (lockHolder()) return { ok: false, holder: lockHolder() };
+
   let cur = null;
   try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { cur = null; }
-  let alive = false;
-  if (cur?.pid) { try { process.kill(cur.pid, 0); alive = true; } catch { alive = false; } }
-  const age = cur?.at ? Date.now() - Date.parse(cur.at) : Infinity;
-  if (cur && alive && age < LOCK_STALE_MS) return { ok: false, holder: cur };
-
-  log(`接管陈旧锁（pid=${cur?.pid ?? '?'} 存活=${alive} 停了 ${Math.round(age / 60000)} 分钟）`);
+  log(`接管陈旧锁（pid=${cur?.pid ?? '?'} 起于 ${cur?.at ?? '?'}）`);
   write();
   return { ok: true, release };
 }
@@ -589,13 +604,34 @@ async function cleanupStaleWorking() {
 }
 
 async function main() {
-  log(`调度器启动 repo=${REPO} once=${ONCE} dry=${DRY} maxAttempts=${MAX_ATTEMPTS}`);
+  // --ensure：只负责「保证有一个人在跑」。要么报出已经有的那个，要么脱离父进程拉起一个
+  // 常驻的 --serve。它自己不等任务、不持锁，所以登录自启/计划任务反复调用都安全。
+  if (ENSURE) {
+    const holder = lockHolder();
+    if (holder) {
+      console.log(`常驻调度器已在运行（pid=${holder.pid}，起于 ${holder.at}）`);
+      return;
+    }
+    const child = spawn(process.execPath, ['--use-system-ca', SELF, '--serve'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      cwd: REPO_DIR,
+      env: { ...process.env, DSH_DISPATCH_CHILD: '1' },
+    });
+    child.unref();
+    console.log(`已拉起常驻调度器（pid=${child.pid}）`);
+    return;
+  }
+
   const lock = acquireLock();
   if (!lock.ok) {
-    log(`已有调度器在跑（pid=${lock.holder.pid} 起于 ${lock.holder.at}），本次直接退出`);
+    // 计划任务每 5 分钟拿 --once 来敲门，常驻进程在跑时不该刷日志
+    if (!ONCE) log(`已有调度器在跑（pid=${lock.holder.pid} 起于 ${lock.holder.at}），本次直接退出`);
     return;
   }
   process.on('exit', lock.release);
+  log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
   await pollOnce();
@@ -603,6 +639,12 @@ async function main() {
   if (ONCE) return;
   while (true) {
     await new Promise((r) => setTimeout(r, INTERVAL));
+    // 常驻进程要确认锁还是自己的：卡死超过 LOCK_STALE_MS 后会被别人接管，
+    // 那时自己必须退出，不能变成两个调度器同时抢 worktree。
+    if (!ownsLock()) {
+      log(`锁已被接管（pid=${process.pid} 不再是持有者），常驻进程退出`);
+      return;
+    }
     try {
       await pollOnce();
       await checkAgentPRs();

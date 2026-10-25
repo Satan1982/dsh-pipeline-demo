@@ -154,15 +154,36 @@ powershell -ExecutionPolicy Bypass -File ci\install-task.ps1 -Remove
 每轮只跑 `--once` 就退出，进程崩溃不影响下一次触发；`MultipleInstances IgnoreNew` 防止上一轮没跑完时叠加；单轮 40 分钟硬上限，卡死会被系统杀掉。token 由 `dispatch.mjs` 自己从
 `D:\code\.secrets\github-token.txt` 读，不写进任务定义。
 
-**B. 当前终端常驻**
+**B. 常驻进程（推荐，打开即用）**
 
 ```bash
-node --use-system-ca ci/dispatch.mjs
+node --use-system-ca ci/dispatch.mjs --ensure   # 没有常驻进程就脱离父进程拉起一个
+node --use-system-ca ci/dispatch.mjs --serve    # 前台常驻（调试用，Ctrl+C 停）
+node --use-system-ca ci/dispatch.mjs            # 等价于 --serve
 ```
 
-默认每 60 秒一轮（`DSH_POLL_INTERVAL` 按秒调），Ctrl+C 停。
+`--ensure` 幂等：已有常驻进程时只打印 `常驻调度器已在运行（pid=…）` 就退出，不持锁、不等任务，
+所以登录自启、手动重复点击都安全。常驻进程每 60 秒一轮（`DSH_POLL_INTERVAL` 按秒调）。
 
-两种形态都只做「领取 → 干活 → 推分支 → 开 PR」，**不会自动合 PR**。
+**B2. 登录自启（不需要提权）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1
+powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
+```
+
+写的只是 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `DSHDispatcher`，
+命令是 `node --use-system-ca <repo>\ci\dispatch.mjs --ensure`，注册后立即生效一次。
+
+**A 和 B 可以并存**：常驻进程持锁时，计划任务的 `--once` 会静默秒退（实测 119ms，不写日志），
+所以不会再出现「每 5 分钟冷启动 + label 索引空转」的噪声；常驻进程挂了，下一轮 `--once` 会接管。
+
+**锁与接管**
+
+- `.logs/dispatch.lock` 里是 `{pid, at}`；判定顺序：文件不存在 → 拿锁；持有者进程活着且锁龄 < `TIMEOUT + 10min` → 退出；否则按陈旧锁接管并记一行日志。
+- 常驻进程每轮轮询前用 `ownsLock()` 确认锁还是自己的，被别人接管就主动退出——否则卡死超过判定窗口后会变成两个调度器抢同一批 worktree。
+
+三种形态都只做「领取 → 干活 → 推分支 → 开 PR」，**不会自动合 PR**。
 
 > **A 需要提权**：实测本机 DSH 进程是 `zhao\administrator` 但 `elevated: False`，
 > `Register-ScheduledTask` 和 `schtasks /Create` 都直接 `Access is denied`（连
@@ -170,76 +191,4 @@ node --use-system-ca ci/dispatch.mjs
 > PowerShell 里跑一次：右键「以管理员身份运行」→
 > `powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\dsh-pipeline-demo\ci\install-task.ps1`
 >
-> 在那之前只有 B 可用——DSH 一关，调度器就停。
-
-> 计划任务里的 PATH 不含 node/git，所以 `dispatch.mjs` 会把当前 node 与 git 的目录
-> 拼进子进程 PATH（`CHILD_PATH`），否则被调起的 agent 在 `verify.sh` 里跑 `node`
-> 会 `command not found`。
-
-> 全局 `insteadOf` 规则把 `https://github.com/` 重写成 `ghfast.top` 镜像，而全局
-> `credential.helper=manager` 给镜像的凭据是错的：实测走 GCM 时 `git fetch` 3/3 报
-> `remote: Repository not found.`，禁用 GCM、只用 `GIT_ASKPASS` 后 3/3 成功（~2s）。
-> 因此 `dispatch.mjs` 的所有 git 调用都带 `-c credential.helper=`。
-
-## 已知限制
-
-- **label 索引延迟**：刚创建的 issue 立刻跑 `--once` 可能查不到（实测间隔约 10s）。
-- **PR 仍要人合**：并发的是实现阶段，PR 一个一个合；两个 issue 改同一文件会产生冲突，要人裁决。
-- **模型能力上限**：29B 对「跨 3 个文件、需要判断改动边界」的任务会漏东西（见上表），复杂需求加 `model:strong` 或人工拆小。
-- **Node 证书**：脚本会自动用 `--use-system-ca` 重启自己，否则 api.github.com 报 `unable to verify the first certificate`。
-- **无失败指纹库**：同一类失败第三次重试还是从头试，没有跨 issue 的历史教训（Hindsight 里可以补，尚未接）。
-
-## 评审层（push 之前拦）
-
-`ci/review.mjs` 在调度器 push 之前看 diff，判定「这不该被推上去」。它不做审美判断，只做机械判定：
-
-| 规则 | 级别 | 挡的是什么 |
-|---|---|---|
-| `forbidden-path` | block | 改 `.github/workflows/*` |
-| `debug-residue` | block | `BROKEN`、`debugger`、冲突标记、`.only`、调试日志 |
-| `test-removed` / `assert-removed` | block | 删用例、删断言（比等 CI 红更早一步） |
-| `baseline-unsynced` | block | 改了测试却没 `--bless`（PR #22 就是这么混过去的） |
-| `dependency-added` | block | 新增依赖未人工批准 |
-| `gate-modified` | block | 动了门禁脚本（`verify.sh` / `assert-guard.mjs` / `ci/dispatch.mjs` / `ci/review.mjs`）；确需改动时在 issue 打 `allow:gate` label，降为提示 |
-| `diff-large` | warn | 单次新增 > 400 行 |
-
-同时 `runTask` 不再采信 agent 的自述：headless 结束后调度器自己在同一 worktree 里跑一遍
-`bash scripts/verify.sh`，红了直接重试。两者顺序是 独立门禁 → commit → 评审 → push。
-
-手动跑：`node ci/review.mjs`（默认对比 `origin/main`）。
-
-## 失败指纹库
-
-`docs/failures.jsonl` 是追加写的失败账本，每条记录：
-
-```
-{"fp":"指纹前16位","sig":"症状骨架","issue":25,"attempt":1,"reason":"...","fix":"...","at":"..."}
-```
-
-- 指纹 = 归一化（抹掉 sha、时间、耗时、绝对路径）后的签名哈希，同类错误换张工单也是同一指纹。
-- 命中同指纹时，调度器把「上次根因 + 上次修法」直接插进 prompt。
-- 指纹不同但同一工单反复失败 = 在瞎试，这个信号人工看日志时一眼可见。
-
-## 可靠性补丁（2026-10-25 实测）
-
-| 故障 | 现象 | 修法 |
-|---|---|---|
-| 两个调度器并发 | 计划任务每 5 分钟一轮，手动 `--once` 撞上去，两个进程抢同一 worktree 与分支，互相 `worktree remove --force`，外部表现是「agent 未产生任何改动」这种假故障 | `.logs/dispatch.lock` 单实例锁（`writeFileSync(...,{flag:'wx'})` + pid 存活探测 + 超时接管），第二个进程打一行日志后直接退出 |
-| `BUNDLE_DIR` 拼错 | `node/bin/node.exe` 只上溯两级落到 `dependencies/node`，`PNPM_CLI` 指向不存在的文件，门禁打包步骤必挂 | 上溯三级到 `dependencies`；`verify.sh` 遇到不存在的 `PNPM_CLI` 直接报路径，不再让 node 抛 `MODULE_NOT_FOUND` |
-| 29B 模型撞 TPM | 长推理任务跑一半 `RATE_LIMIT: 429 {"code":50602,"message":"... TPM limit reached"}`，agent 停在「Now I'll add ...」不再动手，退出码 0 或 1 都可能是这个原因 | 这类任务挂 `model:strong`（DeepSeek-V4.1-Flash），实测 #27 同题 29B 三次全废、strong 一次成 |
-
-排障落盘物（都在 `.logs/`，已 gitignore）：
-- `dispatch.log`：调度器自身日志，>5MB 轮转为 `.1`
-- `issue-<n>-attempt-<m>.log`：该次 headless 的完整 stdout/stderr
-- `issue-<n>-attempt-<m>.prompt.md`：该次实际喂给 agent 的提示词，用来确认记忆库/上一轮失败原因有没有真的注入
-
-## 模型路由
-
-| 情况 | 走哪个模型 |
-|---|---|
-| 第一次尝试 | 默认 29B（免费、便宜） |
-| 第 2 次及以后（重试升级） | `DeepSeek-V4.1-Flash`，日志里标 `model=strong(重试升级)` |
-| issue 带 `model:strong` | 第一次就用强模型 |
-
-理由：29B 在长推理任务上会撞 TPM 限流（`429 code 50602`）停在「Now I'll add ...」不动，
-让同一个弱模型重试三次没有意义；第二次直接换模型，实测 issue #33 第 2 次 45s 成功。
+> 而 B2（HKCU Run）不需要提权，是默认推荐路径。
