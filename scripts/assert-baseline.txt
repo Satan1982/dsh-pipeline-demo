@@ -30,6 +30,7 @@
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
+1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
 1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
@@ -72,6 +73,7 @@
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
+1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
@@ -119,6 +121,7 @@
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
+1 e86ec0a676f628a8 assert.match(p, /调度器已经跑过的验收命令/);
 5 e87721083461fadd assert.equal(r.verdict, 'block');
 1 ea4d4e985c585f4d assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');
 1 eb385586462ab0fd assert.equal(headlessKind('boom', '', 137), 'agent-exit-137');

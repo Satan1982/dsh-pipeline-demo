@@ -57,7 +57,7 @@ export function collectDiff(cwd, base = 'origin/main') {
   };
 }
 
-export function buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files = [] }) {
+export function buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files = [], acceptanceNote = '' }) {
   const fileList = files.length
     ? files.map((f) => `- ${f.status}  ${f.path}`).join('\n')
     : '（git 没有报出任何文件变化）';
@@ -73,7 +73,7 @@ ${goal}
 
 ## 约束
 ${constraints || '（无额外约束）'}
-
+${acceptanceNote ? `\n## 调度器已经跑过的验收命令\n${acceptanceNote}\n` : ''}
 ## 本次提交实际改动的文件（git diff --name-status，可信）
 ${fileList}
 
@@ -85,6 +85,7 @@ ${diffText}
 ## 判定口径
 - \`block\`：你能**指名**某条验收标准没满足；或已有测试/断言被改弱、被删；或实现的行为与验收文字直接矛盾（例如要求抛错却返回了 undefined）。必须写出是第几条、缺什么。
 - 要 block「某个文件没有改」，先确认它不在上面的改动清单里；清单里有的文件，不要声称它没被修改。
+- 需求可能**已经被之前的合并实现了**（这次只是补测试/补基线，所以 diff 里只有测试文件）。这种情况只要最终代码满足验收就判 pass，不要因为「源码文件没出现在 diff 里」而 block。
 - 引用具体代码时请抄 diff 里的原文；不要凭印象描述实现。
 - \`warn\`：命名、可读性、性能、注释等不影响验收的问题。
 - 不要因为「风格不合你口味」block；没有证据不要猜测。改动的实现方式与你的偏好不同，但满足验收 —— 判 pass。
@@ -177,6 +178,7 @@ export async function reviewSemantically({
   constraints = '',
   diffText,
   files = [],
+  acceptanceNote = '',
   issueNumber = 0,
   title = '',
   credential = process.env[CRED_KEY] || readCredential(),
@@ -185,7 +187,7 @@ export async function reviewSemantically({
   timeoutMs = Number(process.env.DSH_REVIEW_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
   mockPath = process.env.DSH_REVIEW_MOCK || '',
 } = {}) {
-  const prompt = buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files });
+  const prompt = buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files, acceptanceNote });
 
   // 测试钩子：直接读一个 JSON 文件当作模型输出，用来端到端验证 block 路径（不花钱、可复现）。
   if (mockPath && existsSync(mockPath)) {

@@ -62,6 +62,16 @@ test('提示词里带改动文件清单，并禁止否认清单内的文件', ()
   assert.match(p, /不要声称它没被修改/);
 });
 
+test('提示词里带调度器已跑过的验收命令，且允许「实现已存在」', () => {
+  const p = buildReviewPrompt({
+    issueNumber: 8, title: 't', goal: 'g', acceptance: 'a', diffText: '+x', files: [],
+    acceptanceNote: '调度器已在本 worktree 里执行过验收命令，全部 exit 0：\n```\nnode -e "0"\n```',
+  });
+  assert.match(p, /调度器已经跑过的验收命令/);
+  assert.match(p, /全部 exit 0/);
+  assert.match(p, /已经被之前的合并实现/);
+});
+
 test('mock 文件可以强制 block，且不调用网络', async () => {
   const dir = tmp();
   const mock = path.join(dir, 'verdict.json');

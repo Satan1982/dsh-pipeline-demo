@@ -396,11 +396,17 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     } catch { /* 落盘失败不影响主流程 */ }
     const outTail = (r.out || '').trim().split('\n').filter(Boolean).slice(-12).join('\n');
 
-    // agent 不应碰 origin/main
+    // agent 不应碰 origin/main。但并发跑时人（或另一个调度器）也可能在这期间合并了 main，
+    // 所以不能只看「origin/main 变没变」——那会把别人的合法合并当成 agent 越界（#49 就这么被误杀过）。
+    // 只有 main 的新 tip 长得像 agent 自己提交的（提交信息是我们的固定格式）才算越界。
     await git(['fetch', 'origin', 'main', '--quiet']);
     const mainAfter = (await git(['rev-parse', 'origin/main'])).out.trim();
     if (mainAfter !== mainBefore) {
-      throw new Error('agent 修改了 origin/main（明确禁止），已中止。请检查 gh-push.sh 的使用。');
+      const tip = (await git(['log', '-1', '--format=%s', 'origin/main'])).out.trim();
+      if (/^agent: (issue #\d+|fix CI for issue #\d+)/.test(tip)) {
+        throw new Error(`agent 把提交推到了 origin/main（明确禁止），已中止：${tip}`);
+      }
+      log(`${tag} ℹ 任务期间 origin/main 前进（外部合并：${tip}），继续`);
     }
 
     const status = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out.trim();
@@ -476,6 +482,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const semantic = diff.ok
       ? await reviewSemantically({
         issueNumber: n, title: issue.title, goal, acceptance, constraints, diffText: diff.text, files: diff.files,
+        acceptanceNote: acceptanceCmds ? `调度器已在本 worktree 里执行过验收命令，全部 exit 0：\n\`\`\`\n${acceptanceCmds}\n\`\`\`` : '',
       })
       : {
         ok: false,
