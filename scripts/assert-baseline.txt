@@ -13,6 +13,7 @@
 1 142ddf6ec2c0d7a5 assert.equal(wordCount('a b c'), 3);
 1 14e58d67102137a4 assert.equal(groups.length, 2);
 12 171d4db9216880f9 assert.equal(r.ok, false);
+1 1959ba1d9479f6c2 assert.equal(merged.model, FREE_REVIEW_MODEL);
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
 1 1ac79781a2ab86d3 assert.equal(sumRange(1, 5), 15);
 1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
@@ -44,6 +45,7 @@
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
 1 3c7d29cbd0e44d6e assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
+1 3d1af4b9cf45e472 assert.equal(merged.reviewers[0].tier, 'free');
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
@@ -61,6 +63,7 @@
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
 1 4a0af7bc7a29be85 assert.throws(() => chunk('abc', 1.5), RangeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
+1 4c142bec865a92f8 assert.equal(merged.reviewers.length, 1);
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
@@ -71,18 +74,20 @@
 1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
 2 5472ab9d99af661c assert.equal(merged.verdict, 'block');
 1 56734436da90d0af assert.equal(cube(0), 0);
+1 56b2cd18e58903ae assert.match(merged.escalatedFrom, /凭证/);
 1 579405978276dd0f assert.equal(d.ok, true);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
 1 5cd19d3b0ca3b5ff assert.equal(panelModels('').length, 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
+1 60b6c6b3c613cdd7 assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
-1 689bf358a088942b assert.equal(merged.verdict, 'pass');
+4 689bf358a088942b assert.equal(merged.verdict, 'pass');
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
@@ -90,6 +95,7 @@
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
 1 7062b3aa3f965cb8 assert.deepEqual(parseVerdict('全部断言通过'), { verdict: 'unknown', reason: '' });
 1 70cdfe13375bf45a assert.equal(skipped.verdict, 'skipped');
+1 714d0021ff0ecd11 assert.equal(merged.paidUsed, false);
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 2 733fa19245e2866c assert.equal(f.severity, 'warn');
@@ -110,6 +116,7 @@
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
+2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
 1 8968b1fb9790feed assert.ok(r.findings.some((f) => f.rule === 'forbidden-path'));
 1 89be954b7641ce0f assert.deepEqual(words(' a\tb\n '), ['a', 'b']);
@@ -120,6 +127,7 @@
 1 8fc54f849508e5e5 assert.equal(excerpt('abcdef', -2), '');
 1 91a4b94e3232a88d assert.equal(roundTo(0, 2), 0);
 1 923b98e0a068a735 assert.ok(!out.includes('node:internal'));
+1 93ab4b55cab147ff assert.equal(merged.freeModel, FREE_REVIEW_MODEL);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
@@ -135,6 +143,7 @@
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
 1 a0f1d2bd56df4400 assert.equal(classifyConflicts(['scripts/baseline.txt']).kind, 'manual');
 1 a18ca483e9b6b2a2 assert.equal(absValue(3), 3);
+1 a196f516d59ab5d5 assert.equal(merged.tier, 'free');
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
 1 a596f1d7945025cf assert.equal(classifyConflicts(['', ' ']).kind, 'none');
@@ -183,8 +192,10 @@
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 1 cd198ae7248c5b40 assert.ok(r.findings.some((f) => f.rule === 'test-removed'));
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
+1 ce5e07a4a9754be6 assert.equal(merged.tier, 'paid');
 1 cff988c7528a46ef assert.deepEqual(parseVerdict(''), { verdict: 'unknown', reason: '' });
 1 d0759d0cb0e8b221 assert.equal(r.findings[0].file, 'src/x.js');
+1 d2fd8c92b9f744f3 assert.match(formatSemantic(merged), /\[付费\]/);
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');

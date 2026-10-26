@@ -265,8 +265,15 @@ export function aggregateReviewers(reviewers) {
   };
 }
 
-/** 并行跑评审团；mockPaths 与 models 一一对应（测试用）。 */
-export async function reviewWithPanel(options = {}) {
+/**
+ * 免费档模型：账号在 siliconflow 的免费额度模型。先用它单独评审，跑得通就不花一分钱。
+ * 只有它不可用（没凭证、4xx/5xx、超时、输出解析不出 verdict）才切到付费面板——
+ * 切换这件事必须让人看见，调用方据此写日志 / PR body / 评论。
+ */
+export const FREE_REVIEW_MODEL = process.env.DSH_REVIEW_FREE_MODEL || 'XingChenAGI/Xing4.0-29B';
+
+/** 并行跑付费面板；mockPaths 与 models 一一对应（测试用）。 */
+async function runPanel(options = {}) {
   const models = options.models ?? panelModels();
   const mocks = options.mockPaths ?? null;
   const reviewers = await Promise.all(
@@ -274,10 +281,41 @@ export async function reviewWithPanel(options = {}) {
       const r = await reviewSemantically({ ...options, model, mockPath: mocks ? mocks[i] ?? '' : options.mockPath });
       // 单个评审器在 mock 模式下会把 model 写成 mock:<path>；评审团要的是「哪个评审器说了什么」，
       // 所以这里统一按调用时给的模型名记录。
-      return { ...r, model };
+      return { ...r, model, tier: 'paid' };
     }),
   );
   return aggregateReviewers(reviewers);
+}
+
+/**
+ * 免费优先的评审入口：免费模型能给出结论就用它；不能才切付费面板，并标记 paidUsed。
+ * `skipFree: true` 或 `DSH_REVIEW_SKIP_FREE=1` 时直接走付费面板（调试/急需更强判断时用）。
+ */
+export async function reviewWithPanel(options = {}) {
+  const skipFree = options.skipFree ?? process.env.DSH_REVIEW_SKIP_FREE === '1';
+  if (skipFree) {
+    return { ...(await runPanel(options)), tier: 'paid', paidUsed: false, skippedFree: '按配置跳过免费档' };
+  }
+
+  const freeModel = options.freeModel ?? FREE_REVIEW_MODEL;
+  const free = await reviewSemantically({ ...options, model: freeModel });
+  // 29B 免费模型有时不回 JSON（实测 2026-10-26：输出了一堆分析、没有结论对象）。
+  // 这不等于「代码有问题」，只等于「免费档给不出可用的裁决」——按不可用处理，切付费面板。
+  const unparsable = (free.findings ?? []).some((f) => f.rule === 'semantic-unparseable');
+  if (free.verdict !== 'skipped' && !unparsable) {
+    const reviewers = [{ ...free, model: freeModel, tier: 'free' }];
+    return { ...aggregateReviewers(reviewers), model: freeModel, tier: 'free', paidUsed: false };
+  }
+
+  // 免费档不可用：切付费面板，并把「为什么切」带回去给调用方展示。
+  const paid = await runPanel(options);
+  return {
+    ...paid,
+    tier: 'paid',
+    paidUsed: true,
+    freeModel,
+    escalatedFrom: unparsable ? '免费模型没有按格式返回 JSON 结论' : free.skipped || '免费评审器不可用',
+  };
 }
 
 export function formatSemantic(result) {
@@ -288,8 +326,9 @@ export function formatSemantic(result) {
     : '';
   const cost = result.tokens ? `，tokens=${result.tokens}` : '';
   const head = panel ? `${panel}${cost}；` : '';
-  if (result.verdict === 'skipped') return `${head}跳过（${result.skipped}）`;
+  const mark = result.paidUsed ? '[付费] ' : '';
+  if (result.verdict === 'skipped') return `${head}${mark}跳过（${result.skipped}）`;
   const lines = result.findings.map((f) => `${f.severity === 'block' ? '✗ 阻断' : '⚠ 提示'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
-  if (lines.length === 0) return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
+  if (lines.length === 0) return `${head}${mark}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
   return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model ?? 'panel'}）\n${lines.join('\n')}`;
 }

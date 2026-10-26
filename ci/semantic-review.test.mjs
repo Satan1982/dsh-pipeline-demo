@@ -13,6 +13,7 @@ import {
   aggregateReviewers,
   reviewWithPanel,
   panelModels,
+  FREE_REVIEW_MODEL,
 } from './semantic-review.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'sem-review-'));
@@ -157,6 +158,8 @@ test('reviewWithPanel 逐个模型取自己的 mock，并把每个结论记在 r
     diffText: 'diff content',
     models: ['m-ok', 'm-bad'],
     mockPaths: [okFile, badFile],
+    skipFree: true,
+    credential: '',
   });
   assert.equal(merged.verdict, 'block');
   assert.equal(merged.reviewers.length, 2);
@@ -168,4 +171,67 @@ test('reviewWithPanel 逐个模型取自己的 mock，并把每个结论记在 r
 test('panelModels 默认两个不同家族，可用环境变量覆盖', () => {
   assert.equal(panelModels('').length, 2);
   assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
+});
+
+test('免费档能出结论时就不花一分钱', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'panel-free-'));
+  const okFile = path.join(dir, 'ok.json');
+  writeFileSync(okFile, JSON.stringify({ verdict: 'pass', findings: [] }));
+
+  const merged = await reviewWithPanel({
+    goal: '加一个函数',
+    acceptance: '函数返回 1',
+    diffText: 'diff content',
+    mockPath: okFile,
+    credential: '',
+  });
+  assert.equal(merged.tier, 'free');
+  assert.equal(merged.paidUsed, false);
+  assert.equal(merged.verdict, 'pass');
+  assert.equal(merged.model, FREE_REVIEW_MODEL);
+  assert.equal(merged.reviewers.length, 1);
+  assert.equal(merged.reviewers[0].tier, 'free');
+});
+
+test('免费档不可用时切付费面板，并把原因带出来（用于告知）', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'panel-paid-'));
+  const okFile = path.join(dir, 'ok.json');
+  writeFileSync(okFile, JSON.stringify({ verdict: 'pass', findings: [] }));
+
+  // 没有凭证 ⇒ 免费档 skipped；面板走 mock（panel 分支在读凭证之前返回）。
+  const merged = await reviewWithPanel({
+    goal: '加一个函数',
+    acceptance: '函数返回 1',
+    diffText: 'diff content',
+    models: ['m1', 'm2'],
+    mockPaths: [okFile, okFile],
+    credential: '',
+  });
+  assert.equal(merged.tier, 'paid');
+  assert.equal(merged.paidUsed, true);
+  assert.equal(merged.freeModel, FREE_REVIEW_MODEL);
+  assert.match(merged.escalatedFrom, /凭证/);
+  assert.equal(merged.verdict, 'pass');
+  assert.match(formatSemantic(merged), /\[付费\]/);
+});
+
+test('免费档回了非 JSON（给不出裁决）也按不可用处理，切付费面板', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'panel-garbage-'));
+  const junk = path.join(dir, 'junk.txt');
+  const ok = path.join(dir, 'ok.json');
+  writeFileSync(junk, '这段代码看起来不错，可以合并。');
+  writeFileSync(ok, JSON.stringify({ verdict: 'pass', findings: [] }));
+
+  const merged = await reviewWithPanel({
+    goal: 'g',
+    acceptance: 'a',
+    diffText: 'd',
+    mockPath: junk,
+    models: ['m1', 'm2'],
+    mockPaths: [ok, ok],
+    credential: '',
+  });
+  assert.equal(merged.paidUsed, true);
+  assert.equal(merged.verdict, 'pass');
+  assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
 });

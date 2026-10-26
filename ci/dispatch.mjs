@@ -621,6 +621,25 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       };
     const semMs = Date.now() - semT0;
     log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}（${Math.round(semMs / 1000)}s，${(diff.files ?? []).length} 个文件）`);
+    if (semantic.paidUsed) {
+      // 用户要求：评审一旦用到付费模型必须告知。三重留痕——日志、issue 评论、PR body。
+      log(`${tag} ⚠ 语义评审切到付费面板（免费模型 ${semantic.freeModel} 不可用：${semantic.escalatedFrom}）`);
+      try {
+        await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+          body: [
+            '⚠️ 这次语义评审用了**付费模型**。',
+            '',
+            `- 免费档模型：\`${semantic.freeModel}\``,
+            `- 免费档不可用原因：${semantic.escalatedFrom}`,
+            `- 实际使用的付费模型：${(semantic.reviewers ?? []).filter((r) => r.verdict !== 'skipped').map((r) => `\`${r.model}\``).join('、') || '（全部不可用）'}`,
+            '',
+            '这个原因反复出现就说明免费额度或凭证需要处理。',
+          ].join(String.fromCharCode(10)),
+        });
+      } catch (e) {
+        log(`${tag} ⚠ 付费切换的 issue 评论没发出去：${e.message}`);
+      }
+    }
     if (semantic.verdict === 'skipped') {
       // 放行但必须留痕：凭证失效/网络故障时这一层会静默消失，只有日志里一行就会没人发现。
       log(`${tag} ⚠ 语义评审未执行（这一层等于没有）：${semantic.skipped}`);
@@ -645,7 +664,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 独立门禁 \`bash scripts/verify.sh\`：通过（调度器自己跑的，不采信 agent 自述）`,
         `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
-        `- 语义评审：${formatSemantic(semantic).split('\n')[0]}`,
+        `- 语义评审：${formatSemantic(semantic).split(String.fromCharCode(10))[0]}${semantic.paidUsed ? `（⚠ 免费模型 ${semantic.freeModel} 不可用，已切付费）` : ''}`,
         `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
         '',
@@ -822,6 +841,7 @@ ${logText.slice(-8000)}
         model: '-',
       };
     log(`${tag} 语义评审：${formatSemantic(rsem).split('\n')[0]}（${(rdiff.files ?? []).length} 个文件）`);
+    if (rsem.paidUsed) log(`${tag} ⚠ 语义评审切到付费面板（免费模型 ${rsem.freeModel} 不可用：${rsem.escalatedFrom}）`);
     if (!rsem.ok) throw new Error(`语义评审拒绝（修复未推送）：\n${formatSemantic(rsem)}`);
 
     await pushWithRetry(wt, `${branch}:${branch}`);

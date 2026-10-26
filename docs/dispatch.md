@@ -371,3 +371,27 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 
 步骤固定为：工作区必须干净 → 跑 `scripts/verify.sh` → 改 `package.json` 版本 → 提交 `Release vX.Y.Z`
 → 打 annotated tag → （加 `--push` 时）退避重试推送并打印 Release 链接。
+
+## 评审的免费优先与付费告知（2026-10-26）
+
+语义评审按「免费优先」跑，规则写在 `ci/semantic-review.mjs` 的 `reviewWithPanel`：
+
+1. 先用免费档模型 `XingChenAGI/Xing4.0-29B`（`FREE_REVIEW_MODEL`，账号免费额度内）单独评审。
+   拿到合法 `verdict` 就结束——这一单的语义评审不花钱。
+2. 免费档**给不出裁决**才切付费面板（默认 `Qwen/Qwen3.5-122B-A10B` + `moonshotai/Kimi-K2.7-Code`）。
+   「给不出裁决」包括：没有凭证、HTTP 4xx/5xx、超时、以及**没按格式回 JSON**（29B 实测会这样）。
+3. 一旦切了付费，三处同时留痕：`dispatch.log` 的 `⚠ 语义评审切到付费面板（免费模型 … 不可用：原因）`、
+   issue 上的评论（写明免费档模型、原因、实际用了哪些付费模型）、PR body 的「语义评审」行标注 `⚠ 免费模型不可用，已切付费`。
+   `formatSemantic` 的结果里也带 `[付费]` 前缀。
+
+可调环境变量：
+
+| 变量 | 作用 |
+| --- | --- |
+| `DSH_REVIEW_FREE_MODEL` | 换免费档模型（默认 `XingChenAGI/Xing4.0-29B`） |
+| `DSH_REVIEW_MODELS` | 覆盖付费面板成员（逗号分隔） |
+| `DSH_REVIEW_SKIP_FREE=1` | 直接走付费面板，不走免费档（急需强判断时用） |
+| `DSH_REVIEW_TIMEOUT_MS` | 单次评审超时（默认 240000） |
+
+实测（2026-10-26）：免费档对同一 diff 回了「分析 + 没有 JSON 结论」→ 触发升级 → 付费面板 Qwen+Kimi 在 43 秒内给出
+两条具体 block（点名验收里要求的文件没改、约束被违反）。免费档 3037 tokens、34 秒。
