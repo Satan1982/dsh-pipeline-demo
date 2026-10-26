@@ -19,7 +19,7 @@
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync, rmdirSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
@@ -60,6 +60,40 @@ const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
 const RATE_LIMIT_MAX = Number(process.env.DSH_RATE_LIMIT_MAX ?? 4);
 const RATE_LIMIT_RETRIES = new Map();
+// dsh 每个 headless 运行都会在 <home>/.dsh/sessions/<cwd 转义>/session-<uuid>/ 下留一份会话。
+// worktree 用完就删了，这些会话会一直堆着（2026-10-26 实测 2 天堆了 95 个）。开机时把「工作区已不存在」
+// 的那些整体移进 sessions-archived/pipeline-old（只搬不删），并清掉空的转义壳。
+const SESSIONS_DIR = path.join(HOME, '.dsh', 'sessions');
+const SESSIONS_ARCHIVE = path.join(HOME, '.dsh', 'sessions-archived', 'pipeline-old');
+
+function escapeCwd(p) {
+  return '--' + p.replace(/:/g, '').replace(/[\/]/g, '-') + '--';
+}
+
+async function pruneDeadSessions() {
+  const listed = (await git(['worktree', 'list', '--porcelain'])).out;
+  const live = new Set(
+    listed.split(NL).filter((l) => l.startsWith('worktree ')).map((l) => escapeCwd(l.slice('worktree '.length).trim())),
+  );
+  if (!existsSync(SESSIONS_DIR)) return 0;
+  let moved = 0;
+  for (const shard of readdirSync(SESSIONS_DIR)) {
+    const dir = path.join(SESSIONS_DIR, shard);
+    if (!shard.includes('.worktrees') || live.has(shard)) continue;
+    for (const session of readdirSync(dir)) {
+      if (!session.startsWith('session-')) continue;
+      const dst = path.join(SESSIONS_ARCHIVE, shard, session);
+      try {
+        mkdirSync(path.dirname(dst), { recursive: true });
+        renameSync(path.join(dir, session), dst);
+        moved += 1;
+      } catch { /* 单个搬不动不影响其它 */ }
+    }
+    try { if (!readdirSync(dir).length) rmdirSync(dir); } catch { /* 非空就算了 */ }
+  }
+  return moved;
+}
+
 // 每个工单最近一次 headless 跑在哪个会话里；只有限流/进程没起来这类环境噪声才复用它。
 const ISSUE_SESSION = new Map();
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
@@ -1278,6 +1312,10 @@ async function main() {
   process.on('exit', lock.release);
   log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
   const pruned = pruneLogs();
+  try {
+    const archivedSessions = await pruneDeadSessions();
+    if (archivedSessions) log(`归档 ${archivedSessions} 个已删 worktree 的会话（移到 sessions-archived/pipeline-old）`);
+  } catch (e) { log(`会话归档跳过：${e.message}`); }
   if (pruned) log(`清理 ${pruned} 个超过 ${LOG_RETENTION_DAYS} 天的尝试日志`);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
