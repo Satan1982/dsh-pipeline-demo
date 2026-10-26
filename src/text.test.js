@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords, shortHash } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -131,4 +131,27 @@ test('truncateWords rejects a negative word count', () => {
 
 test('truncateWords rejects non-string input', () => {
   assert.throws(() => truncateWords(123, 2), TypeError);
+});
+
+test('shortHash is stable across calls for the same input', () => {
+  assert.equal(shortHash('hello'), shortHash('hello'));
+  assert.equal(shortHash(''), shortHash(''));
+});
+
+test('shortHash returns different hashes for different inputs', () => {
+  assert.notEqual(shortHash('a'), shortHash('b'));
+});
+
+test('shortHash returns h followed by six lowercase hex digits', () => {
+  assert.match(shortHash('anything'), /^h[0-9a-f]{6}$/);
+  assert.match(shortHash(''), /^h[0-9a-f]{6}$/);
+  assert.match(shortHash('中文'), /^h[0-9a-f]{6}$/);
+});
+
+test('shortHash pins the FNV-1a 32-bit value of a known input', () => {
+  assert.equal(shortHash('hello'), 'h9f2cab');
+});
+
+test('shortHash rejects non-string input', () => {
+  assert.throws(() => shortHash(123), TypeError);
 });
