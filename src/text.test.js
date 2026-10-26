@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -111,4 +111,24 @@ test('shout returns a single exclamation for empty input', () => {
 
 test('shout rejects non-string input', () => {
   assert.throws(() => shout(123), TypeError);
+});
+
+test('truncateWords keeps only the first n words', () => {
+  assert.equal(truncateWords('a b c d', 2), 'a b');
+});
+
+test('truncateWords returns the whole text when it has fewer words than n', () => {
+  assert.equal(truncateWords('a b', 5), 'a b');
+});
+
+test('truncateWords returns an empty string for empty input', () => {
+  assert.equal(truncateWords('', 3), '');
+});
+
+test('truncateWords rejects a negative word count', () => {
+  assert.throws(() => truncateWords('a b', -1), RangeError);
+});
+
+test('truncateWords rejects non-string input', () => {
+  assert.throws(() => truncateWords(123, 2), TypeError);
 });

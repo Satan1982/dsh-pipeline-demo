@@ -19,6 +19,16 @@ export function excerpt(text, n) {
   return text.length > n ? `${text.slice(0, n)}…` : text;
 }
 
+export function truncateWords(text, n) {
+  if (typeof text !== 'string') {
+    throw new TypeError('truncateWords expects a string');
+  }
+  if (n < 0) {
+    throw new RangeError('truncateWords expects a non-negative word count');
+  }
+  return words(text).slice(0, n).join(' ');
+}
+
 export function chunk(text, size) {
   if (typeof text !== 'string') {
     throw new TypeError('chunk expects a string');

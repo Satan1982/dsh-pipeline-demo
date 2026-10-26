@@ -46,6 +46,7 @@
 1 337797164293fa1b assert.equal(absValue(0), 0);
 1 36adcb5d07ac7b37 assert.throws(() => shout(123), TypeError);
 1 3940250b0cec9530 assert.equal(reverseEachWord(''), '');
+1 39c12bc8378dc311 assert.equal(truncateWords('', 3), '');
 1 3a3dd54a3e4adb24 assert.equal(shout('hi'), 'HI!');
 1 3b62fb20bc3f003e assert.deepEqual(u, { inputTokens: 0, outputTokens: 0, totalTokens: 0, steps: 0 });
 1 3bdf4e337d3417e3 assert.equal(r.kind, 'manual');
@@ -129,6 +130,7 @@
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
+1 7f1005bbdd172666 assert.equal(truncateWords('a b c d', 2), 'a b');
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
@@ -148,6 +150,7 @@
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
+1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
@@ -158,6 +161,7 @@
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
 1 a0f1d2bd56df4400 assert.equal(classifyConflicts(['scripts/baseline.txt']).kind, 'manual');
+1 a1065aed767ce161 assert.throws(() => truncateWords(123, 2), TypeError);
 1 a18ca483e9b6b2a2 assert.equal(absValue(3), 3);
 1 a196f516d59ab5d5 assert.equal(merged.tier, 'free');
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
@@ -204,6 +208,7 @@
 1 c58083f2b5f9e892 assert.equal(headlessKind('== verify: FAILED ==\n拒绝：测试数量从 40 降到 39', '', 1), 'agent-gate-red');
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
 1 c72bab1588f71090 assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
+1 c7714e1a5392182c assert.throws(() => truncateWords('a b', -1), RangeError);
 3 c89c8148c69a08d6 assert.equal(fingerprint(a), fingerprint(b));
 1 c9104e64a26a2488 assert.equal(sumRange(3, 3), 3);
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
