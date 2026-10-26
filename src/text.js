@@ -40,6 +40,13 @@ export function reverseEachWord(text) {
   return text.replace(/\S+/g, (word) => [...word].reverse().join(''));
 }
 
+export function shout(text) {
+  if (typeof text !== 'string') {
+    throw new TypeError('shout expects a string');
+  }
+  return `${text.toUpperCase()}!`;
+}
+
 export function initials(fullName) {
   if (typeof fullName !== 'string') {
     throw new TypeError('initials expects a string');
