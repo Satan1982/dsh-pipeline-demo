@@ -1028,7 +1028,7 @@ async function worktreeStatus(wt) {
   const out = (await run(GIT, ['status', '--porcelain'], { cwd: wt })).out;
   return out
     .split(NL)
-    .filter((line) => line.trim() && !/^\?\?\s+\.dsh\//.test(line.trim()))
+    .filter((line) => line.trim() && !/(^|\s)\.dsh\//.test(line.trim()))
     .join(NL)
     .trim();
 }
