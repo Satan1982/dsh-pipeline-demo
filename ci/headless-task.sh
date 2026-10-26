@@ -41,6 +41,14 @@ if [ -z "${SILICONFLOW_API_KEY:-}" ]; then
   export SILICONFLOW_API_KEY
 fi
 
+# 免费池的 modelscope key：同一个 refs 段（2026-10-27 加，免费强模型路由用）
+if [ -z "${MODELSCOPE_API_TOKEN:-}" ]; then
+  _ms=$(grep -m1 '^  MODELSCOPE_API_TOKEN:' "$CREDS" 2>/dev/null | sed 's/^[^:]*:[[:space:]]*//' | tr -d '
+')
+  if [ -n "$_ms" ]; then MODELSCOPE_API_TOKEN="$_ms"; export MODELSCOPE_API_TOKEN; fi
+  unset _ms
+fi
+
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 \"task text\"   |   printf '%s' \"task\" | $0 -" >&2
   exit 2

@@ -55,3 +55,17 @@ bash /d/code/.secrets/gh-push.sh v0.1.1     # main + tag -> triggers release.yml
 - 验收命令最后一行打印 `VERDICT: PASS` 或 `VERDICT: FAIL <原因>`：`FAIL` 一律失败，`PASS` 但 `exit != 0` 也失败；工单打了 `verdict:strict` 则没有 VERDICT 行直接失败。
 - 红线不靠提示词：worktree 的 `core.hooksPath` 指向 `.githooks`，`commit` 时由 `ci/precommit.mjs` 跑机械评审（禁止改 `.github/workflows/`、禁止调试占位符、禁止删测试/断言；改门禁需 `DSH_ALLOW_GATE=1` 且工单带 `allow:gate`）。
 - 失败指纹落在 `docs/failures.jsonl`（上限 500 行，超出淘汰最早的），重试时同一指纹的历史修法会回灌给 agent。
+
+## Cloud model access (shared free pool — never hardcode model names)
+
+When an agent in a worktree needs a cloud model (batch work, OCR, vision, translation, cheap long-tail calls), use the
+machine-wide free pool instead of guessing a model id:
+
+- Pick: `python C:\Users\Administrator\.dsh\tools\free-models\fm.py pick --kind chat|vision|image|ocr|mt --json`
+  (returns only `ok`/`stale`, sorted by latency)
+- Report every real use: `fm.py report --model <id> --ok|--fail [--ms N] [--detail "<err>"] --source dsh-pipeline-demo`
+- Read `stats.status`: `down` = unusable, `degraded` = fallback only, `stale` = usable with retry.
+  429 / 1305 / timeout is rate limiting (retry or switch), not a dead model; 401 / 404 / 400 "model does not exist" is real.
+- Registry (shared by all workspaces): `C:\Users\Administrator\.dsh\tools\free-models\free-models.json`.
+  Status is refreshed by `Free Model Heartbeat` (30 min) and `Free Model Probe` (daily 07:10); cost is 0.
+- Do not add a dependency or a provider key for this: the pool already covers siliconflow / zhipu / modelscope / OVH.

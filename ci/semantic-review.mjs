@@ -17,7 +17,22 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 
-export const DEFAULT_REVIEW_MODEL = 'Qwen/Qwen3.5-122B-A10B';
+// 模型 -> (端点, 凭据 ref)。免费池里不同平台端点不同，不能一个 baseURL 走天下。
+// paid=false 按 free-models.json 的 billing 证据判定免费（2026-10-27 核对：Xing4.0-29B 与
+// modelscope 的 DeepSeek-V4.1-Flash-1017 / GLM-5.2 账面 0 元）。
+export const MODEL_ROUTES = {
+  'XingChenAGI/Xing4.0-29B': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: false },
+  'Qwen/Qwen3.5-122B-A10B': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: true },
+  'moonshotai/Kimi-K2.7-Code': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: true },
+  'deepseek-ai/DeepSeek-V4.1-Flash-1017': { endpoint: 'https://api-inference.modelscope.cn/v1/chat/completions', cred: 'MODELSCOPE_API_TOKEN', paid: false },
+  'ZhipuAI/GLM-5.2': { endpoint: 'https://api-inference.modelscope.cn/v1/chat/completions', cred: 'MODELSCOPE_API_TOKEN', paid: false },
+};
+
+export function routeFor(model) {
+  return MODEL_ROUTES[model] || { endpoint: DEFAULT_ENDPOINT, cred: CRED_KEY, paid: true };
+}
+
+export const DEFAULT_REVIEW_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 const DEFAULT_ENDPOINT = 'https://api.siliconflow.cn/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 240_000;
 // 凭证文件里那条 ref 的键名，拆开拼是为了不被「看起来像密钥赋值」的扫描规则误伤。
@@ -135,16 +150,20 @@ export function parseVerdict(text) {
 }
 
 /** 从 ~/.dsh/.credentials.yaml 的 refs 里取密钥；读不到返回空串。 */
-export function readCredential(file = process.env.DSH_CREDENTIALS || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh', '.credentials.yaml')) {
+export function readCredentialKey(name, file = process.env.DSH_CREDENTIALS || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh', '.credentials.yaml')) {
   try {
     if (!existsSync(file)) return '';
-    const re = new RegExp(`^\\s+${CRED_KEY}:\\s*(\\S+)`);
+    const re = new RegExp(`^\\s+${name}:\\s*(\\S+)`);
     for (const line of readFileSync(file, 'utf8').split('\n')) {
       const m = re.exec(line);
       if (m) return m[1].replace(/^['"]|['"]$/g, '');
     }
   } catch { /* 读不到就当没有 */ }
   return '';
+}
+
+export function readCredential(file) {
+  return readCredentialKey(CRED_KEY, file);
 }
 
 async function callModel({ prompt, credential, model, endpoint, timeoutMs }) {
@@ -188,23 +207,26 @@ export async function reviewSemantically({
   acceptanceNote = '',
   issueNumber = 0,
   title = '',
-  credential = process.env[CRED_KEY] || readCredential(),
+  credential = '',
   model = process.env.DSH_REVIEW_MODEL || DEFAULT_REVIEW_MODEL,
-  endpoint = process.env.DSH_REVIEW_ENDPOINT || DEFAULT_ENDPOINT,
+  endpoint = '',
   timeoutMs = Number(process.env.DSH_REVIEW_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
   mockPath = process.env.DSH_REVIEW_MOCK || '',
 } = {}) {
+  const route = routeFor(model);
+  const useEndpoint = endpoint || process.env.DSH_REVIEW_ENDPOINT || route.endpoint;
+  const useCredential = credential || process.env[route.cred] || readCredentialKey(route.cred);
   const prompt = buildReviewPrompt({ issueNumber, title, goal, acceptance, constraints, diffText, files, acceptanceNote });
 
   // 测试钩子：直接读一个 JSON 文件当作模型输出，用来端到端验证 block 路径（不花钱、可复现）。
   if (mockPath && existsSync(mockPath)) {
     return { ...parseVerdict(readFileSync(mockPath, 'utf8')), model: `mock:${mockPath}` };
   }
-  if (!credential) {
+  if (!useCredential) {
     return { ok: true, verdict: 'skipped', findings: [], skipped: '没有 siliconflow 凭证，跳过语义评审', model };
   }
   try {
-    const out = await callModel({ prompt, credential, model, endpoint, timeoutMs });
+    const out = await callModel({ prompt, credential: useCredential, model, endpoint: useEndpoint, timeoutMs });
     return { ...parseVerdict(out.content), model, usage: out.usage };
   } catch (e) {
     return { ok: true, verdict: 'skipped', findings: [], skipped: `语义评审调用失败：${e.message}`, model };
@@ -216,7 +238,7 @@ export async function reviewSemantically({
  * 经常一起看不见）。所以默认跑两个不同家族的模型，任一 block 即 block（保守），
  * 至少一个真的跑过且都 pass 才算 pass。
  */
-export const DEFAULT_PANEL = ['Qwen/Qwen3.5-122B-A10B', 'moonshotai/Kimi-K2.7-Code'];
+export const DEFAULT_PANEL = ['deepseek-ai/DeepSeek-V4.1-Flash-1017', 'ZhipuAI/GLM-5.2'];
 
 export function panelModels(raw = process.env.DSH_REVIEW_MODELS) {
   const list = String(raw ?? '')
@@ -282,7 +304,7 @@ async function runPanel(options = {}) {
       const r = await reviewSemantically({ ...options, model, mockPath: mocks ? mocks[i] ?? '' : options.mockPath });
       // 单个评审器在 mock 模式下会把 model 写成 mock:<path>；评审团要的是「哪个评审器说了什么」，
       // 所以这里统一按调用时给的模型名记录。
-      return { ...r, model, tier: 'paid' };
+      return { ...r, model, tier: routeFor(model).paid ? 'paid' : 'free' };
     }),
   );
   return aggregateReviewers(reviewers);
@@ -295,7 +317,10 @@ async function runPanel(options = {}) {
 export async function reviewWithPanel(options = {}) {
   const skipFree = options.skipFree ?? process.env.DSH_REVIEW_SKIP_FREE === '1';
   if (skipFree) {
-    return { ...(await runPanel(options)), tier: 'paid', paidUsed: false, skippedFree: '按配置跳过免费档' };
+    const panel = await runPanel(options);
+    // 「付费」只按面板里真实出现的付费模型算：默认面板已是免费强模型（2026-10-27）。
+    const anyPaid = (panel.reviewers ?? []).some((r) => routeFor(r.model).paid);
+    return { ...panel, tier: anyPaid ? 'paid' : 'panel', paidUsed: anyPaid, skippedFree: '按配置跳过免费档' };
   }
 
   const freeModel = options.freeModel ?? FREE_REVIEW_MODEL;
@@ -310,10 +335,11 @@ export async function reviewWithPanel(options = {}) {
 
   // 免费档不可用：切付费面板，并把「为什么切」带回去给调用方展示。
   const paid = await runPanel(options);
+  const anyPaid = (paid.reviewers ?? []).some((r) => routeFor(r.model).paid);
   return {
     ...paid,
-    tier: 'paid',
-    paidUsed: true,
+    tier: anyPaid ? 'paid' : 'panel',
+    paidUsed: anyPaid,
     freeModel,
     escalatedFrom: unparsable ? '免费模型没有按格式返回 JSON 结论' : free.skipped || '免费评审器不可用',
   };

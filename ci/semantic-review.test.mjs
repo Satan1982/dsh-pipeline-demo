@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+// 测试必须与真实凭据隔离：否则本机 .credentials.yaml 里的 key 会被读到，
+// 「没有凭证就 skipped」那条会真的去发网络请求（2026-10-27 加免费池 key 后踩过）。
+process.env.DSH_CREDENTIALS = 'D:/nonexistent-test-secrets/.credentials.yaml';
+delete process.env.MODELSCOPE_API_TOKEN;
+delete process.env.SILICONFLOW_API_KEY;
+delete process.env.ZHIPU_API_KEY;
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

@@ -53,7 +53,10 @@ const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'deskto
 const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
 const REPO_DIR = REPO_DIR_RAW;
 const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '.worktrees');
-const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
+// 默认强模型走免费池（modelscope 的 DeepSeek-V4.1-Flash-1017，账面 0 元）；
+// 付费路由只在工单明确打 model:paid 时才用，且日志里会说。
+const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-free-strong.yml');
+const PAID_PATCH = process.env.DSH_HEADLESS_PAID_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 const TIMEOUT = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
@@ -548,6 +551,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const resumeId = prevSession && (prevSession.kind === 'llm-rate-limit' || prevSession.kind === 'headless-crash') ? prevSession.id : '';
     if (resumeId) runEnv.DSH_SESSION_ID = resumeId;
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
+    // 付费是最后手段：只有工单显式打 model:paid 才走付费路由（用户 2026-10-26 的要求）。
+    const usePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
+    if (usePaid) {
+      runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
+      log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
+    }
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
