@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord } from './text.js';
+import { words, wordCount, shout, initials, excerpt, chunk, reverseEachWord } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -20,6 +20,14 @@ test('wordCount counts the words in a text', () => {
 
 test('wordCount returns 0 for empty input', () => {
   assert.equal(wordCount(''), 0);
+});
+
+test('shout uppercases the text and appends an exclamation mark', () => {
+  assert.equal(shout('hi'), 'HI!');
+});
+
+test('shout returns an exclamation mark for empty input', () => {
+  assert.equal(shout(''), '!');
 });
 
 test('initials returns uppercase initials for a two-word name', () => {
