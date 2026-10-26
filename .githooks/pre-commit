@@ -10,7 +10,7 @@ if [ -z "$NODE_BIN" ]; then
 fi
 if [ -z "$NODE_BIN" ]; then
   # 本机 PATH 里通常没有 node；用 DSH 随包运行时兜底。
-  NODE_BIN="C:/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe"
+  NODE_BIN="$HOME/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe"
 fi
 if [ ! -x "$NODE_BIN" ]; then
   echo "✗ pre-commit 找不到 node（设 DSH_NODE 指向 node.exe 可解）" >&2
