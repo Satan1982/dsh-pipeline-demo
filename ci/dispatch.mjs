@@ -763,7 +763,7 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
   const backoff = [3000, 7000, 15000, 30000];
   let last = null;
   for (let i = 0; i <= backoff.length; i += 1) {
-    last = await run(GIT, ['-c', 'credential.helper=', 'push', ...extraArgs, 'origin', refspec], { cwd, env: GIT_ENV });
+    last = await run(GIT, ['-c', 'credential.helper=', 'push', ...extraArgs, 'origin', refspec], { cwd, env: gitEnv() });
     if (last.code === 0) return;
     if (i < backoff.length) await new Promise((r) => setTimeout(r, backoff[i]));
   }
