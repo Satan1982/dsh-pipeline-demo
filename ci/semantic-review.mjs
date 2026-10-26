@@ -164,7 +164,12 @@ async function callModel({ prompt, credential, model, endpoint, timeoutMs }) {
     const text = await r.text();
     if (r.status !== 200) throw new Error(`HTTP ${r.status}: ${text.slice(0, 300)}`);
     const data = JSON.parse(text);
-    return String(data?.choices?.[0]?.message?.content ?? '');
+    // 顺手把计量带回来：评审团是唯一每单必跑、又完全不产生代码的付费调用，
+    // 不给 token 数就无从算成本。
+    return {
+      content: String(data?.choices?.[0]?.message?.content ?? ''),
+      usage: data?.usage ?? null,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -199,7 +204,7 @@ export async function reviewSemantically({
   }
   try {
     const out = await callModel({ prompt, credential, model, endpoint, timeoutMs });
-    return { ...parseVerdict(out), model };
+    return { ...parseVerdict(out.content), model, usage: out.usage };
   } catch (e) {
     return { ok: true, verdict: 'skipped', findings: [], skipped: `语义评审调用失败：${e.message}`, model };
   }
@@ -232,15 +237,23 @@ function dedupeFindings(findings) {
   return out;
 }
 
+export function totalTokens(usage) {
+  if (!usage) return 0;
+  const a = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+  const b = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+  return a + b;
+}
+
 export function aggregateReviewers(reviewers) {
+  const tokens = reviewers.reduce((n, r) => n + totalTokens(r.usage), 0);
   const ran = reviewers.filter((r) => r.verdict !== 'skipped');
   const blocked = ran.filter((r) => r.verdict === 'block');
   if (blocked.length) {
     // 阻断时也把其它评审器的提示一并带上：回灌给下一次重试的失败原因越具体越好。
-    return { ok: false, verdict: 'block', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers };
+    return { ok: false, verdict: 'block', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers, tokens };
   }
   if (ran.length) {
-    return { ok: true, verdict: 'pass', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers };
+    return { ok: true, verdict: 'pass', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers, tokens };
   }
   return {
     ok: true,
@@ -248,6 +261,7 @@ export function aggregateReviewers(reviewers) {
     findings: [],
     skipped: reviewers.map((r) => r.skipped || '跳过').join('；'),
     reviewers,
+    tokens,
   };
 }
 
@@ -272,7 +286,8 @@ export function formatSemantic(result) {
         .map((r) => `${r.model}=${r.verdict}`)
         .join('，')}）`
     : '';
-  const head = panel ? `${panel}；` : '';
+  const cost = result.tokens ? `，tokens=${result.tokens}` : '';
+  const head = panel ? `${panel}${cost}；` : '';
   if (result.verdict === 'skipped') return `${head}跳过（${result.skipped}）`;
   const lines = result.findings.map((f) => `${f.severity === 'block' ? '✗ 阻断' : '⚠ 提示'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
   if (lines.length === 0) return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;

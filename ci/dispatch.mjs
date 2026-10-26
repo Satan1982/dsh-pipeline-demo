@@ -142,9 +142,11 @@ async function api(method, p, body) {
   return { status: r.status, data };
 }
 
-function run(cmd, args, { cwd, env, timeout, input } = {}) {
+function run(cmd, args, { cwd, env, timeout, input, clean } = {}) {
   return new Promise((resolve) => {
-    const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env } });
+    // clean=true 时完全不用父进程的 env：给 agent 的子进程必须走这条，
+    // 否则调度器环境里的凭据（GIT_TOKEN / 各种 API key）会随环境泄漏给模型。
+    const p = spawn(cmd, args, { cwd, env: clean ? { ...env } : { ...process.env, ...env } });
     p.stdout.setEncoding('utf8');
     p.stderr.setEncoding('utf8');
     let out = '', err = '';
@@ -1000,10 +1002,19 @@ async function rebaseAgentBranch(pr, issueN) {
 // headless 的进程链是 bash -> dsh.cmd -> Electron。实测偶发 0xC0000142（DLL 初始化失败）：
 // 3 秒退出、stdout/stderr 全空、什么都没做。这是「进程没起来」，不该耗掉一次重试预算，
 // 所以在这里原地重试几次；真的起不来才把 NTSTATUS 交给上层分类。
+// 只放行与凭据无关的变量。agent 是被 issue 正文（不可信输入）驱动的，
+// 它拿到的环境里不该有任何能推代码或调付费接口的密钥。
+const SCRUB_ENV = /^(GIT_TOKEN|GIT_ASKPASS|GIT_SSH_COMMAND|GIT_SSH_VARIANT|GH_TOKEN|GITHUB_TOKEN|SILICONFLOW_API_KEY|ZHIPU_API_KEY|LEMONADE_HOME_API_KEY|HINDSIGHT_API_TOKEN|DEEPSEEK_API_KEY)$/i;
+function scrubbedEnv() {
+  const out = {};
+  for (const [k, v] of Object.entries(process.env)) if (!SCRUB_ENV.test(k)) out[k] = v;
+  return out;
+}
+
 async function runHeadless(cwd, prompt, env, timeout) {
   let last = null;
   for (let i = 1; i <= 3; i += 1) {
-    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env });
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), ...env }, clean: true });
     if (Number(last.code) < 0xC0000000) return last;
     log(`[headless] 子进程启动失败 exit=${last.code}（Windows NTSTATUS），5 秒后重试 ${i}/3`);
     if (i < 3) await new Promise((r) => setTimeout(r, 5000));
