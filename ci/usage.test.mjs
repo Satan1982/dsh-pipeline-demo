@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { sumUsage, formatUsage, finalText } from './usage.mjs';
+import { sumUsage, formatUsage, finalText, sessionIdOf } from './usage.mjs';
 
 const ev = (o) => JSON.stringify(o);
 
@@ -38,4 +38,14 @@ test('finalText 取 final 事件，取不到就拼 text 事件', () => {
 test('空输入不抛错', () => {
   assert.equal(sumUsage('').steps, 0);
   assert.equal(finalText(''), '');
+});
+
+test("从事件流里取 sessionId", () => {
+  const nd = [
+    JSON.stringify({ type: "session", sessionId: "session-abc", cwd: "x" }),
+    JSON.stringify({ type: "final", text: "ok" }),
+  ].join("\n");
+  assert.equal(sessionIdOf(nd), "session-abc");
+  assert.equal(sessionIdOf(""), "");
+  assert.equal(sessionIdOf(JSON.stringify({ type: "final", text: "ok" })), "");
 });

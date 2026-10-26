@@ -75,6 +75,7 @@
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4c142bec865a92f8 assert.equal(merged.reviewers.length, 1);
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
+1 4e0bacafef2986da assert.equal(sessionIdOf(JSON.stringify({ type: "final", text: "ok" })), "");
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
@@ -174,6 +175,7 @@
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
 1 aec477efdecf8e09 assert.throws(() => chunk('abc', 0), RangeError);
 1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
+1 af73ba80baa9e40a assert.equal(sessionIdOf(nd), "session-abc");
 1 af8d4ba6f4541bcb assert.equal(merged.ok, false);
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
@@ -215,6 +217,7 @@
 1 d2fd8c92b9f744f3 assert.match(formatSemantic(merged), /\[付费\]/);
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
+1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);

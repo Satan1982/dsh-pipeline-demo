@@ -60,3 +60,16 @@ export function finalText(ndjson) {
   if (texts.length) return texts.join('');
   return String(ndjson ?? '');
 }
+
+// 事件流的第一条 type=session 带 sessionId（形如 session-<uuid>）。调度器用它把
+// 「哪次 headless 跑在哪个会话里」记进日志，也用它在一轮重试里接着同一个会话跑。
+export function sessionIdOf(ndjson) {
+  for (const line of String(ndjson || "").split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("{")) continue;
+    let e;
+    try { e = JSON.parse(t); } catch { continue; }
+    if (e && e.type === "session" && typeof e.sessionId === "string" && e.sessionId) return e.sessionId;
+  }
+  return "";
+}

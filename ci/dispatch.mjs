@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, sta
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
-import { sumUsage, formatUsage, finalText } from './usage.mjs';
+import { sumUsage, formatUsage, finalText, sessionIdOf } from './usage.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
@@ -60,6 +60,8 @@ const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
 const RATE_LIMIT_MAX = Number(process.env.DSH_RATE_LIMIT_MAX ?? 4);
 const RATE_LIMIT_RETRIES = new Map();
+// 每个工单最近一次 headless 跑在哪个会话里；只有限流/进程没起来这类环境噪声才复用它。
+const ISSUE_SESSION = new Map();
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
 const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
@@ -506,12 +508,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 改门禁脚本默认被评审层阻断，issue 打 allow:gate 才放行（人工在 issue 上表态）
     const allowGate = (issue.labels ?? []).some((l) => l.name === 'allow:gate');
     const runEnv = { PATH: CHILD_PATH };
+    // 环境噪声（限流 / 进程没起来）时接着上一次的会话跑：省一次冷启动上下文，
+    // 也不会在 ~/.dsh/sessions 下再堆一个目录。逻辑失败不复用，让它干净地重新想一遍。
+    const prevSession = ISSUE_SESSION.get(n);
+    const resumeId = prevSession && (prevSession.kind === 'llm-rate-limit' || prevSession.kind === 'headless-crash') ? prevSession.id : '';
+    if (resumeId) runEnv.DSH_SESSION_ID = resumeId;
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
     const t0 = Date.now();
     const r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
+    const sessionId = sessionIdOf(r.raw);
+    if (sessionId) ISSUE_SESSION.set(n, { id: sessionId, kind: '' });
     const secs = Math.round((Date.now() - t0) / 1000);
     const usage = r.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0, steps: 0 };
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
@@ -727,6 +736,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     log(`${tag} done → ${prUrl}`);
   } catch (e) {
     const reason = String(e?.stack || e);
+    // 记下这一轮是不是环境噪声：下一轮据此决定要不要接着同一个会话跑。
+    const kindHit = /\[headless\]\s*([a-z0-9-]+)/.exec(reason);
+    if (kindHit && prevSession && prevSession.id) ISSUE_SESSION.set(n, { id: prevSession.id, kind: kindHit[1] });
   // 限流（429 / TPM limit reached）是环境噪声，不是这次改动的问题：等一会儿再来，
   // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
   if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached/.test(reason)) {

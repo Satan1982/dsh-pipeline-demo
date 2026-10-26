@@ -52,7 +52,14 @@ if [ "${DSH_HEADLESS_JSON:-}" = "1" ]; then
   JSON_ARGS=(--json)
 fi
 
-if [ "$1" = "-" ]; then
-  exec "$DSH_BIN" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" -
+# DSH_SESSION_ID 只用来「接着上一次没跑完的会话跑」：限流/进程启动失败这类环境噪声时，
+# 复用同一个 session 比每次重新开一个更省上下文，也不会在 ~/.dsh/sessions 里再堆一个目录。
+SESSION_ARGS=()
+if [ -n "${DSH_SESSION_ID:-}" ]; then
+  SESSION_ARGS=(--session-id "$DSH_SESSION_ID")
 fi
-exec "$DSH_BIN" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" "$@"
+
+if [ "$1" = "-" ]; then
+  exec "$DSH_BIN" --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" -
+fi
+exec "$DSH_BIN" --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" "$@"
