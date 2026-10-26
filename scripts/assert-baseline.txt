@@ -80,6 +80,7 @@
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
 1 4e0bacafef2986da assert.equal(sessionIdOf(JSON.stringify({ type: "final", text: "ok" })), "");
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
+1 4f37f4df93ae13ae assert.equal(shortHash('hello'), 'h9f2cab');
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
@@ -120,6 +121,7 @@
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
+1 77a86fb4ea0837ad assert.match(shortHash(''), /^h[0-9a-f]{6}$/);
 1 77d034bd9159d035 assert.equal(rec.fix, '删掉坏行');
 1 780285e9a7a85b0c assert.equal(capitalize('ABC'), 'ABC');
 1 7978bcfd36da7752 assert.equal(isPositive(0), false);
@@ -134,6 +136,7 @@
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 7f1005bbdd172666 assert.equal(truncateWords('a b c d', 2), 'a b');
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
+1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
@@ -158,6 +161,7 @@
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
+1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
 1 9a49cb50df0d1711 assert.equal(res.dropped, 4);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
@@ -191,7 +195,9 @@
 1 b3c6f8b60b17f2c3 assert.equal(classifyConflicts(['src/test-baseline.txt']).kind, 'manual');
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
 1 b72bd1f74bdf14fc assert.equal(reverseWords(' a b '), 'b a');
+1 b7b256f5d3dad38c assert.match(shortHash('anything'), /^h[0-9a-f]{6}$/);
 1 b8819833c8a92041 assert.ok(text.includes('共 2 个根因'));
+1 b896ac46d8646f10 assert.notEqual(shortHash('a'), shortHash('b'));
 1 b8b03a457ccc6eeb assert.ok(formatFindings(r).includes('allow:gate'));
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
@@ -210,6 +216,7 @@
 1 c5672a99d6c8291f assert.equal(minOf(-2, -5), -5);
 1 c58083f2b5f9e892 assert.equal(headlessKind('== verify: FAILED ==\n拒绝：测试数量从 40 降到 39', '', 1), 'agent-gate-red');
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
+1 c608d1ad03d089ad assert.match(shortHash('中文'), /^h[0-9a-f]{6}$/);
 1 c72bab1588f71090 assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
 1 c7714e1a5392182c assert.throws(() => truncateWords('a b', -1), RangeError);
 3 c89c8148c69a08d6 assert.equal(fingerprint(a), fingerprint(b));
@@ -229,6 +236,7 @@
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
+1 de49255d4edbb185 assert.equal(shortHash('hello'), shortHash('hello'));
 1 de55afb0c96aebad assert.ok(s.includes('✗ 阻断'));
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);

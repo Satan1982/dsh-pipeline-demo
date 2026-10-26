@@ -57,6 +57,19 @@ export function shout(text) {
   return `${text.toUpperCase()}!`;
 }
 
+export function shortHash(text) {
+  if (typeof text !== 'string') {
+    throw new TypeError('shortHash expects a string');
+  }
+  const bytes = new TextEncoder().encode(text);
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `h${(hash >>> 0).toString(16).padStart(8, '0').slice(-6)}`;
+}
+
 export function initials(fullName) {
   if (typeof fullName !== 'string') {
     throw new TypeError('initials expects a string');
