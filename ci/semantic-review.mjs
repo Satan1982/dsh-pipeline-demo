@@ -14,6 +14,7 @@
  * 评审模型挂掉（超时/网络/配额）不算 block，返回 skipped，由调用方决定是否放行。
  */
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 
 export const DEFAULT_REVIEW_MODEL = 'Qwen/Qwen3.5-122B-A10B';
