@@ -74,7 +74,10 @@ function gitEnv() {
 }
 // https 通道会间歇性不通（实测同一天里 10 次全通、8 次全失败两个极端）。仓库上挂了一把
 // write 部署密钥，于是留一条走 ssh.github.com:443 的备用通道：两种协议独立，谁通走谁。
-const SSH_WRAPPER = process.env.DSH_SSH_WRAPPER || path.join(SECRETS_DIR, 'ssh-git.sh');
+// GIT_SSH_COMMAND 会被 git 原样交给 shell，Windows 反斜杠会被吃掉（实测 `D:\\code\\.secrets\\ssh-git.sh`
+// 变成 `D:code.secretsssh-git.sh: command not found`），所以这里统一转成正斜杠。
+const posix = (p) => p.replace(/\\/g, '/');
+const SSH_WRAPPER = posix(process.env.DSH_SSH_WRAPPER || path.join(SECRETS_DIR, 'ssh-git.sh'));
 const SSH_REMOTE = `ssh://git@ssh.github.com:443/${REPO}.git`;
 const SSH_ENV = { ...gitEnv(), GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
 
