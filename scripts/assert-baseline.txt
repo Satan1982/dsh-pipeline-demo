@@ -40,9 +40,11 @@
 1 31922bf5ba0a3532 assert.equal(a.last, '2026-10-25T02:00:00Z');
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
 6 32364602f0692844 assert.equal(r.ok, true);
+1 3314f433b2755958 assert.equal(reverseEachWord('a bc'), 'a cb');
 1 3328c11029285c35 assert.equal(u.outputTokens, 25);
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
+1 3940250b0cec9530 assert.equal(reverseEachWord(''), '');
 1 3b62fb20bc3f003e assert.deepEqual(u, { inputTokens: 0, outputTokens: 0, totalTokens: 0, steps: 0 });
 1 3bdf4e337d3417e3 assert.equal(r.kind, 'manual');
 1 3c370b34399d1276 assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
@@ -215,6 +217,7 @@
 1 de55afb0c96aebad assert.ok(s.includes('✗ 阻断'));
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
+1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');
 1 e1a7d1447921ba98 assert.equal(isOdd(0), false);
 1 e243cecc44f7d973 assert.equal(excerpt('abc', 3), 'abc');
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));

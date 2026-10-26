@@ -33,6 +33,13 @@ export function chunk(text, size) {
   return parts;
 }
 
+export function reverseEachWord(text) {
+  if (typeof text !== 'string') {
+    throw new TypeError('reverseEachWord expects a string');
+  }
+  return text.replace(/\S+/g, (word) => [...word].reverse().join(''));
+}
+
 export function initials(fullName) {
   if (typeof fullName !== 'string') {
     throw new TypeError('initials expects a string');
