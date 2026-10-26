@@ -44,7 +44,9 @@
 1 3328c11029285c35 assert.equal(u.outputTokens, 25);
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
+1 36adcb5d07ac7b37 assert.throws(() => shout(123), TypeError);
 1 3940250b0cec9530 assert.equal(reverseEachWord(''), '');
+1 3a3dd54a3e4adb24 assert.equal(shout('hi'), 'HI!');
 1 3b62fb20bc3f003e assert.deepEqual(u, { inputTokens: 0, outputTokens: 0, totalTokens: 0, steps: 0 });
 1 3bdf4e337d3417e3 assert.equal(r.kind, 'manual');
 1 3c370b34399d1276 assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
@@ -62,6 +64,7 @@
 1 4504ea416efc986c assert.equal(r.verdict, 'skipped');
 1 46180e9ada8d893b assert.equal(countVowels(''), 0);
 1 468887494f6f83b3 assert.ok(text.indexOf('## 2 次') < text.indexOf('## 1 次'));
+1 46fd141b4a815a34 assert.equal(shout(''), '!');
 1 472e9472f37f0ad2 assert.equal(negate(3), -3);
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);

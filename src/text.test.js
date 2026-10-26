@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -99,4 +99,16 @@ test('reverseEachWord returns an empty string for empty input', () => {
 
 test('reverseEachWord keeps repeated whitespace intact', () => {
   assert.equal(reverseEachWord('a  bc'), 'a  cb');
+});
+
+test('shout uppercases the text and appends an exclamation mark', () => {
+  assert.equal(shout('hi'), 'HI!');
+});
+
+test('shout returns a single exclamation for empty input', () => {
+  assert.equal(shout(''), '!');
+});
+
+test('shout rejects non-string input', () => {
+  assert.throws(() => shout(123), TypeError);
 });
