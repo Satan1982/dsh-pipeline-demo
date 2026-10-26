@@ -25,7 +25,7 @@ import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs'
 import { headlessKind } from './headless-kind.mjs';
 import { sumUsage, formatUsage, finalText, sessionIdOf } from './usage.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
-import { collectDiff, reviewWithPanel, formatSemantic } from './semantic-review.mjs';
+import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 
@@ -55,9 +55,53 @@ const REPO_DIR = REPO_DIR_RAW;
 const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '.worktrees');
 // 默认强模型走免费池（modelscope 的 DeepSeek-V4.1-Flash-1017，账面 0 元）；
 // 付费路由只在工单明确打 model:paid 时才用，且日志里会说。
-const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-free-strong.yml');
+let STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-free-strong.yml');
 const PAID_PATCH = process.env.DSH_HEADLESS_PAID_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
+// 免费池的强模型会下线/换名，所以启动时现选一个，写成 patch 文件交给 headless。
+// 显式设了 DSH_HEADLESS_STRONG_PATCH 就完全不动（调试/回滚用）。
+function writeStrongPatch(model) {
+  const file = path.join(LOG_DIR, 'headless-model-free-strong.generated.yml');
+  const yml = [
+    '# 调度器启动时按免费池健康快照生成，不要手改。',
+    '- id: llm-pi-ai',
+    '  name: "@deepseek-ai/dsh-llm-pi-ai"',
+    '  config:',
+    '    providers:',
+    '      modelscope:',
+    '        displayName: ModelScope free',
+    '        apiKeyEnv: MODELSCOPE_API_TOKEN',
+    '        api: openai-completions',
+    '        baseURL: https://api-inference.modelscope.cn/v1',
+    '        defaultContextWindow: 131072',
+    '        defaultMaxTokens: 16384',
+    '        models:',
+    `          - id: ${model}`,
+    `            name: ${model} (free)`,
+    '            contextWindow: 131072',
+    '            maxTokens: 16384',
+    '            input:',
+    '              - text',
+    '- id: agent-default-model',
+    '  config:',
+    '    provider: modelscope',
+    `    model: ${model}`,
+  ].join(NL) + NL;
+  if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+  writeFileSync(file, yml);
+  return file;
+}
+
+function prepareStrongPatch() {
+  if (process.env.DSH_HEADLESS_STRONG_PATCH) return STRONG_PATCH;
+  try {
+    const model = pickFreeModels(registryStats(), FREE_STRONG_MODELS, 1)[0];
+    if (model) STRONG_PATCH = writeStrongPatch(model);
+  } catch { /* 读不到免费池就用默认 patch 文件 */ }
+  return STRONG_PATCH;
+}
+
+
 const TIMEOUT = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
@@ -1324,6 +1368,7 @@ async function main() {
   }
   process.on('exit', lock.release);
   log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
+  prepareStrongPatch();
   const pruned = pruneLogs();
   try {
     const archivedSessions = await pruneDeadSessions();

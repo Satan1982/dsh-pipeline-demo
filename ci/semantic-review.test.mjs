@@ -21,6 +21,9 @@ import {
   reviewWithPanel,
   panelModels,
   FREE_REVIEW_MODEL,
+  pickFreeModels,
+  flattenStats,
+  FREE_STRONG_MODELS,
 } from './semantic-review.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'sem-review-'));
@@ -241,4 +244,20 @@ test('免费档回了非 JSON（给不出裁决）也按不可用处理，切付
   assert.equal(merged.paidUsed, true);
   assert.equal(merged.verdict, 'pass');
   assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
+});
+
+test('按免费池健康快照挑模型：ok 优先，down 垫底', () => {
+  const stats = {
+    'deepseek-ai/DeepSeek-V4.1-Flash-1017': { status: 'down' },
+    'ZhipuAI/GLM-5.2': { status: 'ok' },
+    'Qwen/Qwen3.8-27B': { status: 'ok' },
+  };
+  assert.deepEqual(pickFreeModels(stats, FREE_STRONG_MODELS, 2), ['ZhipuAI/GLM-5.2', 'Qwen/Qwen3.8-27B']);
+  assert.deepEqual(pickFreeModels({}, FREE_STRONG_MODELS, 1), ['deepseek-ai/DeepSeek-V4.1-Flash-1017']);
+});
+
+test('flattenStats 把「规范名 + models 列表」摊平成模型 id', () => {
+  const flat = flattenStats({ 'deepseek-v4.1-flash': { status: 'ok', models: ['deepseek-ai/DeepSeek-V4.1-Flash-1017'] } });
+  assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
+  assert.equal(flat['deepseek-ai/DeepSeek-V4.1-Flash-1017'].status, 'ok');
 });

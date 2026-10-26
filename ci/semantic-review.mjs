@@ -240,12 +240,58 @@ export async function reviewSemantically({
  */
 export const DEFAULT_PANEL = ['deepseek-ai/DeepSeek-V4.1-Flash-1017', 'ZhipuAI/GLM-5.2'];
 
+export const FREE_STRONG_MODELS = [
+  'deepseek-ai/DeepSeek-V4.1-Flash-1017',
+  'ZhipuAI/GLM-5.2',
+  'Qwen/Qwen3.8-27B',
+];
+
+// stats 里条目可能是「规范名 -> 明细」，也可能带 models 列表；展平成 modelId -> 明细。
+export function flattenStats(raw) {
+  const flat = {};
+  for (const [k, v] of Object.entries(raw ?? {})) {
+    flat[k] = v;
+    for (const m of v?.models ?? []) flat[m] = v;
+  }
+  return flat;
+}
+
+// 按健康状态挑：ok 优先，其次 stale/degraded/unknown，down 垫底（仍比「没有模型」强）。
+export function pickFreeModels(stats, candidates = FREE_STRONG_MODELS, want = 2) {
+  const rank = { ok: 0, stale: 1, degraded: 2, unknown: 3, down: 4 };
+  const status = (m) => String(stats?.[m]?.status ?? 'unknown');
+  return candidates
+    .map((m, i) => ({ m, i, r: rank[status(m)] ?? 3 }))
+    .sort((a, b) => (a.r - b.r) || (a.i - b.i))
+    .slice(0, want)
+    .map((x) => x.m);
+}
+
+let STATS_CACHE = null;
+// 读免费池的 health 快照（fm.py stats --json）。读不到就返回空表，调用方按 unknown 处理。
+export function registryStats(reset = false) {
+  if (STATS_CACHE && !reset) return STATS_CACHE;
+  STATS_CACHE = {};
+  try {
+    const home = process.env.USERPROFILE || process.env.HOME || '.';
+    const fm = process.env.DSH_FM_CLI || path.join(home, '.dsh', 'tools', 'free-models', 'fm.py');
+    const r = spawnSync('python', [fm, 'stats', '--json'], { encoding: 'utf8', timeout: 20000 });
+    if (r.status === 0 && r.stdout) {
+      const parsed = JSON.parse(r.stdout);
+      STATS_CACHE = flattenStats(parsed.models ?? parsed);
+    }
+  } catch { STATS_CACHE = {}; }
+  return STATS_CACHE;
+}
+
 export function panelModels(raw = process.env.DSH_REVIEW_MODELS) {
   const list = String(raw ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return list.length ? list : DEFAULT_PANEL.slice();
+  if (list.length) return list;
+  // 不写死模型名：按免费池当前健康快照选两个强模型（读不到就退回 DEFAULT_PANEL）。
+  return pickFreeModels(registryStats(), FREE_STRONG_MODELS, 2);
 }
 
 function dedupeFindings(findings) {
