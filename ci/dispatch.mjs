@@ -518,6 +518,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   const wt = path.join(WT_ROOT, `issue-${n}`);
   if (!existsSync(WT_ROOT)) mkdirSync(WT_ROOT, { recursive: true });
 
+  let prevSession = null;
+  let resumeId = '';
   try {
     await setupWorktree(branch, wt, 'origin/main');
     writePlan(wt, { n: issue.number, title: issue.title, goal, acceptance, constraints, cmds: acceptanceCmdsRaw });
@@ -547,9 +549,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const runEnv = { PATH: CHILD_PATH };
     // 环境噪声（限流 / 进程没起来）时接着上一次的会话跑：省一次冷启动上下文，
     // 也不会在 ~/.dsh/sessions 下再堆一个目录。逻辑失败不复用，让它干净地重新想一遍。
-    const prevSession = ISSUE_SESSION.get(n);
-    const resumeId = prevSession && (prevSession.kind === 'llm-rate-limit' || prevSession.kind === 'headless-crash') ? prevSession.id : '';
-    if (resumeId) runEnv.DSH_SESSION_ID = resumeId;
+    prevSession = ISSUE_SESSION.get(n);
+    resumeId = prevSession && (prevSession.kind === 'llm-rate-limit' || prevSession.kind === 'headless-crash') ? prevSession.id : '';
+    // 显式给空串：否则调度器进程自己环境里的 DSH_SESSION_ID 会漏给 agent
+    // （2026-10-27 实测：继承来的旧会话跑到一半就报「preset standard 不能被一次性 runner 组合」）。
+    runEnv.DSH_SESSION_ID = resumeId || '';
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
     // 付费是最后手段：只有工单显式打 model:paid 才走付费路由（用户 2026-10-26 的要求）。
     const usePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
