@@ -19,7 +19,6 @@
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 
-const io_url = fileURLToPath(import.meta.url);
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
@@ -39,16 +38,19 @@ if (!process.execArgv.includes('--use-system-ca')) {
 
 const REPO      = process.env.DSH_REPO ?? 'Satan1982/dsh-pipeline-demo';
 const HOME = process.env.USERPROFILE || process.env.HOME || '.';
+const io_url = fileURLToPath(import.meta.url);
+const REPO_DIR_RAW = path.dirname(path.dirname(io_url));
 const SECRETS_DIR = process.env.DSH_SECRETS_DIR || path.join(path.dirname(REPO_DIR_RAW), '.secrets');
-const TOKEN = process.env.DSH_GITHUB_TOKEN_FILE || path.join(SECRETS_DIR, 'github-token.txt');
+const TOKEN_FILE = process.env.DSH_GITHUB_TOKEN_FILE || path.join(SECRETS_DIR, 'github-token.txt');
+const TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
 const GIT = process.env.DSH_GIT || 'C:/Program Files/Git/cmd/git.exe';
 const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@dsh-ops', 'bash-win32-x64', 'bin', 'bash.exe');
 const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
-const REPO_DIR_RAW = path.dirname(path.dirname(io_url));
 const REPO_DIR = REPO_DIR_RAW;
 const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '.worktrees');
 const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
+const TIMEOUT = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
@@ -1256,4 +1258,8 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// 允许「只加载、不执行」：模块级错误（漏声明的常量、TDZ、拼错的导入）在 import 时就会炸，
+// 而 `node --check` 只查语法，抓不到这类问题（2026-10-26 就因为删了一个 const 让 main 起不来）。
+if (process.env.DSH_DISPATCH_LOAD_ONLY !== '1') {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

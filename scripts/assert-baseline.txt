@@ -101,6 +101,7 @@
 1 692679e3f8c9affb assert.equal(finalText(''), '');
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
+1 6cb4c0e4995411a1 assert.equal(typeof mod, 'object');
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
 1 7062b3aa3f965cb8 assert.deepEqual(parseVerdict('全部断言通过'), { verdict: 'unknown', reason: '' });
