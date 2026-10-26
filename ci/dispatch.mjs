@@ -1158,6 +1158,13 @@ async function checkAgentPRs() {
         log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），等人工合并（未打 merge:auto）`);
         continue;
       }
+      // ruleset 要求分支是最新的（strict_required_status_checks_policy），落后的 PR 即使 CI 绿也合不了：
+      // 这类「behind」没有冲突文件，merge-tree 查不出来，只能在这里按状态补一次 rebase。
+      if (mergeState === 'behind' && rebaseTries < REBASE_MAX_TRIES) {
+        log(`[issue #${issueN}][prs] #${pr.number} 落后于 main（ruleset 要求最新），先 rebase`);
+        await rebaseAgentBranch(pr, issueN);
+        continue;
+      }
       if (mergeState !== 'clean') {
         log(`[issue #${issueN}][prs] #${pr.number} CI 绿但不可合并（${mergeState ?? 'unknown'}），本轮不合并`);
         continue;
