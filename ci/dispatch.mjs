@@ -82,7 +82,8 @@ function gitEnv() {
 const posix = (p) => p.replace(/\\/g, '/');
 const SSH_WRAPPER = posix(process.env.DSH_SSH_WRAPPER || path.join(SECRETS_DIR, 'ssh-git.sh'));
 const SSH_REMOTE = `ssh://git@ssh.github.com:443/${REPO}.git`;
-const SSH_ENV = { ...gitEnv(), GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
+// 惰性构造：模块顶层一旦读 token 文件，CI（没有 .secrets）里 import 就会 ENOENT。
+function sshEnv() { return { ...gitEnv(), GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' }; }
 
 function networkError(r) {
   const t = `${r?.err ?? ''}${r?.out ?? ''}`;
@@ -205,7 +206,7 @@ async function fetchWithRetry(args = ['origin', '--quiet'], cwd = REPO_DIR) {
     // 换协议再试：SSH 端点与 https 走不同的主机与端口，抖动很少同时命中两边。
     log('[net] https 取不到，改走 SSH 端点');
     const viaSsh = await run(GIT, ['-c', 'credential.helper=', 'fetch', SSH_REMOTE,
-      '+refs/heads/*:refs/remotes/origin/*'], { cwd, env: SSH_ENV });
+      '+refs/heads/*:refs/remotes/origin/*'], { cwd, env: sshEnv() });
     if (viaSsh.code === 0) return viaSsh;
     last = viaSsh;
   }
@@ -770,7 +771,7 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
   if (networkError(last)) {
     log('[net] https 推不上去，改走 SSH 端点');
     const viaSsh = await run(GIT, ['-c', 'credential.helper=', 'push', ...extraArgs, SSH_REMOTE, refspec],
-      { cwd, env: SSH_ENV });
+      { cwd, env: sshEnv() });
     if (viaSsh.code === 0) return;
     last = viaSsh;
   }
