@@ -22,9 +22,15 @@ export PNPM_CLI="${PNPM_CLI:-$HOME/AppData/Local/Programs/DeepSeek Harness/resou
 # 门禁脚本里到处是裸 `node`；本机 PATH 默认没有它，带上随包 node 的目录再跑。
 # 注意：MSYS 的 bash 只认 /c/... 形式的 PATH 条目，C:/... 放进去仍会「command not found」。
 NODE_DIR_RAW="$(dirname "$NODE_BIN")"
-DRIVE="$(printf '%s' "$NODE_DIR_RAW" | cut -d: -f1 | tr 'A-Z' 'a-z')"
-REST="$(printf '%s' "$NODE_DIR_RAW" | cut -d: -f2-)"
-NODE_DIR_POSIX="/$DRIVE$REST"
+# 两种形态都要认：`C:/Users/...`（Windows 写法）与 `/c/Users/...`（$HOME 展开后就是这种）。
+case "$NODE_DIR_RAW" in
+  /*) NODE_DIR_POSIX="$NODE_DIR_RAW" ;;
+  *)
+    DRIVE="$(printf '%s' "$NODE_DIR_RAW" | cut -d: -f1 | tr 'A-Z' 'a-z')"
+    REST="$(printf '%s' "$NODE_DIR_RAW" | cut -d: -f2-)"
+    NODE_DIR_POSIX="/$DRIVE$REST"
+    ;;
+esac
 if [ -x "$NODE_DIR_POSIX/node.exe" ]; then
   export PATH="$NODE_DIR_POSIX:$PATH"
 else
