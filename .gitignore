@@ -1,6 +1,7 @@
-node_modules/
-dist/
 *.tgz
 .DS_Store
-.logs/
 .dsh/
+.logs/
+dist/
+docs/failures.jsonl
+node_modules/

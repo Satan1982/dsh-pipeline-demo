@@ -15,13 +15,16 @@
 # 模型路由在 D:\code\.secrets\headless-model.yml 里改。
 set -uo pipefail
 
-DSH="/c/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd"
-PATCH="${DSH_HEADLESS_PATCH:-D:/code/.secrets/headless-model.yml}"
-CREDS="${DSH_CREDENTIALS:-/c/Users/Administrator/.dsh/.credentials.yaml}"
+INSTALL="${DSH_INSTALL:?未设置 DSH_INSTALL：指向 DeepSeek Harness 安装目录}"
+DSH_BIN="$INSTALL/resources/runtime/cli/bin/dsh.cmd"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SECRETS_DIR="${DSH_SECRETS_DIR:-$ROOT/../.secrets}"
+PATCH="${DSH_HEADLESS_PATCH:-$SECRETS_DIR/headless-model.yml}"
+CREDS="${DSH_CREDENTIALS:-$HOME/.dsh/.credentials.yaml}"
 
 # 计划任务（以及任何干净 shell）里 PATH 没有 node，也没有 PNPM_CLI：
 # verify.sh 的 pack 步骤会因为没有包管理器而失败。这里自己补齐，让入口自足。
-BUNDLE="/c/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies"
+BUNDLE="$INSTALL/resources/runtime/primary-runtime/dependencies"
 if [ -d "$BUNDLE/node/bin" ]; then
   case ":$PATH:" in
     *":$BUNDLE/node/bin:"*) ;;
@@ -50,6 +53,6 @@ if [ "${DSH_HEADLESS_JSON:-}" = "1" ]; then
 fi
 
 if [ "$1" = "-" ]; then
-  exec "$DSH" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" -
+  exec "$DSH_BIN" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" -
 fi
-exec "$DSH" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" "$@"
+exec "$DSH_BIN" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" "$@"

@@ -27,7 +27,7 @@ if ($Remove) {
 }
 
 $repo = Split-Path -Parent $PSScriptRoot
-$node = 'C:\Users\Administrator\AppData\Local\Programs\DeepSeek Harness\resources\runtime\primary-runtime\dependencies\node\bin\node.exe'
+$node = Join-Path $env:LOCALAPPDATA 'Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe'
 
 $required = @(
     $node,

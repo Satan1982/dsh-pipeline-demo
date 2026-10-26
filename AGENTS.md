@@ -35,7 +35,7 @@ The bundled Node at `resources/runtime/primary-runtime/dependencies/node/bin` ha
 
 ## Releasing
 
-Token lives outside the repo at `D:\code\.secrets\github-token.txt` (never commit it).
+Token lives outside the repo at `<secrets 目录>\github-token.txt` (never commit it).
 Push main and optionally a tag with:
 
 ```

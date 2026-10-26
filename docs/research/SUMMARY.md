@@ -135,7 +135,7 @@
 ### 3.1 触发与隔离
 
 - **轮询 GitHub Issues 的 `agent:ready` label**（`ci/dispatch.mjs:577` 的 `pollOnce`）——判定：**已有**。依据：products.md:13（事件触发是工业界真实形态）。
-- **git worktree 隔离（`D:/code/.worktrees/issue-N`）**（`ci/dispatch.mjs:233` 的 `setupWorktree`）——判定：**已有**。依据：products.md:163（ephemeral 环境 + 分支归 agent）。缺口：没有「改前快照」（top-repos.md:132）。
+- **git worktree 隔离（`<工作盘>/.worktrees/issue-N`）**（`ci/dispatch.mjs:233` 的 `setupWorktree`）——判定：**已有**。依据：products.md:163（ephemeral 环境 + 分支归 agent）。缺口：没有「改前快照」（top-repos.md:132）。
 - **headless agent（`--profile headless`，`ci/headless-task.sh`）**——判定：**部分有**。依据：products.md:163 说工业界的上限位置是「agent 拿分支写权限、人拿合并权限」，我们比这更进一步（agent 连 commit 都不许做，调度器代做）。但 agent 侧的 permission preset 四份笔记都没覆盖（见 §六）。
 - **模型路由 `-p patch`：默认 XingChenAGI/Xing4.0-29B，重试升级 DeepSeek-V4.1-Flash**——判定：**部分有**。依据：deepseek-official.md:94 官方给的是按任务复杂度分档（low/high/max），我们分的是「便宜 / 贵」两档，没有 effort 旋钮；deepseek-official.md:249 明确说稳定性应靠固定档位而不是温度。
 - **单实例锁 + 心跳 + 7 天日志轮转**（`ci/dispatch.mjs:175` 的 `acquireLock`、`:91` 的 `pruneLogs`）——判定：**已有（无调研依据）**。四份材料都没讨论调度器自身的高可用，这部分完全是我们自建。

@@ -134,7 +134,7 @@ export function parseVerdict(text) {
 }
 
 /** 从 ~/.dsh/.credentials.yaml 的 refs 里取密钥；读不到返回空串。 */
-export function readCredential(file = process.env.DSH_CREDENTIALS || 'C:/Users/Administrator/.dsh/.credentials.yaml') {
+export function readCredential(file = process.env.DSH_CREDENTIALS || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh', '.credentials.yaml')) {
   try {
     if (!existsSync(file)) return '';
     const re = new RegExp(`^\\s+${CRED_KEY}:\\s*(\\S+)`);

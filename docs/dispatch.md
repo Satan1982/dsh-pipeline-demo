@@ -18,7 +18,7 @@ node ci/dispatch.mjs --dry-run
 注意本机 PATH 没有 node，`node` 要换成随包绝对路径：
 
 ```
-C:\Users\Administrator\AppData\Local\Programs\DeepSeek Harness\resources\runtime\primary-runtime\dependencies\node\bin\node.exe
+<DSH 安装目录>\resources\runtime\primary-runtime\dependencies\node\bin\node.exe
 ```
 
 ## 端到端实测（2026-10-24）
@@ -39,7 +39,7 @@ C:\Users\Administrator\AppData\Local\Programs\DeepSeek Harness\resources\runtime
 1. **验收标准必须存在**：issue body 必须有 `### 目标` 和 `### 验收标准（可执行）`，否则直接 `agent:failed` 并评论原因。没有验收标准的任务会做出"自洽但错"的结果。
 2. **agent 不得触碰 origin/main**：跑前跑后对比 `origin/main` SHA，变了就中止并报错。
 3. **无改动 = 失败**：worktree 里既没 dirty 也没新 commit → `agent:failed`。
-4. **隔离 worktree**：任务在 `D:/code/.worktrees/issue-<N>` 执行，主工作区不受影响。
+4. **隔离 worktree**：任务在 `<工作盘>/.worktrees/issue-<N>` 执行，主工作区不受影响。
 
 ## label 约定
 
@@ -76,7 +76,7 @@ Issue 模板：`.github/ISSUE_TEMPLATE/agent-task.yml`，新建 issue 时选「�
 ## 并发（已实现）
 
 `DSH_CONCURRENCY`（默认 2）控制同时跑几个 issue。每个 issue 有独立的 worktree
-`D:/code/.worktrees/issue-<N>` 和独立分支 `agent/issue-<N>`，互不干扰。
+`<工作盘>/.worktrees/issue-<N>` 和独立分支 `agent/issue-<N>`，互不干扰。
 
 `.git/worktrees` 本身不是并发安全的，`setupWorktree()` 与 worktree 删除都走进程内
 `locked()` 互斥，避免 `git worktree add` 同时写同一份元数据。
@@ -125,7 +125,7 @@ prompt 里写「禁止删测试」不管用——实测 PR #13 就把 `divide re
 
 默认走 `siliconflow/Xing4.0-29B`（免费）。复杂需求（多文件协调、要补契约细节）给 issue
 加 `model:strong` label，调度器会把 `DSH_HEADLESS_PATCH` 换成
-`D:/code/.secrets/headless-model-strong.yml`，改用 `deepseek-ai/DeepSeek-V4.1-Flash`。
+`<secrets 目录>/headless-model-strong.yml`，改用 `deepseek-ai/DeepSeek-V4.1-Flash`。
 
 同一任务的对照实验（Issue #14 vs #15，任务都是「新增 stats 模块 + 改 verify.sh 让两个
 测试文件都跑」）：
@@ -152,7 +152,7 @@ powershell -ExecutionPolicy Bypass -File ci\install-task.ps1 -Remove
 ```
 
 每轮只跑 `--once` 就退出，进程崩溃不影响下一次触发；`MultipleInstances IgnoreNew` 防止上一轮没跑完时叠加；单轮 40 分钟硬上限，卡死会被系统杀掉。token 由 `dispatch.mjs` 自己从
-`D:\code\.secrets\github-token.txt` 读，不写进任务定义。
+`<secrets 目录>\github-token.txt` 读，不写进任务定义。
 
 **B. 常驻进程（推荐，打开即用）**
 
@@ -203,7 +203,7 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 > `Register-ScheduledTask` 和 `schtasks /Create` 都直接 `Access is denied`（连
 > `cmd.exe /c exit 0` 的最小任务都一样）。所以 `install-task.ps1` 必须在**提权的**
 > PowerShell 里跑一次：右键「以管理员身份运行」→
-> `powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\dsh-pipeline-demo\ci\install-task.ps1`
+> `powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\ci\install-task.ps1`
 >
 > 而 B2（HKCU Run）不需要提权，是默认推荐路径。
 
@@ -293,7 +293,7 @@ test -f dist/x.tgz
 
 `checkAgentPRs()` 每轮对 open PR 取一次详情，`mergeable_state === 'dirty'` 时调 `rebaseAgentBranch()`：
 
-1. `fetch`（连不上 github.com 时重试 3 次，网络抖动不算「需要人工」）→ 在 `D:/code/.worktrees/issue-<n>-rebase`
+1. `fetch`（连不上 github.com 时重试 3 次，网络抖动不算「需要人工」）→ 在 `<工作盘>/.worktrees/issue-<n>-rebase`
    上检出 `tmp/rebase-<n>`；
 2. `git rebase origin/main`；
 3. 干净 → 跑 `verifyWorktree()` 门禁 → `push --force-with-lease origin tmp/rebase-<n>:agent/issue-<n>`，

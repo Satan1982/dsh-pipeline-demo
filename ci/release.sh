@@ -17,8 +17,8 @@ PUSH=0
 for a in "$@"; do [ "$a" = "--push" ] && PUSH=1; done
 
 GIT_BIN="${GIT_BIN:-C:/Program Files/Git/cmd/git}"
-NODE_BIN="${DSH_NODE:-C:/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe}"
-export PNPM_CLI="${PNPM_CLI:-C:/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs}"
+NODE_BIN="${DSH_NODE:-$HOME/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe}"
+export PNPM_CLI="${PNPM_CLI:-$HOME/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs}"
 # 门禁脚本里到处是裸 `node`；本机 PATH 默认没有它，带上随包 node 的目录再跑。
 # 注意：MSYS 的 bash 只认 /c/... 形式的 PATH 条目，C:/... 放进去仍会「command not found」。
 NODE_DIR_RAW="$(dirname "$NODE_BIN")"

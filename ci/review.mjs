@@ -137,7 +137,7 @@ export function formatFindings(result) {
  * 在 worktree 里真正跑一次评审：取 base...HEAD 的 diff 再判定。
  */
 export function reviewWorktree(cwd, base = 'origin/main', options = {}) {
-  const git = (args) => spawnSync('C:/Program Files/Git/cmd/git.exe', args, {
+  const git = (args) => spawnSync(process.env.DSH_GIT || 'git', args, {
     cwd, encoding: 'utf8', timeout: 60_000,
   });
 

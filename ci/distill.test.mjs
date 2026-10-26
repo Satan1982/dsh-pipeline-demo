@@ -17,7 +17,7 @@ test('同一个指纹的多条记录归并成一条，次数与工单都留下',
 });
 
 test('调用栈与本机路径不进摘要', () => {
-  const raw = 'Error: 评审层拒绝\n    at runTask (file:///D:/code/x.mjs:451:15)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)';
+  const raw = 'Error: 评审层拒绝\n    at runTask (file:///<工作盘>/x.mjs:451:15)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)';
   const out = clean(raw);
   assert.equal(out, 'Error: 评审层拒绝');
   assert.ok(!out.includes('runTask'));

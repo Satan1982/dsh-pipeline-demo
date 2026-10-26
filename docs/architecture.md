@@ -3,7 +3,7 @@
 一句话：**人只写 issue（目标 + 可执行验收 + 约束），机器人在隔离 worktree 里写代码，三道门禁
 （可执行验收、机械规则、语义评审团）都过了才开 PR；要不要合并由 issue 上的一个 label 决定。**
 
-代码全部在 `D:\code\dsh-pipeline-demo`，零运行时依赖（只用 Node 标准库 + git + bash）。
+代码全部在 `<repo>`，零运行时依赖（只用 Node 标准库 + git + bash）。
 
 ## 全景
 
@@ -20,7 +20,7 @@
                       └──┬─────────┬─────────┬───────┘
                          │         │         │
             建 worktree   │         │         │  独立跑门禁
-        D:/code/.worktrees/issue-N  │         │
+        <工作盘>/.worktrees/issue-N  │         │
                          │         │         │
                  ┌───────▼──────┐  │  ┌──────▼────────┐
                  │ headless agent│  │  │ scripts/verify.sh │
@@ -63,7 +63,7 @@
 ## 一次任务的生命周期（日志里能逐条对上）
 
 1. `[issue #N] 领取` — 打 `agent:working`、摘 `agent:ready`（防重复领取）。
-2. 建隔离 worktree `D:/code/.worktrees/issue-N`（`git worktree add`，`core.hooksPath=.githooks`）。
+2. 建隔离 worktree `<工作盘>/.worktrees/issue-N`（`git worktree add`，`core.hooksPath=.githooks`）。
 3. 写 `.dsh/PLAN.md`（目标/验收/命令/约束/红线），并加进 `info/exclude`——agent 和评审都读它。
 4. `headless` 起 agent（默认弱模型，第 2 次起升到 strong；`model:strong` 可强制）。
 5. agent 写完 → 调度器不看它自述，**自己**跑 `scripts/verify.sh`。
@@ -105,8 +105,8 @@
 
 ## 安全姿态（2026-10-26 核查后）
 
-- 凭据只在 `D:\code\.secrets`（不进仓库、不进 git 历史、不进日志——三处都扫过，0 命中）。
-- 该目录 ACL 已改为**只允许 `ZHAO\Administrator` / `SYSTEM` / `Administrators`**（原来 `Authenticated Users` 有 Modify）。
+- 凭据只在 `<secrets 目录>`（不进仓库、不进 git 历史、不进日志——三处都扫过，0 命中）。
+- 该目录 ACL 已改为**只允许 `<本机账号>` / `SYSTEM` / `<本机账号>s`**（原来 `Authenticated Users` 有 Modify）。
 - agent 子进程的 env 走白名单（`scrubbedEnv()`）：`GIT_TOKEN`、`GIT_ASKPASS`、`SILICONFLOW_API_KEY` 等一律不传。
 - 但**agent 与调度器同用户运行**：agent 仍可从磁盘读 `.secrets`。这是当前最大的残余风险，
   根因是「无人值守需要 danger-full-access」。真正隔离要换低权用户跑 agent，属于下一步。

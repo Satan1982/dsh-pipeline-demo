@@ -282,4 +282,4 @@ Makefile                              本地可重复命令入口（lint / check
 | S14 | GitHub API 元数据 | `https://api.github.com/repos/tradecatlabs/vibe-coding-cn`、`.../2025Emma/vibe-coding-cn`、`.../liyupi/ai-guide`、`.../datawhalechina/vibe-vibe` | star / forks / created / pushed 原始字段 |
 | S15 | 旧名残留证据 | <https://github.com/tukuaiai/vibe-coding-cn/wiki> | 正主曾用名（配合 `repo:tukuaiai/vibe-coding-cn` 返回 422 判定改名） |
 
-本地留存副本（供复核，抓取于 2026-10-26）：`D:\code\vc\` 下 `tc_README.md`、`tc_howto.md`、`tc_AGENTS.md`、`tc_antipatterns.md`、`tc_faq.md`、`tc_promptsREADME.md`、`tc_gongfa_README.md`、`gongfa_data.json`、`gf_quality_gates_and_pitfalls.md`、`gf_vibe_coding_experience.md`、`gf_development_experience.md`、`m_八荣八耻.md`、`m_执行纯净性.md`、`m_编程之道.md`、`m_经验收集.md`。
+本地留存副本（供复核，抓取于 2026-10-26）：`<工作盘>\vc\` 下 `tc_README.md`、`tc_howto.md`、`tc_AGENTS.md`、`tc_antipatterns.md`、`tc_faq.md`、`tc_promptsREADME.md`、`tc_gongfa_README.md`、`gongfa_data.json`、`gf_quality_gates_and_pitfalls.md`、`gf_vibe_coding_experience.md`、`gf_development_experience.md`、`m_八荣八耻.md`、`m_执行纯净性.md`、`m_编程之道.md`、`m_经验收集.md`。

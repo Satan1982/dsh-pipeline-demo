@@ -33,9 +33,9 @@ printf '%s' "在 src/index.js 加 subtract 并补测试，然后跑 verify.sh" |
 
 1. 从 `~/.dsh/.credentials.yaml` 取 `SILICONFLOW_API_KEY`（不回显、不落盘）
 2. `DSH_PERMISSION_MODE=danger-full-access` → 审批策略 `never`，否则无人值守会挂在审批上
-3. `--patch D:/code/.secrets/headless-model.yml` 覆盖模型路由
+3. `--patch <secrets 目录>/headless-model.yml` 覆盖模型路由
 
-模型路由改 `D:/code/.secrets/headless-model.yml` 里的 `agent-default-model`。
+模型路由改 `<secrets 目录>/headless-model.yml` 里的 `agent-default-model`。
 
 ## 模型可用性（实测）
 
@@ -47,7 +47,7 @@ printf '%s' "在 src/index.js 加 subtract 并补测试，然后跑 verify.sh" |
 | zhipu / glm-4.7-flash | ⚠️ 可用但限流 | 多次触发 `429 code 1305`，不适合无人值守 |
 | lemonade 本地 30B | ⚠️ 排队 | 单 slot 被 Hindsight 抽取占用时，请求直接挂住（实测 90s 超时） |
 
-切换强模型：`DSH_HEADLESS_PATCH=D:/code/.secrets/headless-model-strong.yml bash ci/headless-task.sh -`。
+切换强模型：`DSH_HEADLESS_PATCH=<secrets 目录>/headless-model-strong.yml bash ci/headless-task.sh -`。
 调度器里给 issue 加 `model:strong` label 即可自动切换，见 `docs/dispatch.md`。
 
 ## 已知坑

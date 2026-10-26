@@ -13,6 +13,7 @@
  * 放行「改门禁脚本」这一类（对应 issue 上的 allow:gate 标签）。
  */
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { reviewDiff, formatFindings } from './review.mjs';
 
 const GIT = 'C:/Program Files/Git/cmd/git.exe';
@@ -38,6 +39,30 @@ const files = names.map((filename) => ({
 }));
 
 const result = reviewDiff({ files, allowGate: process.env.DSH_ALLOW_GATE === '1' });
+
+// baseline-unsynced 只是「改了测试文件却没动基线」的形迹判据：改了测试文件的**断言内容**
+// 但计数与指纹都没变时（比如只动 fixture 字符串），它其实不该挡提交。所以真拿门禁说一次话：
+// 本地门禁过了就把这条降级成提示，没过才拦（拦得住的仍然是「真的没 bless」）。
+const unsynced = result.findings.find((f) => f.rule === 'baseline-unsynced' && f.severity === 'block');
+if (unsynced) {
+  const bash = process.env.DSH_BASH || 'bash';
+  // 门禁需要包管理器：钩子继承的是 git 的环境，PNPM_CLI 常常不在，这里按 HOME 兜一个。
+  const env = { ...process.env };
+  if (!env.PNPM_CLI) {
+    const home = process.env.USERPROFILE || process.env.HOME || '.';
+    env.PNPM_CLI = path.join(home, 'AppData', 'Local', 'Programs', 'DeepSeek Harness',
+      'resources', 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.cjs');
+  }
+  const gate = spawnSync(bash, ['scripts/verify.sh'], { encoding: 'utf8', timeout: 15 * 60_000, env });
+  if (gate.status === 0) {
+    unsynced.severity = 'warn';
+    unsynced.message = '改了测试文件但计数与断言指纹都没变（本地门禁已通过），无需 bless';
+  } else {
+    unsynced.message = `改了测试文件但门禁没过 —— 跑 bash scripts/verify.sh --bless 后重试：\n${String(gate.stderr || gate.stdout).trim().split('\n').slice(-6).join('\n')}`;
+  }
+  result.ok = !result.findings.some((f) => f.severity === 'block');
+}
+
 if (result.ok) {
   for (const f of result.findings) {
     console.error(`⚠ 提示 [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);

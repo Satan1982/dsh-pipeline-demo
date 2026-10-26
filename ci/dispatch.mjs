@@ -16,7 +16,10 @@
  *   DSH_POLL_INTERVAL      轮询秒数，默认 60
  *   DSH_TASK_TIMEOUT_MS    单任务超时，默认 30 分钟
  */
+import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+
+const io_url = fileURLToPath(import.meta.url);
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
@@ -35,16 +38,16 @@ if (!process.execArgv.includes('--use-system-ca')) {
 }
 
 const REPO      = process.env.DSH_REPO ?? 'Satan1982/dsh-pipeline-demo';
-const TOKEN     = readFileSync('D:/code/.secrets/github-token.txt', 'utf8').trim();
-const GIT       = 'C:/Program Files/Git/cmd/git.exe';
-const BASH      = 'C:/Program Files/Git/bin/bash.exe';
-const ASKPASS   = 'D:/code/.secrets/askpass.sh';
-const REPO_DIR  = 'D:/code/dsh-pipeline-demo';
-const WT_ROOT   = 'D:/code/.worktrees';
-const STRONG_PATCH = 'D:/code/.secrets/headless-model-strong.yml';
-const TIMEOUT   = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
-// 解冲突比正常写代码窄得多（只合并已有代码，不改设计），所以给它更短的预算：
-// 2026-10-25 实测 29B 在一次 4 文件冲突上跑了 522 秒仍 exit=1，拖长只会白等。
+const HOME = process.env.USERPROFILE || process.env.HOME || '.';
+const SECRETS_DIR = process.env.DSH_SECRETS_DIR || path.join(path.dirname(REPO_DIR_RAW), '.secrets');
+const TOKEN = process.env.DSH_GITHUB_TOKEN_FILE || path.join(SECRETS_DIR, 'github-token.txt');
+const GIT = process.env.DSH_GIT || 'C:/Program Files/Git/cmd/git.exe';
+const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@dsh-ops', 'bash-win32-x64', 'bin', 'bash.exe');
+const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
+const REPO_DIR_RAW = path.dirname(path.dirname(io_url));
+const REPO_DIR = REPO_DIR_RAW;
+const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '.worktrees');
+const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
@@ -62,7 +65,7 @@ const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
 // https 通道会间歇性不通（实测同一天里 10 次全通、8 次全失败两个极端）。仓库上挂了一把
 // write 部署密钥，于是留一条走 ssh.github.com:443 的备用通道：两种协议独立，谁通走谁。
-const SSH_WRAPPER = 'D:/code/.secrets/ssh-git.sh';
+const SSH_WRAPPER = process.env.DSH_SSH_WRAPPER || path.join(SECRETS_DIR, 'ssh-git.sh');
 const SSH_REMOTE = `ssh://git@ssh.github.com:443/${REPO}.git`;
 const SSH_ENV = { ...GIT_ENV, GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
 
@@ -73,7 +76,8 @@ function networkError(r) {
 
 // 随包运行时根目录：.../dependencies/node/bin/node.exe 上溯三级才是 dependencies。
 // 上溯两级会落到 .../dependencies/node，PNPM_CLI 随之指向不存在的 node/pnpm/bin。
-const BUNDLE_DIR = path.dirname(path.dirname(path.dirname(process.execPath)));
+const INSTALL_DIR = process.env.DSH_INSTALL || path.join(HOME, 'AppData', 'Local', 'Programs', 'DeepSeek Harness');
+const BUNDLE_DIR = process.env.DSH_BUNDLE_DIR || path.join(HOME, 'AppData', 'Local', 'Programs', 'DeepSeek Harness', 'resources', 'runtime', 'primary-runtime', 'dependencies');
 const PNPM_CLI = process.env.PNPM_CLI || path.join(BUNDLE_DIR, 'pnpm', 'bin', 'pnpm.cjs');
 const FAIL_STORE = path.join(REPO_DIR, 'docs', 'failures.jsonl');
 
@@ -86,7 +90,7 @@ const CHILD_PATH = [
 ].filter(Boolean).join(path.delimiter);
 
 // 计划任务里 stdout 无处可去，必须自己落盘，否则无人值守跑完什么都看不到。
-const LOG_DIR = 'D:/code/dsh-pipeline-demo/.logs';
+const LOG_DIR = process.env.DSH_LOG_DIR || path.join(REPO_DIR, '.logs');
 // 换行常量：本文件里避免在模板字符串中写转义（历史上被脚本改坏过两次）。
 const NL = String.fromCharCode(10);
 const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
@@ -1051,7 +1055,7 @@ async function runHeadless(cwd, prompt, env, timeout) {
   for (let i = 1; i <= 3; i += 1) {
     // --json：stdout 是事件流，里面带每一步的 usage（headless profile 没装 cost-meter，
     // 账本里看不到这些 run，只能自己从事件流里累加）。
-    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), ...env, DSH_HEADLESS_JSON: '1' }, clean: true });
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), DSH_INSTALL: INSTALL_DIR, ...env, DSH_HEADLESS_JSON: '1' }, clean: true });
     if (Number(last.code) < 0xC0000000) {
       const usage = sumUsage(last.out);
       return { ...last, raw: last.out, usage, out: finalText(last.out) };
