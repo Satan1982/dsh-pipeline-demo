@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -87,4 +87,16 @@ test('chunk rejects a non-integer size', () => {
 
 test('chunk rejects non-string input', () => {
   assert.throws(() => chunk(123, 2), TypeError);
+});
+
+test('reverseEachWord reverses each word but keeps word order', () => {
+  assert.equal(reverseEachWord('ab cd'), 'ba dc');
+});
+
+test('reverseEachWord returns an empty string for empty input', () => {
+  assert.equal(reverseEachWord(''), '');
+});
+
+test('reverseEachWord keeps repeated whitespace intact', () => {
+  assert.equal(reverseEachWord('a  bc'), 'a  cb');
 });
