@@ -57,6 +57,9 @@ const STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 const TIMEOUT = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
+// 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
+const RATE_LIMIT_MAX = Number(process.env.DSH_RATE_LIMIT_MAX ?? 4);
+const RATE_LIMIT_RETRIES = new Map();
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
 const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
@@ -723,6 +726,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     log(`${tag} done → ${prUrl}`);
   } catch (e) {
     const reason = String(e?.stack || e);
+  // 限流（429 / TPM limit reached）是环境噪声，不是这次改动的问题：等一会儿再来，
+  // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
+  if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached/.test(reason)) {
+    const tries = RATE_LIMIT_RETRIES.get(n) ?? 0;
+    if (tries < RATE_LIMIT_MAX) {
+      RATE_LIMIT_RETRIES.set(n, tries + 1);
+      const waited = Number(process.env.DSH_RATE_LIMIT_WAIT_MS ?? 120000);
+      log(`${tag} 撞到限流，等 ${Math.round(waited / 1000)}s 后重试（第 ${tries + 1}/${RATE_LIMIT_MAX} 次，不计重试次数）`);
+      await new Promise((r) => setTimeout(r, waited));
+      return runTask(issue, attempt, reason);
+    }
+    log(`${tag} 限流重试 ${RATE_LIMIT_MAX} 次仍失败，按普通失败处理`);
+  }
     // 失败指纹入仓：下次同类失败（哪怕换一张工单）能直接拿到这次的根因。
     try { recordFailure({ text: reason, issue: n, attempt, reason: reason.slice(0, 1500) }, FAIL_STORE); } catch { /* 记账失败不影响重试 */ }
     if (attempt < MAX_ATTEMPTS) {
