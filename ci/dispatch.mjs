@@ -42,7 +42,12 @@ const io_url = fileURLToPath(import.meta.url);
 const REPO_DIR_RAW = path.dirname(path.dirname(io_url));
 const SECRETS_DIR = process.env.DSH_SECRETS_DIR || path.join(path.dirname(REPO_DIR_RAW), '.secrets');
 const TOKEN_FILE = process.env.DSH_GITHUB_TOKEN_FILE || path.join(SECRETS_DIR, 'github-token.txt');
-const TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
+// 惰性读取：模块顶层读文件会让 CI 里的「能否 import」测试直接失败（那里没有 token 文件）。
+let TOKEN_CACHE = '';
+function token() {
+  if (!TOKEN_CACHE) TOKEN_CACHE = readFileSync(TOKEN_FILE, 'utf8').trim();
+  return TOKEN_CACHE;
+}
 const GIT = process.env.DSH_GIT || 'C:/Program Files/Git/cmd/git.exe';
 const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@dsh-ops', 'bash-win32-x64', 'bin', 'bash.exe');
 const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
@@ -64,12 +69,14 @@ const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$
 const DRY       = process.argv.includes('--dry-run');
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
-const GIT_ENV = { GIT_ASKPASS: ASKPASS, GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: '0' };
+function gitEnv() {
+  return { GIT_ASKPASS: ASKPASS, GIT_TOKEN: token(), GIT_TERMINAL_PROMPT: '0' };
+}
 // https 通道会间歇性不通（实测同一天里 10 次全通、8 次全失败两个极端）。仓库上挂了一把
 // write 部署密钥，于是留一条走 ssh.github.com:443 的备用通道：两种协议独立，谁通走谁。
 const SSH_WRAPPER = process.env.DSH_SSH_WRAPPER || path.join(SECRETS_DIR, 'ssh-git.sh');
 const SSH_REMOTE = `ssh://git@ssh.github.com:443/${REPO}.git`;
-const SSH_ENV = { ...GIT_ENV, GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
+const SSH_ENV = { ...gitEnv(), GIT_SSH_COMMAND: SSH_WRAPPER, GIT_SSH_VARIANT: 'ssh' };
 
 function networkError(r) {
   const t = `${r?.err ?? ''}${r?.out ?? ''}`;
@@ -133,7 +140,7 @@ async function api(method, p, body) {
   const r = await fetch(`https://api.github.com${p}`, {
     method,
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${token()}`,
       Accept: 'application/vnd.github+json',
       'User-Agent': 'dsh-dispatch',
       'Content-Type': 'application/json',
@@ -173,7 +180,7 @@ const git = (args, opts = {}) =>
   run(GIT, ['-c', 'credential.helper=', ...args], {
     ...opts,
     cwd: opts.cwd ?? REPO_DIR,
-    env: { ...GIT_ENV, ...(opts.env ?? {}) },
+    env: { ...gitEnv(), ...(opts.env ?? {}) },
   });
 
 // github.com:443 整晚会间歇性连不上（2026-10-25 实测：同一分钟 api.github.com 200、
@@ -780,7 +787,7 @@ async function collectFailureLog(runId) {
       const failedSteps = (j.steps ?? []).filter((s) => s.conclusion === 'failure').map((s) => s.name).join(', ');
       text += `### job: ${j.name}（失败步骤: ${failedSteps || '未知'}）\n`;
       const r = await fetch(`https://api.github.com/repos/${REPO}/actions/jobs/${j.id}/logs`, {
-        headers: { Authorization: `Bearer ${TOKEN}`, 'User-Agent': 'dsh-dispatch' },
+        headers: { Authorization: `Bearer ${token()}`, 'User-Agent': 'dsh-dispatch' },
         redirect: 'follow',
       });
       if (r.ok) {
