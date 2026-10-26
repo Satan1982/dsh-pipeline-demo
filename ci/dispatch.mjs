@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, sta
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
+import { sumUsage, formatUsage, finalText } from './usage.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
@@ -492,8 +493,20 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const t0 = Date.now();
     const r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
     const secs = Math.round((Date.now() - t0) / 1000);
+    const usage = r.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0, steps: 0 };
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s ${tail ? '→ ' + tail : ''}`);
+    // token 用量：headless profile 不装 cost-meter，账本里没有这些 run，只能靠 --json 事件流自己记。
+    if (r.usage && r.usage.steps) {
+      log(`${tag} 消耗 ${formatUsage(r.usage)}`);
+      try {
+        if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+        appendFileSync(
+          path.join(LOG_DIR, 'usage.jsonl'),
+          JSON.stringify({ at: new Date().toISOString(), issue: n, attempt, model: useStrong ? 'strong' : 'default', ...r.usage }) + NL,
+        );
+      } catch { /* 记账失败不影响任务本身 */ }
+    }
     // 只留最后 3 行不够排障：完整输出落盘，事后能看清 agent 为什么什么都没做。
     try {
       if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
@@ -666,6 +679,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
         `- 语义评审：${formatSemantic(semantic).split(String.fromCharCode(10))[0]}${semantic.paidUsed ? `（⚠ 免费模型 ${semantic.freeModel} 不可用，已切付费）` : ''}`,
         `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
+        `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
+        `- 本次 agent 消耗：${formatUsage(usage)}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
         '',
         '## 需要人工确认（调度器不做）',
@@ -1034,8 +1049,13 @@ function scrubbedEnv() {
 async function runHeadless(cwd, prompt, env, timeout) {
   let last = null;
   for (let i = 1; i <= 3; i += 1) {
-    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), ...env }, clean: true });
-    if (Number(last.code) < 0xC0000000) return last;
+    // --json：stdout 是事件流，里面带每一步的 usage（headless profile 没装 cost-meter，
+    // 账本里看不到这些 run，只能自己从事件流里累加）。
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), ...env, DSH_HEADLESS_JSON: '1' }, clean: true });
+    if (Number(last.code) < 0xC0000000) {
+      const usage = sumUsage(last.out);
+      return { ...last, raw: last.out, usage, out: finalText(last.out) };
+    }
     log(`[headless] 子进程启动失败 exit=${last.code}（Windows NTSTATUS），5 秒后重试 ${i}/3`);
     if (i < 3) await new Promise((r) => setTimeout(r, 5000));
   }

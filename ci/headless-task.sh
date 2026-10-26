@@ -43,7 +43,13 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-if [ "$1" = "-" ]; then
-  exec "$DSH" --profile headless --patch "$PATCH" -
+# DSH_HEADLESS_JSON=1 时输出 newline-delimited 事件流（调度器据此统计 token 用量）。
+JSON_ARGS=()
+if [ "${DSH_HEADLESS_JSON:-}" = "1" ]; then
+  JSON_ARGS=(--json)
 fi
-exec "$DSH" --profile headless --patch "$PATCH" "$@"
+
+if [ "$1" = "-" ]; then
+  exec "$DSH" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" -
+fi
+exec "$DSH" --profile headless --patch "$PATCH" "${JSON_ARGS[@]}" "$@"
