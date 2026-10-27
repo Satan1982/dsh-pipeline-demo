@@ -16,7 +16,7 @@ export function isValidDate(value) {
   return day <= maxDay;
 }
 
-function isValidMonth(value) {
+export function isValidMonth(value) {
   if (typeof value !== 'string') return false;
   const match = /^(\d{4})-(\d{2})$/.exec(value);
   if (!match) return false;
