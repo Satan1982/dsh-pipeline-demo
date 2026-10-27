@@ -664,7 +664,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       writeFileSync(path.join(LOG_DIR, `issue-${n}-attempt-${attempt}.log`),
         `exit=${r.code} ${secs}s\n===== stdout =====\n${r.out}\n===== stderr =====\n${r.err}\n`);
     } catch { /* 落盘失败不影响主流程 */ }
-    const outTail = (r.out || '').trim().split('\n').filter(Boolean).slice(-12).join('\n');
+    const outTail = ((r.err || '') + String.fromCharCode(10) + (r.out || '')).trim().split('\n').filter(Boolean).slice(-12).join('\n');
     // 重试后仍然是 NTSTATUS：进程根本没起来，别让它走进「验收」流程（那会报错误的原因）。
     if (Number(r.code) >= 0xC0000000) {
       throw new Error(`[headless] headless-crash｜进程在启动阶段失败（exit=${r.code}），未产生任何改动`);
