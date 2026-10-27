@@ -14,6 +14,7 @@
 1 142ddf6ec2c0d7a5 assert.equal(wordCount('a b c'), 3);
 1 14e58d67102137a4 assert.equal(groups.length, 2);
 12 171d4db9216880f9 assert.equal(r.ok, false);
+1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
 1 1959ba1d9479f6c2 assert.equal(merged.model, FREE_REVIEW_MODEL);
 1 1a4310201679f9ed assert.equal(finalText([ev({ type: 'text', text: 'a' }), ev({ type: 'text', text: 'b' })].join('\n')), 'ab');
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
@@ -29,8 +30,10 @@
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
+1 2187334f96360d1d assert.equal(formatCny(1.234), '¥1.23');
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
 1 23cfe7070eb0d72b assert.equal(flat['deepseek-ai/DeepSeek-V4.1-Flash-1017'].status, 'ok');
+1 249bb06e435f9fe4 assert.equal(isPeak(idle), true);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
 1 263ebe16098347ef assert.deepEqual(chunk('', 3), []);
 1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
@@ -60,11 +63,13 @@
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
+1 404c7a6ed3ba27fd assert.equal(isPeak(off), false);
 1 411b04110872e33a assert.equal(sumUsage('').steps, 0);
 1 4130087e065aeee8 assert.throws(() => chunk('abc', NaN), RangeError);
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
 1 44355f93774fa1c2 assert.deepEqual(words('a b c'), ['a', 'b', 'c']);
 1 4504ea416efc986c assert.equal(r.verdict, 'skipped');
+1 45c4d2f60f718b9b assert.match(formatCny(null), /价目表/);
 1 46180e9ada8d893b assert.equal(countVowels(''), 0);
 1 468887494f6f83b3 assert.ok(text.indexOf('## 2 次') < text.indexOf('## 1 次'));
 1 46fd141b4a815a34 assert.equal(shout(''), '!');
@@ -76,10 +81,13 @@
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
 1 4a0af7bc7a29be85 assert.throws(() => chunk('abc', 1.5), RangeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
+1 4be59946f36a1c14 assert.equal(formatCny(0), '¥0');
 1 4c142bec865a92f8 assert.equal(merged.reviewers.length, 1);
+1 4d1f48799450d386 assert.equal(isPeak(new Date('2026-10-31T10:00:00+08:00')), false); // 周六
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
 1 4e0bacafef2986da assert.equal(sessionIdOf(JSON.stringify({ type: "final", text: "ok" })), "");
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
+1 4e8b40a6cd95c0f1 assert.equal(priceFor('deepseek-flash', idle).peak, true);
 1 4f37f4df93ae13ae assert.equal(shortHash('hello'), 'h9f2cab');
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
@@ -147,6 +155,7 @@
 1 8968b1fb9790feed assert.ok(r.findings.some((f) => f.rule === 'forbidden-path'));
 1 89be954b7641ce0f assert.deepEqual(words(' a\tb\n '), ['a', 'b']);
 1 89e42d0d5796c99e assert.equal(maxOf(-2, -5), -2);
+1 8b1a17ca0c3f0d0d assert.equal(costCny(u, 'no-such-model', off), null);
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
 1 8e00575670332508 assert.equal(cube(2), 8);
 2 8f0694b9c090fb9d assert.equal(f.severity, 'block');
@@ -171,6 +180,7 @@
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
+1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 a0f1d2bd56df4400 assert.equal(classifyConflicts(['scripts/baseline.txt']).kind, 'manual');
 1 a1065aed767ce161 assert.throws(() => truncateWords(123, 2), TypeError);
 1 a18ca483e9b6b2a2 assert.equal(absValue(3), 3);
@@ -197,12 +207,14 @@
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
 1 b2379d4f9dbce23b assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
 1 b3c6f8b60b17f2c3 assert.equal(classifyConflicts(['src/test-baseline.txt']).kind, 'manual');
+1 b6c5c89a5e292dd6 assert.equal(costCny(u, 'deepseek-ai/DeepSeek-V4.1-Flash-1017', off), 0);
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
 1 b72bd1f74bdf14fc assert.equal(reverseWords(' a b '), 'b a');
 1 b7b256f5d3dad38c assert.match(shortHash('anything'), /^h[0-9a-f]{6}$/);
 1 b8819833c8a92041 assert.ok(text.includes('共 2 个根因'));
 1 b896ac46d8646f10 assert.notEqual(shortHash('a'), shortHash('b'));
 1 b8b03a457ccc6eeb assert.ok(formatFindings(r).includes('allow:gate'));
+1 b8b8dcd40a0af879 assert.equal(formatCny(0.00234), '¥0.0023');
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
 1 ba7e8e2604057020 assert.equal(a, b);

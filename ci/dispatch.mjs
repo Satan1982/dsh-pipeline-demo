@@ -24,6 +24,7 @@ import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
 import { sumUsage, formatUsage, finalText, sessionIdOf } from './usage.mjs';
+import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
@@ -61,7 +62,10 @@ const PAID_PATCH = process.env.DSH_HEADLESS_PAID_PATCH || path.join(SECRETS_DIR,
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 // 免费池的强模型会下线/换名，所以启动时现选一个，写成 patch 文件交给 headless。
 // 显式设了 DSH_HEADLESS_STRONG_PATCH 就完全不动（调试/回滚用）。
+let STRONG_MODEL_NAME = '';
+
 function writeStrongPatch(model) {
+  STRONG_MODEL_NAME = model;
   const file = path.join(LOG_DIR, 'headless-model-free-strong.generated.yml');
   const yml = [
     '# 调度器启动时按免费池健康快照生成，不要手改。',
@@ -150,6 +154,9 @@ const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
 // 仅用于验证重试状态机：前 N 次尝试强制失败，不真正调模型
 const DEBUG_FAIL = Number(process.env.DSH_DEBUG_FAIL_ATTEMPTS ?? 0);
 const CONCURRENCY = Math.max(1, Number(process.env.DSH_CONCURRENCY ?? 2));
+// 正在跑的任务数：用来判断「这个任务会不会和别的任务重叠」。
+// modelscope 免费档必须串行（fm.py limits：并发 6 只剩 7/37），重叠时改走可并发的档。
+let RUNNING_TASKS = 0;
 const ONCE      = process.argv.includes('--once');
 const ENSURE    = process.argv.includes('--ensure');
 const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -600,11 +607,17 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // （2026-10-27 实测：继承来的旧会话跑到一半就报「preset standard 不能被一次性 runner 组合」）。
     runEnv.DSH_SESSION_ID = resumeId || '';
     if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
-    // 付费是最后手段：只有工单显式打 model:paid 才走付费路由（用户 2026-10-26 的要求）。
-    const usePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
+    // 付费是最后手段，但有一个例外：并发。modelscope 免费档必须串行（并发 6 只剩 7/37），
+    // 已经有任务在跑时这个任务必然重叠，硬用免费档会互相挤、最后一齐超时。
+    // 这种情况下改走 deepseek-flash（并发 2500，空闲 1/4 元每百万 tokens，一单约 ¥0.1）。
+    const forcePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
+    const freeOnly = (issue.labels ?? []).some((l) => l.name === 'model:free');
+    const overlap = RUNNING_TASKS > 1;
+    const usePaid = forcePaid || (overlap && !freeOnly);
     if (usePaid) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
-      log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
+      if (forcePaid) log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
+      else log(`${tag} ⇄ 有其它任务在跑（免费档不能并发），本单改用 deepseek-flash（付费，约 ¥0.1/单）`);
     }
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
@@ -622,9 +635,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       log(`${tag} 消耗 ${formatUsage(r.usage)}`);
       try {
         if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+        const billedModel = usePaid ? 'deepseek-flash' : (STRONG_MODEL_NAME || 'free-pool');
+        const cny = costCny(r.usage, billedModel);
+        if (cny !== null && cny > 0) log(`${tag} 估算成本 ${formatCny(cny)}（${billedModel}，按官方价目表）`);
         appendFileSync(
           path.join(LOG_DIR, 'usage.jsonl'),
-          JSON.stringify({ at: new Date().toISOString(), issue: n, attempt, model: useStrong ? 'strong' : 'default', ...r.usage }) + NL,
+          JSON.stringify({ at: new Date().toISOString(), issue: n, attempt, model: billedModel, paid: usePaid, cny, ...r.usage }) + NL,
         );
       } catch { /* 记账失败不影响任务本身 */ }
     }
@@ -756,9 +772,14 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const semMs = Date.now() - semT0;
     log(`${tag} 语义评审：${formatSemantic(semantic).split('\n')[0]}（${Math.round(semMs / 1000)}s，${(diff.files ?? []).length} 个文件）`);
     if (semantic.paidUsed) {
-      // 用户要求：评审一旦用到付费模型必须告知。三重留痕——日志、issue 评论、PR body。
+      // 用户 2026-10-27：留痕本身也要花钱，所以默认只进 dispatch.log 与 PR body 一行；
+      // 只有这次付费评审的估算成本超过阈值（默认 ¥0.05）才额外写 issue 评论。
       log(`${tag} ⚠ 语义评审切到付费面板（免费模型 ${semantic.freeModel} 不可用：${semantic.escalatedFrom}）`);
-      try {
+      const notifyCny = Number(process.env.DSH_PAID_NOTIFY_CNY ?? 0.05);
+      const semCny = (semantic.tokens ?? 0) * (4 / 1e6); // 保守按输出价 4 元/百万估算
+      if (semCny < notifyCny) {
+        log(`${tag} 付费评审估算 ${formatCny(semCny)} < 阈值 ${formatCny(notifyCny)}，只记日志不写 issue 评论`);
+      } else try {
         await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
           body: [
             '⚠️ 这次语义评审用了**付费模型**。',
@@ -894,7 +915,12 @@ async function pollOnce() {
   log(`发现 ${issues.length} 个待处理任务（并发上限 ${CONCURRENCY}）`);
   await mapPool(issues, CONCURRENCY, async (issue) => {
     if (DRY) { log(`[dry-run] would run #${issue.number} ${issue.title}`); return; }
-    await runTask(issue);
+    RUNNING_TASKS += 1;
+    try {
+      await runTask(issue);
+    } finally {
+      RUNNING_TASKS -= 1;
+    }
   });
   return issues.length;
 }
