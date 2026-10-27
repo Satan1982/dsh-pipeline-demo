@@ -29,6 +29,7 @@ import { reviewWorktree, formatFindings } from './review.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
+import { freePoolDecision, blockReason } from './pool-block.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
