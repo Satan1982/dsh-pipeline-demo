@@ -1,4 +1,5 @@
 *.tgz
+.tmp-ledger*.json
 .DS_Store
 .dsh/
 .logs/
