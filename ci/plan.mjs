@@ -22,7 +22,19 @@ const TOKEN_FILE = process.env.DSH_GITHUB_TOKEN_FILE
   || path.join(path.dirname(ROOT), '.secrets', 'github-token.txt');
 
 export function splitRow(line) {
-  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((s) => s.trim());
+  // 不能简单 split('|')：验收命令里的 `||`（布尔或）会把一格劈成两半，
+  // 2026-10-27 就因此把 T1 的命令截断在 `if(s.income!==100`，bash 直接 exit=2。
+  // 反引号里的竖线一律当普通字符。
+  const cells = [];
+  let cur = '';
+  let inTick = false;
+  for (const ch of line.trim().replace(/^\|/, '').replace(/\|$/, '')) {
+    if (ch === '`') { inTick = !inTick; cur += ch; continue; }
+    if (ch === '|' && !inTick) { cells.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
 }
 
 export function parseTasks(md) {

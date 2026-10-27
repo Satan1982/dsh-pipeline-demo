@@ -30,6 +30,13 @@ test('依赖分层：T1 第 1 层，T2 第 2 层，T3/T4 第 3 层', () => {
   assert.match(text, /第 3 层（集成）：T3 .*T4/);
 });
 
+
+test('验收命令里的 || 不会被当成表格分隔符', () => {
+  const md = '| T1 | 布尔或 | - | `node -e "if (1 || 0) console.log(1)"` |';
+  const [t] = parseTasks(md);
+  assert.match(t.cmd, /1 \|\| 0/);
+});
+
 test('依赖成环会报错而不是死循环', () => {
   const cyclic = '| T1 | a | T2 | x |\n| T2 | b | T1 | y |';
   assert.throws(() => topoLevels(parseTasks(cyclic)), /依赖成环/);

@@ -207,6 +207,7 @@
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
 1 aec477efdecf8e09 assert.throws(() => chunk('abc', 0), RangeError);
+1 af4c9ef4463c0e6a assert.match(t.cmd, /1 \|\| 0/);
 1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
 1 af73ba80baa9e40a assert.equal(sessionIdOf(nd), "session-abc");
 1 af8d4ba6f4541bcb assert.equal(merged.ok, false);
