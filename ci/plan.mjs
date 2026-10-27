@@ -46,7 +46,8 @@ export function parseTasks(md) {
     if (/^(任务|task)$/i.test(cells[0])) continue;        // 表头
     if (/^-{2,}$/.test(cells[0].replace(/[: ]/g, ''))) continue; // 分隔线
     const id = cells[0].replace(/[`*]/g, '');
-    if (!/^[A-Za-z]+\d+$/.test(id)) continue;
+    // 允许 T2a / T2b 这类「编号 + 小写后缀」的拆分任务（2026-10-27 把 T2 拆细时加的）。
+    if (!/^[A-Za-z]+\d+[a-z]?$/.test(id)) continue;
     const depsCell = cells[2] ?? '';
     const deps = depsCell.split(/[,，、]/).map((s) => s.trim().replace(/[`*]/g, ''))
       .filter((s) => s && !/^[-—–]$/.test(s));
