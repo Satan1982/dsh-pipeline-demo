@@ -152,6 +152,8 @@ async function pruneDeadSessions() {
 
 // 每个工单最近一次 headless 跑在哪个会话里；只有限流/进程没起来这类环境噪声才复用它。
 const ISSUE_SESSION = new Map();
+// 免费档额度用尽（insufficient balance）后，这个工单在本进程里改走付费，避免整单判死。
+const FORCE_PAID = new Set();
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
 const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
@@ -617,10 +619,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const forcePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
     const freeOnly = (issue.labels ?? []).some((l) => l.name === 'model:free');
     const overlap = RUNNING_TASKS > 1;
-    const usePaid = forcePaid || (overlap && !freeOnly);
+    const quotaPaid = FORCE_PAID.has(n);
+    const usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
     if (usePaid) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
       if (forcePaid) log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
+      if (quotaPaid) log(`${tag} ⚠ 免费档额度用尽，本单改用 deepseek-flash（付费）`);
       else log(`${tag} ⇄ 有其它任务在跑（免费档不能并发），本单改用 deepseek-flash（付费，约 ¥0.1/单）`);
     }
 
@@ -864,6 +868,14 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     if (kindHit && prevSession && prevSession.id) ISSUE_SESSION.set(n, { id: prevSession.id, kind: kindHit[1] });
   // 限流（429 / TPM limit reached）是环境噪声，不是这次改动的问题：等一会儿再来，
   // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
+  // 免费档额度用尽（modelscope 返回 insufficient balance）不是「这单写错了」，
+  // 而是免费池这个模型暂时不可用：本单改走付费档重来一次，不消耗重试预算。
+  if (/QUOTA|insufficient balance/i.test(reason) && !usePaid) {
+    FORCE_PAID.add(n);
+    log(`${tag} ⚠ 免费档额度用尽（insufficient balance），本单改用 deepseek-flash（付费）后重试`);
+    return runTask(issue, attempt, reason);
+  }
+
   if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached/.test(reason)) {
     const tries = RATE_LIMIT_RETRIES.get(n) ?? 0;
     if (tries < RATE_LIMIT_MAX) {
