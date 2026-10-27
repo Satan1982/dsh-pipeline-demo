@@ -119,7 +119,9 @@ Stop-Process -Id <pid>
 | `acceptance:optional` | 人 | 免验收命令 |
 | `verdict:strict` | 人 | 缺 `VERDICT:` 直接失败 |
 
-> 标签必须**先在仓库里存在**：GitHub 打不存在的标签不会报错，而是静默丢弃（2026-10-28 实测：`agent:blocked:manual` 当时没建，自动恢复的「交给人」分支就少了这个标记）。换仓库/新环境时先建齐：
+> 标签由**调度器启动时自动补齐**（清单在 `ci/labels.mjs`，`ensureLabels()` 拿锁后跑一次，日志 `[labels] 补齐 N 个缺失标签：…`）——新建仓库不用手动建。下面这段留作「不想等调度器，或想在别的仓库先建好」时用。
+>
+> 为什么要有这一步：GitHub 打不存在的标签不会报错，而是静默丢弃（2026-10-28 实测：`agent:blocked:manual` 当时没建，自动恢复的「交给人」分支就少了这个标记）。`dep-on:<任务号>` 不在自动补齐范围（名字随任务号变），需要时自己加。
 >
 > ```bash
 > for L in agent:ready agent:working agent:done agent:failed agent:blocked agent:blocked:manual \

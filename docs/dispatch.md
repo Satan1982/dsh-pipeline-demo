@@ -52,6 +52,8 @@ node ci/dispatch.mjs --dry-run
 
 Issue 模板：`.github/ISSUE_TEMPLATE/agent-task.yml`，新建 issue 时选「自动化任务」自动带上 `agent:ready`。
 
+**标签自动补齐（2026-10-28）**：GitHub 打一个不存在的标签是静默丢弃的（不报错、issue 上也不多东西），所以调度器拿锁后在轮询前跑一次 `ensureLabels()`（清单在 `ci/labels.mjs`，14 个），缺的用 `POST /repos/:o/:r/labels` 建上，日志 `[labels] 补齐 N 个缺失标签：agent:blocked:manual 等 N 个`；已齐时不写日志。读不到/建不了只记一行 `[labels] …` 并继续跑（标签管理要 `issues:write`，权限不足不该让任务停摆）。`--dry-run` 只打印 `[dry-run] [labels] 缺 N 个标签…` 不发请求；`dep-on:<任务号>` 由人随手加，不纳入自动补齐。
+
 ## 失败重试（已实现）
 
 执行期失败（headless 非 0 退出、无改动、碰了 origin/main）会自动重试，上限 3 次（`DSH_MAX_ATTEMPTS`）：

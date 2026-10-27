@@ -31,6 +31,7 @@ import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
+import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -271,6 +272,47 @@ async function api(method, p, body) {
     throw new Error(`${method} ${p} -> ${r.status} ${String(text).slice(0, 300)}`);
   }
   return { status: r.status, data };
+}
+
+// ---------- 仓库标签 ----------
+// GitHub 给 issue 打一个不存在的标签是**静默丢弃**的（不报错、issue 上也不多东西）。
+// 2026-10-28 实测：仓库里没有 agent:blocked:manual，giveup 分支打上去看起来成功，
+// 人从标签上却看不出「这张单要人工接手」。所以启动时先补齐一次。
+// 失败只记一行日志、不重试也不阻塞轮询：标签管理要 issues:write，权限不足时任务本身照跑。
+let LABELS_ENSURED = false;
+
+async function ensureLabels() {
+  if (LABELS_ENSURED) return [];
+  let existing = [];
+  try {
+    const r = await api('GET', `/repos/${REPO}/labels?per_page=100`);
+    existing = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    log(`[labels] 读不到现有标签，跳过补齐：${e.message}`);
+    return [];
+  }
+  const missing = missingLabels(existing);
+  if (!missing.length) {
+    LABELS_ENSURED = true;
+    return [];
+  }
+  if (DRY) {
+    log(`[dry-run] [labels] 缺 ${missing.length} 个标签，不会真的建：${formatLabelList(missing)}`);
+    return [];
+  }
+  const created = [];
+  for (const name of missing) {
+    try {
+      await api('POST', `/repos/${REPO}/labels`, labelPayload(name));
+      created.push(name);
+    } catch (e) {
+      // 409/422 = 其实已经有了（列表分页没抓到），不是错误，不用刷日志
+      if (!/-> (409|422)/.test(e.message)) log(`[labels] 建 ${name} 失败：${e.message}`);
+    }
+  }
+  if (created.length) log(`[labels] 补齐 ${created.length} 个缺失标签：${formatLabelList(created)}`);
+  LABELS_ENSURED = true;
+  return created;
 }
 
 function run(cmd, args, { cwd, env, timeout, input, clean } = {}) {
@@ -1729,6 +1771,8 @@ async function main() {
   }
   process.on('exit', lock.release);
   log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
+  // 标签要先存在，否则后面所有「打标签」都是静默无效的。放在轮询之前、只跑一次。
+  try { await ensureLabels(); } catch (e) { log(`[labels] 补齐出错：${e.message}`); }
   prepareStrongPatch();
   const pruned = pruneLogs();
   try {

@@ -62,10 +62,12 @@
 1 2e348edad02c362d assert.equal(isDue(e, T0 + 4 * MIN), false);
 1 2f121b96683ee14d assert.ok(r.findings.some((f) => f.rule === 'dependency-added'));
 1 2f871cef9defb25b assert.equal(isFreePoolDown('dsh: QUOTA: 429: {"message":"insufficient balance"}'), true);
+1 3010d3c18cbd90b4 assert.equal(miss.length, REQUIRED_LABELS.length);
 1 31922bf5ba0a3532 assert.equal(a.last, '2026-10-25T02:00:00Z');
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
 6 32364602f0692844 assert.equal(r.ok, true);
 1 3314f433b2755958 assert.equal(reverseEachWord('a bc'), 'a cb');
+1 33181ccf91367e49 assert.equal(body.name, 'agent:blocked:manual');
 1 3328c11029285c35 assert.equal(u.outputTokens, 25);
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
@@ -88,6 +90,7 @@
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
 1 3d1af4b9cf45e472 assert.equal(merged.reviewers[0].tier, 'free');
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
+1 3f49e5b30932c405 assert.deepEqual(labelPayload('dep-on:T1'), { name: 'dep-on:T1' });
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
 1 404c7a6ed3ba27fd assert.equal(isPeak(off), false);
@@ -115,6 +118,7 @@
 1 4c142bec865a92f8 assert.equal(merged.reviewers.length, 1);
 1 4d1f48799450d386 assert.equal(isPeak(new Date('2026-10-31T10:00:00+08:00')), false); // 周六
 1 4dafe07a83c5d664 assert.equal(repeatText('ab', 0), '');
+1 4dbb7cc52495ff73 assert.equal(formatLabelList(['a', 'b']), 'a、b');
 1 4e0bacafef2986da assert.equal(sessionIdOf(JSON.stringify({ type: "final", text: "ok" })), "");
 1 4e8645ff516f3ff1 assert.match(p, /全部 exit 0/);
 1 4e8b40a6cd95c0f1 assert.equal(priceFor('deepseek-flash', idle).peak, true);
@@ -135,6 +139,7 @@
 1 579405978276dd0f assert.equal(d.ok, true);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
+1 5a4d2ef6d4bb8955 assert.equal(formatLabelList(['a', 'b', 'c', 'd', 'e', 'f', 'g']), 'a、b、c、d、e、f 等 7 个');
 1 5aaa31426238ae1c assert.throws(() => parseSumArgs(['--month', '2026-13']), TypeError);
 1 5b0dd0eae15a8bd8 assert.equal(entries[1].amount, 100);
 1 5caaf3e3d7ccd9b9 assert.match(m, /T2 --> T3/);
@@ -169,16 +174,19 @@
 1 710410062593f6b3 assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', 'salary']), TypeError);
 1 714d0021ff0ecd11 assert.equal(merged.paidUsed, false);
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
+1 721cae634788c77a assert.deepEqual(missingLabels(REQUIRED_LABELS), []);
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 2 733fa19245e2866c assert.equal(f.severity, 'warn');
 1 73ca62e269115cea assert.throws(() => summarize([], '2026-13'), TypeError);
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
+1 772eecf1080adccf assert.equal(REQUIRED_LABELS.some((n) => n.startsWith('dep-on:')), false);
 1 7790b720d6f5ec97 assert.equal(freePoolDecision({ text: 'agent-exit-1', zeroTries: 1, zeroLimit: 2, usePaid: false, enabled: true }), 'none');
 1 77a86fb4ea0837ad assert.match(shortHash(''), /^h[0-9a-f]{6}$/);
 1 77d034bd9159d035 assert.equal(rec.fix, '删掉坏行');
 1 780285e9a7a85b0c assert.equal(capitalize('ABC'), 'ABC');
+1 78bfb93b331bb408 assert.deepEqual(missingLabels([...REQUIRED_LABELS, 'dep-on:T1']), []);
 1 7978bcfd36da7752 assert.equal(isPositive(0), false);
 1 797a8f01312a4ab3 assert.equal(d.entry.requeues, 1);
 1 7a2d3e81d7836769 assert.equal(res.fps, 1);
@@ -206,6 +214,7 @@
 1 89e42d0d5796c99e assert.equal(maxOf(-2, -5), -2);
 1 8b1a17ca0c3f0d0d assert.equal(costCny(u, 'no-such-model', off), null);
 1 8b829adfce306389 assert.equal(d.action, 'requeue');
+1 8b9dfa73681bb1e0 assert.deepEqual(missingLabels(existing), []);
 1 8bc4119f27703423 assert.throws(() => parseSumArgs(['--month', '2026-10', '--date', '2026-10-01']), TypeError);
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
 1 8e00575670332508 assert.equal(cube(2), 8);
@@ -235,6 +244,7 @@
 1 9a92c28dd8e7ffb6 assert.match(md, /共 3 个模型，ok 1 个/);
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
+1 9c8620494969b525 assert.match(body.color, /^[0-9a-f]{6}$/);
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 a0f1d2bd56df4400 assert.equal(classifyConflicts(['scripts/baseline.txt']).kind, 'manual');
@@ -273,6 +283,7 @@
 1 b39ce1f508f79ed7 assert.match(md, /需要留意 2 个/);
 1 b3c6f8b60b17f2c3 assert.equal(classifyConflicts(['src/test-baseline.txt']).kind, 'manual');
 1 b5094c02067920df assert.equal(
+1 b67dfd82baeee498 assert.deepEqual(missingLabels(existing), ['agent:blocked:manual']);
 1 b6c5c89a5e292dd6 assert.equal(costCny(u, 'deepseek-ai/DeepSeek-V4.1-Flash-1017', off), 0);
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
 1 b72bd1f74bdf14fc assert.equal(reverseWords(' a b '), 'b a');
@@ -307,6 +318,7 @@
 1 c58083f2b5f9e892 assert.equal(headlessKind('== verify: FAILED ==\n拒绝：测试数量从 40 降到 39', '', 1), 'agent-gate-red');
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
 1 c608d1ad03d089ad assert.match(shortHash('中文'), /^h[0-9a-f]{6}$/);
+1 c6112286c699e818 assert.equal(formatLabelList([]), '（无）');
 1 c66e3a30f721ceb7 assert.match(d.reason, /免费池恢复/);
 1 c72bab1588f71090 assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
 1 c7714e1a5392182c assert.throws(() => truncateWords('a b', -1), RangeError);
@@ -319,6 +331,7 @@
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 1 ccb16c6a51276de0 assert.match(renderPool(null), /读不到/);
 1 cd198ae7248c5b40 assert.ok(r.findings.some((f) => f.rule === 'test-removed'));
+1 cd4a2d3ccc644186 assert.equal(miss[miss.length - 1], 'verdict:strict');
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
 1 ce5e07a4a9754be6 assert.equal(merged.tier, 'paid');
 1 cecbebfb0b31dee7 assert.deepEqual(parseBackoff('1,2.5'), [1 * MIN, 2.5 * MIN]);
@@ -340,6 +353,7 @@
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
 1 de49255d4edbb185 assert.equal(shortHash('hello'), shortHash('hello'));
 1 de55afb0c96aebad assert.ok(s.includes('✗ 阻断'));
+1 de9a2bc08f42b64f assert.equal(miss[0], 'agent:ready');
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
 1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');
@@ -373,6 +387,7 @@
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
 1 f0cd300a6407f245 assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), [
 1 f125fcb297933f94 assert.equal(classifyConflicts(undefined).kind, 'none');
+1 f1c718d5d3e5f8e7 assert.equal(typeof body.description, 'string');
 1 f30bc43c7cfb62c3 assert.equal(merged.reviewers.length, 2);
 1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f4ae9d9fb5284632 assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
