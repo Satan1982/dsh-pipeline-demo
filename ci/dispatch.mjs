@@ -1249,6 +1249,26 @@ async function branchConflictFiles(branch) {
     .filter((s) => s && !s.startsWith('CONFLICT') && !s.includes(' '));
 }
 
+// 每天（本地时间早 7 点之后）把失败指纹蒸馏一份写进 Hindsight，供三台机器共享。
+// 放在常驻进程里做：不用另建计划任务、不用提权，也不需要额外的登录凭据。
+const DISTILL_MARKER = path.join(LOG_DIR, 'distill.last');
+const DISTILL_HOUR = Number(process.env.DSH_DISTILL_HOUR ?? 7);
+async function maybeDistill() {
+  try {
+    const bj = new Date(Date.now() + 8 * 3600 * 1000);
+    const date = bj.toISOString().slice(0, 10);
+    if (bj.getUTCHours() < DISTILL_HOUR) return;
+    if (existsSync(DISTILL_MARKER) && readFileSync(DISTILL_MARKER, 'utf8').trim() === date) return;
+    writeFileSync(DISTILL_MARKER, date);
+    const r = await run(process.execPath, [path.join(REPO_DIR, 'ci', 'distill-failures.mjs')], {
+      cwd: REPO_DIR, timeout: 300000,
+      env: { ...scrubbedEnv(), PATH: CHILD_PATH },
+    });
+    const lastLine = (r.out || '').trim().split(NL).filter(Boolean).slice(-1)[0] || '';
+    log(`[distill] 每日写入 Hindsight exit=${r.code} ${lastLine.slice(0, 140)}`);
+  } catch (e) { log(`[distill] 失败：${e.message}`); }
+}
+
 async function checkAgentPRs() {
   const { data: prs } = await api('GET', `/repos/${REPO}/pulls?state=open&per_page=20`);
   const agentPrs = (Array.isArray(prs) ? prs : []).filter((pr) => /^agent\/issue-(\d+)$/.test(pr.head.ref));
@@ -1428,6 +1448,7 @@ async function main() {
     try {
       writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
     } catch { /* 刷不动就等下一轮 */ }
+    await maybeDistill();
     try {
       await pollOnce();
       await checkAgentPRs();
