@@ -2,3 +2,4 @@
 *.sh text eol=lf
 *.yml text eol=lf
 .githooks/* text eol=lf
+ci/*.sh text eol=lf

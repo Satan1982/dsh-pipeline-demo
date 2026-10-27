@@ -16,6 +16,8 @@
 - Do not add a dependency without a license check and a human approval.
 - One PR = one vertical slice = runnable end to end.
 - Commit subject: short imperative line, no AI attribution, no body unless needed.
+- **Land changes with `bash ci/land.sh "<subject>"`.** It runs the gate, commits, pushes (https first, SSH endpoint when https is down) and mirrors to Gitee in one call. Do not hand-run `verify` + `add` + `commit` + `push` + `mirror` as separate rounds.
+- **Wait with `bash ci/watch.sh <seconds> [pattern]`**, not with repeated `sleep` + `tail` rounds: run it as a background job and collect it once.
 
 ## Layout
 
