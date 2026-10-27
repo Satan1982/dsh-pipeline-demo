@@ -335,7 +335,10 @@ function lockHolder() {
   try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { return null; }
   if (!cur?.pid) return null;
   let alive = false;
-  try { process.kill(cur.pid, 0); alive = true; } catch { alive = false; }
+  // EPERM 的意思是「进程在，但没权限发信号」，不是「死了」：Windows 上跨用户或提权的进程
+  // 就是这种返回值。把它当死会误接管一个还在心跳的常驻进程（2026-10-28 实测：新一轮
+  // --ensure 接管了 1 分钟前才刷过心跳的 pid）。真死是 ESRCH。
+  try { process.kill(cur.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
   const age = cur.at ? Date.now() - Date.parse(cur.at) : Infinity;
   return alive && age < LOCK_STALE_MS ? cur : null;
 }

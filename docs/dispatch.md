@@ -201,6 +201,8 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 - **锁内容**：`{pid, at}`。**陈旧窗口** `LOCK_STALE_MS = DSH_TASK_TIMEOUT_MS + 10min`（默认 30 + 10 分钟）。
 - **判定顺序**：文件不存在（`wx` 原子创建成功）→ 拿锁；持有者进程还活着（`process.kill(pid, 0)`）且锁龄 < 窗口 → 退出；
   否则按陈旧锁接管，并记一行 `接管陈旧锁（pid=… 起于 …）`。
+- **`EPERM` 算活着**：Windows 上跨用户 / 提权的进程，`process.kill(pid, 0)` 抛的是 `EPERM`（进程在、只是没权限发信号），
+  `ESRCH` 才是真死。把 `EPERM` 当死会误接管一个 1 分钟前才刷过心跳的常驻进程（2026-10-28 实测踩到，已修）。
 - **心跳**：常驻进程每轮把 `at` 刷成现在。没有心跳，一个只是**闲久了**的常驻进程会被别的进程判成陈旧锁接管，
   而它自己还在轮询——两边都以为自己是主人。
 - **同时判陈旧**：两个进程可能同时判「陈旧」并各写一份锁；写完必须回头 `ownsLock()` 复核，**输的一方让位**（返回 `{ok:false}`），
