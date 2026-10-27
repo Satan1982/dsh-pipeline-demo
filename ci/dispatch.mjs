@@ -1308,6 +1308,14 @@ async function checkAgentPRs() {
         continue;
       }
       log(`[issue #${issueN}][prs] 已按 merge:auto 合并 #${pr.number} → ${String(merged.data.sha).slice(0, 7)}`);
+      // 合并完顺手镜像到 Gitee（国内拉代码快）；镜像失败只记日志，不影响主流程。
+      try {
+        const mirror = await run(BASH, [path.join(REPO_DIR, 'ci', 'mirror-gitee.sh')], {
+          cwd: REPO_DIR, timeout: 120000,
+          env: { PATH: CHILD_PATH, DSH_GIT: GIT, DSH_SECRETS_DIR: SECRETS_DIR },
+        });
+        if (mirror.code !== 0) log(`[gitee] 镜像失败（不影响 GitHub）：${mirror.err.trim().slice(0, 120)}`);
+      } catch (e) { log(`[gitee] 镜像出错：${e.message}`); }
       await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
         body: `✅ 已按 \`merge:auto\` 自动 squash 合并 PR #${pr.number}（commit ${String(merged.data.sha).slice(0, 7)}）。`,
       }).catch(() => {});
