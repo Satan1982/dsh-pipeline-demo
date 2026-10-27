@@ -3,6 +3,23 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 本机 PATH 里没有 node/pnpm（见 AGENTS.md）。门禁要能在任何 shell 里跑起来，
+# 所以缺失时自己补上随包运行时；显式设了 DSH_INSTALL / PNPM_CLI 的以调用方为准。
+if ! command -v node >/dev/null 2>&1; then
+  INSTALL=${DSH_INSTALL:-$HOME/AppData/Local/Programs/DeepSeek Harness}
+  NODE_BIN_DIR="$INSTALL/resources/runtime/primary-runtime/dependencies/node/bin"
+  if [ -x "$NODE_BIN_DIR/node.exe" ] || [ -x "$NODE_BIN_DIR/node" ]; then
+    export PATH="$NODE_BIN_DIR:$PATH"
+  fi
+fi
+if [ -z "${PNPM_CLI:-}" ]; then
+  INSTALL=${DSH_INSTALL:-$HOME/AppData/Local/Programs/DeepSeek Harness}
+  CAND="$INSTALL/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs"
+  if [ -f "$CAND" ]; then
+    export PNPM_CLI="$CAND"
+  fi
+fi
+
 BLESS=0
 if [ "${1:-}" = "--bless" ]; then
   BLESS=1
