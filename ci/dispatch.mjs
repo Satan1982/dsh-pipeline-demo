@@ -154,6 +154,9 @@ async function pruneDeadSessions() {
 const ISSUE_SESSION = new Map();
 // 免费档额度用尽（insufficient balance）后，这个工单在本进程里改走付费，避免整单判死。
 const FORCE_PAID = new Set();
+// 免费池不可用时的默认口径（2026-10-27 用户定）：挂起工单等人决定，不自动烧付费。
+// 设 DSH_FREE_POOL_BLOCK=0 可退回旧的「自动切付费」行为。
+const FREE_POOL_BLOCK = (process.env.DSH_FREE_POOL_BLOCK ?? '1') !== '0';
 // 连续 0 token 的失败：多半是额度/鉴权/模型下线，而不是「这次改动写错了」。
 // 2026-10-27 实测：报错文本被截断时（只剩「现在验证验收命令」），靠文本匹配抓不到 QUOTA，
 // 于是同一个死模型又白跑两次。这里按「连续 2 次 0 token」兜底换档。
@@ -534,6 +537,27 @@ async function failTask(issue, reason) {
   }).catch(() => {});
 }
 
+async function blockTask(issue, why, detail) {
+  const n = issue.number;
+  const d = String(detail || '').slice(0, 1500);
+  log(`[issue #${n}] 免费池不可用（${why}），工单挂起为 agent:blocked（不自动烧付费）`);
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
+  await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:blocked'] }).catch(() => {});
+  const fenced = d ? ['```', d, '```'].join(NL) : '';
+  const body = [
+    `⏸ 免费池暂时不可用（${why}），调度器没有替你改烧付费，先把这张单挂起。`,
+    '',
+    fenced,
+    '**怎么继续**：',
+    '- 等免费池恢复（`python ~/.dsh/tools/free-models/fm.py stats --json` 看 ok 与额度），去掉 `agent:blocked`、重新打 `agent:ready`；',
+    '- 或者这张单可以花付费的钱：额外打 `model:paid` 再打 `agent:ready`，调度器会走 `deepseek-flash`；',
+    '- 想恢复旧的「自动切付费」行为：把调度器环境变量 `DSH_FREE_POOL_BLOCK` 设成 `0`。',
+  ].filter(Boolean).join(NL);
+  await api('POST', `/repos/${REPO}/issues/${n}/comments`, { body }).catch(() => {});
+  try { recordFailure({ text: `free-pool: ${why}`, issue: n, attempt: 0, reason: why }, FAIL_STORE); } catch { /* 记账失败不影响挂起 */ }
+}
+
 // ---------- 独立门禁 + 评审层 ----------
 // agent 会声称自己跑过了 verify.sh。这里不信自述，调度器自己在同一个 worktree
 // 里再跑一遍；红就是红，绿才有资格进下一步。
@@ -891,10 +915,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   const rawTail = String(LAST_RAW.get(n) || '').slice(-800).replace(/\s+/g, ' ').trim();
   const zeroTries = ZERO_TOKEN_FAILS.get(n) ?? 0;
   const quotaish = /QUOTA|insufficient[ _-]?balance|余额不足|无可用模型|no available model/i.test(`${reason}\n${rawTail}`);
-  if ((quotaish || zeroTries >= 2) && !usePaid) {
+  // 免费池不可用（额度耗尽 / 连续 0 token）时的处置交给 pool-block.mjs 的纯函数，
+  // 默认挂起工单而不是自动烧付费（DSH_FREE_POOL_BLOCK=0 可退回旧行为）。
+  const poolText = `${reason}${NL}${rawTail}`;
+  const poolWhy = blockReason({ text: poolText, zeroTries });
+  const poolDecision = freePoolDecision({ text: poolText, zeroTries, usePaid, enabled: FREE_POOL_BLOCK });
+  if (poolDecision === 'block') {
+    await blockTask(issue, poolWhy, rawTail);
+    return;
+  }
+  if (poolDecision === 'paid') {
     FORCE_PAID.add(n);
-    const why = quotaish ? '额度/余额不可用' : `连续 ${zeroTries} 次 0 token`;
-    log(`${tag} ⚠ 免费档不可用（${why}），本单改用 deepseek-flash（付费）后重试${rawTail ? '：' + rawTail.slice(-200) : ''}`);
+    log(`${tag} 免费档不可用（${poolWhy}），本单改用 deepseek-flash（付费）后重试${rawTail ? '：' + rawTail.slice(-200) : ''}`);
     return runTask(issue, attempt, reason);
   }
   if (rawTail) log(`${tag} 失败时的原始输出尾部：${rawTail.slice(-400)}`);

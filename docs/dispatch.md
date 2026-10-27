@@ -409,6 +409,20 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 
 现成样例：`docs/specs/ledger/`（记账小工具，T1→T2a/T2b→T3；实测 #76~#84 全部合并，集成验收 `VERDICT: PASS`）。复制 `docs/specs/_template/` 写自己的规格，不要改样例本身。
 
+## 免费池不可用时挂起而不是烧钱（2026-10-27 定）
+
+免费池模型额度耗尽（`insufficient balance`）或连续 2 次 0 token 时，**默认不切付费**：
+
+| 步骤 | 行为 |
+|---|---|
+| 判定 | `ci/pool-block.mjs` 的 `freePoolDecision()`：文本命中 `QUOTA/insufficient balance/余额不足/无可用模型`，或连续 `zeroTries >= 2` 次 0 token |
+| 处置 | 摘 `agent:ready`/`agent:working`、打 `agent:blocked`、评论区贴失败尾部与三条恢复办法 |
+| 人工放行 | 打 `model:paid` 再打 `agent:ready` → 该单走 `deepseek-flash` |
+| 恢复旧行为 | 调度器环境变量 `DSH_FREE_POOL_BLOCK=0` → 自动切付费（会花钱，慎重） |
+| 留痕 | `dispatch.log` 一行 `[issue #N] 免费池不可用（…），工单挂起为 agent:blocked（不自动烧付费）`；失败指纹同时入 `docs/failures.jsonl` |
+
+设计理由：模型额度是**环境状态**，不是「这单写错了」；环境坏了还继续跑，只会用付费把钱烧在一个本来免费的任务上。判据与动作分开（纯函数 + 网络调用），单测在 `ci/pool-block.test.mjs`。
+
 ## 成本计量与预算闸（2026-10-27）
 
 - 每次 headless 的 token 用量写 `.logs/usage.jsonl`，按 DeepSeek 官方价目表折成人民币（`ci/prices.mjs`；免费池记 ¥0）。

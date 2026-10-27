@@ -88,3 +88,7 @@
 | `DSH_REVIEW_MODELS` / `DSH_REVIEW_FREE_MODEL` / `DSH_REVIEW_PAID_MODELS` / `DSH_REVIEW_SKIP_FREE` | 见 `ci/semantic-review.mjs` | 评审面板覆盖 |
 | `DSH_HEADLESS_PATCH` / `DSH_HEADLESS_STRONG_PATCH` / `DSH_HEADLESS_PAID_PATCH` | 见 `ci/dispatch.mjs` | 覆盖模型 patch 文件 |
 | `DSH_MODEL_POLICY` | `~/.dsh/model-policy.json` | 规范文件位置（测试用） |
+
+## 免费池不可用时的默认行为
+
+- **免费池不可用 → 挂起工单（默认）**：额度耗尽或连续 2 次 0 token 时打 `agent:blocked` 等人决定，不自动切付费；要放行付费就打 `model:paid`，要恢复旧行为设 `DSH_FREE_POOL_BLOCK=0`。
