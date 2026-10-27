@@ -42,6 +42,13 @@ if [ -z "${SILICONFLOW_API_KEY:-}" ]; then
 fi
 
 # 免费池的 modelscope key：同一个 refs 段（2026-10-27 加，免费强模型路由用）
+# 付费档（DSH 设置里那档 flash）用的官方 key；只在工单打 model:paid 时才会被用到。
+if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+  _ds=$(grep -m1 '^  DEEPSEEK_API_KEY:' "$CREDS" 2>/dev/null | sed 's/^[^:]*:[[:space:]]*//' | tr -d ' 
+')
+  if [ -n "$_ds" ]; then DEEPSEEK_API_KEY="$_ds"; export DEEPSEEK_API_KEY; fi
+fi
+
 if [ -z "${MODELSCOPE_API_TOKEN:-}" ]; then
   _ms=$(grep -m1 '^  MODELSCOPE_API_TOKEN:' "$CREDS" 2>/dev/null | sed 's/^[^:]*:[[:space:]]*//' | tr -d '
 ')

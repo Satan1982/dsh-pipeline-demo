@@ -56,7 +56,8 @@ const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '
 // 默认强模型走免费池（modelscope 的 DeepSeek-V4.1-Flash-1017，账面 0 元）；
 // 付费路由只在工单明确打 model:paid 时才用，且日志里会说。
 let STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-free-strong.yml');
-const PAID_PATCH = process.env.DSH_HEADLESS_PAID_PATCH || path.join(SECRETS_DIR, 'headless-model-strong.yml');
+// 付费档用 DSH 设置里那档 flash（deepseek-official），不用第三方付费 provider。
+const PAID_PATCH = process.env.DSH_HEADLESS_PAID_PATCH || path.join(SECRETS_DIR, 'headless-model-paid.yml');
 const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 60 * 1000);
 // 免费池的强模型会下线/换名，所以启动时现选一个，写成 patch 文件交给 headless。
 // 显式设了 DSH_HEADLESS_STRONG_PATCH 就完全不动（调试/回滚用）。

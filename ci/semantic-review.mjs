@@ -21,6 +21,10 @@ import { readFileSync, existsSync } from 'node:fs';
 // paid=false 按 free-models.json 的 billing 证据判定免费（2026-10-27 核对：Xing4.0-29B 与
 // modelscope 的 DeepSeek-V4.1-Flash-1017 / GLM-5.2 账面 0 元）。
 export const MODEL_ROUTES = {
+  // 付费档（规则第 3 条 a）：DSH 设置里带 flash 的那档，走官方 API。
+  'deepseek-flash': { endpoint: 'https://api.deepseek.com/v1/chat/completions', cred: 'DEEPSEEK_API_KEY', paid: true },
+  'deepseek-v4-pro': { endpoint: 'https://api.deepseek.com/v1/chat/completions', cred: 'DEEPSEEK_API_KEY', paid: true },
+
   'XingChenAGI/Xing4.0-29B': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: false },
   'Qwen/Qwen3.5-122B-A10B': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: true },
   'moonshotai/Kimi-K2.7-Code': { endpoint: 'https://api.siliconflow.cn/v1/chat/completions', cred: 'SILICONFLOW_API_KEY', paid: true },
@@ -176,7 +180,11 @@ async function callModel({ prompt, credential, model, endpoint, timeoutMs }) {
       body: JSON.stringify({
         model,
         temperature: 0,
-        max_tokens: 1200,
+        // deepseek-flash 是思考模型：默认会把预算花在 reasoning_content 上，
+        // content 为空、finish_reason=length，评审就永远「解析不出结论」。
+        // 评审不需要思考，显式关掉；顺带给非思考模型留足 2K 输出。
+        thinking: /^deepseek-/.test(model) ? { type: 'disabled' } : undefined,
+        max_tokens: 2048,
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: ctl.signal,
@@ -339,6 +347,10 @@ export function aggregateReviewers(reviewers) {
  * 只有它不可用（没凭证、4xx/5xx、超时、输出解析不出 verdict）才切到付费面板——
  * 切换这件事必须让人看见，调用方据此写日志 / PR body / 评论。
  */
+// 免费档给不出裁决时用的付费面板：按规范第 3 条先试「设置里那档 flash」。
+export const PAID_REVIEW_MODELS = (process.env.DSH_REVIEW_PAID_MODELS || 'deepseek-flash')
+  .split(',').map((x) => x.trim()).filter(Boolean);
+
 export const FREE_REVIEW_MODEL = process.env.DSH_REVIEW_FREE_MODEL || 'XingChenAGI/Xing4.0-29B';
 
 /** 并行跑付费面板；mockPaths 与 models 一一对应（测试用）。 */
@@ -379,8 +391,8 @@ export async function reviewWithPanel(options = {}) {
     return { ...aggregateReviewers(reviewers), model: freeModel, tier: 'free', paidUsed: false };
   }
 
-  // 免费档不可用：切付费面板，并把「为什么切」带回去给调用方展示。
-  const paid = await runPanel(options);
+  // 免费档不可用：切付费面板（默认就是 DSH 设置里那档 flash），并带回「为什么切」。
+  const paid = await runPanel({ ...options, models: options.paidModels ?? PAID_REVIEW_MODELS });
   const anyPaid = (paid.reviewers ?? []).some((r) => routeFor(r.model).paid);
   return {
     ...paid,
