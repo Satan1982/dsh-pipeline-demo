@@ -407,7 +407,7 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 5. 调度器只在前置 issue 关闭后开工（日志 `[dep] #N 在等 T1 关闭，本轮跳过`）。
 6. 跨切片验收：`docs/specs/<slug>/integration.md` 里写 bash 代码块，`bash scripts/integration.sh <slug>` 逐块执行。
 
-现成样例：`docs/specs/ledger/`（记账小工具，T1→T2→T3 三层）。
+现成样例：`docs/specs/ledger/`（记账小工具，T1→T2a/T2b→T3；实测 #76~#84 全部合并，集成验收 `VERDICT: PASS`）。复制 `docs/specs/_template/` 写自己的规格，不要改样例本身。
 
 ## 成本计量与预算闸（2026-10-27）
 
