@@ -5,3 +5,4 @@
 dist/
 docs/failures.jsonl
 node_modules/
+.tmp-ledger*.json
