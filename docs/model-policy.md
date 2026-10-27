@@ -55,7 +55,7 @@
 
 - `ci/usage.mjs` 从 `dsh --profile headless --json` 的 `step_end` 事件累计 tokens；
 - `ci/prices.mjs` 是官方价目表 + 高峰/空闲判断；
-- 每次运行追加 `.logs/usage.jsonl`，每天自动生成 `docs/cost-report.md`（`ci/cost-report.mjs`）。
+- 每次运行追加 `.logs/usage.jsonl`，每天自动生成 `.logs/cost-report.md`（`ci/cost-report.mjs`；2026-10-28 起不再写进 `docs/`）。
 
 **缓存命中量 DSH 没有透出**（事件里只有 `inputTokens` / `outputTokens` / `totalTokens`），
 所以输入一律按「未命中」计价 → 金额偏高（保守，不会低估）。将来透出 `cacheHit` 字段即可接上。

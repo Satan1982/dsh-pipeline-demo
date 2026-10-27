@@ -1,5 +1,9 @@
 # 成本报表
 
+> **本文件是手工快照**（2026-10-28 起）。自动报表每天写到 `.logs/cost-report.md`（不入库）——
+> 上面这份只保留当时的样子，要看最新数字请 `cat .logs/cost-report.md` 或
+> `DSH_COST_REPORT=docs/cost-report.md node ci/cost-report.mjs` 手动重出一份。
+
 > 自动生成，数据源 .logs/usage.jsonl（每次 headless 一条）。免费档按 ¥0 记，付费档按 DeepSeek 官方价目表估算。
 > 缓存命中量 DSH 没有透出，输入一律按「未命中」计 —— 金额偏高，是保守估计。
 

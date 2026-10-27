@@ -95,7 +95,7 @@ Stop-Process -Id <pid>
 | `node ci/plan.mjs <slug> --graph` | 看规格的依赖分层 | `--dry` 预览建单，`--create` 真建 |
 | `node ci/dispatch.mjs --dry-run` | 只列待办 | 一轮就退出 |
 | `node ci/distill-failures.mjs` | 失败库蒸馏进 Hindsight | 每天自动也会跑 |
-| `node ci/cost-report.mjs` | 生成 `docs/cost-report.md` | 看钱花在哪 |
+| `node ci/cost-report.mjs` | 生成 `.logs/cost-report.md` | 看钱花在哪；别再写进 `docs/`（会脏工作树） |
 | `python ~/.dsh/tools/free-models/fm.py stats --json` | 免费池健康快照 | 判断该不该重投 |
 
 ---
@@ -139,7 +139,7 @@ Stop-Process -Id <pid>
 tail -40 .logs/dispatch.log                     # 在干什么
 grep -c '领取' .logs/dispatch.log               # 今天领了几张
 tail -5 docs/failures.jsonl                     # 最近失败都长什么样
-cat docs/cost-report.md                         # 花了多少
+cat .logs/cost-report.md                        # 花了多少（每日自动刷新）
 ```
 
 看这几个关键词就够了：

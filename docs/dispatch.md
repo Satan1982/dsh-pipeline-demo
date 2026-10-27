@@ -466,4 +466,4 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 - 缓存命中量 DSH 没透出，输入一律按「未命中」计 → 金额偏高、保守。
 - 单任务超过 `DSH_TASK_MAX_CNY`（默认 0.5 元）→ 日志告警并暂停本批次新任务；当日累计超过 `DSH_DAY_MAX_CNY`（默认 5 元）→ 当天不再领取。
 - 切付费评审只在估算超过 `DSH_NOTIFY_CNY`（默认 0.05 元）时才写 issue 评论，否则只进日志与 PR body。
-- 每日（本地 7 点后）自动跑 `ci/distill-failures.mjs` 与 `ci/cost-report.mjs`，产出 `docs/cost-report.md`。
+- 每日（本地 7 点后）自动跑 `ci/distill-failures.mjs` 与 `ci/cost-report.mjs`，产出 `.logs/cost-report.md`（2026-10-28 起不再写 `docs/`：每天自动生成会把工作树弄脏，而 `ci/land.sh` 曾经是 `git add -A`，报表会混进不相关的提交）。

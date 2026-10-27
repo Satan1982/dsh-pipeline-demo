@@ -1770,7 +1770,16 @@ async function main() {
     return;
   }
   process.on('exit', lock.release);
-  log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} pid=${process.pid}`);
+  // 代码指纹：出问题时第一个要回答的是「跑的是哪份代码」。只有 pid 时，日志里分不清
+  // 是旧进程还在跑，还是改了代码没重启。sha 取仓库 HEAD，时间取本文件 mtime（UTC）。
+  let codeSha = 'nogit';
+  try {
+    const r = spawnSync(GIT, ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, encoding: 'utf8' });
+    if (r.status === 0 && r.stdout) codeSha = r.stdout.trim();
+  } catch { /* 不是 git 仓库就退回 nogit */ }
+  let codeAt = '?';
+  try { codeAt = new Date(statSync(fileURLToPath(import.meta.url)).mtime).toISOString().slice(5, 16).replace('T', ' '); } catch { /* 读不到就算了 */ }
+  log(`调度器启动 repo=${REPO} mode=${ONCE ? 'once' : 'serve'} dry=${DRY} maxAttempts=${MAX_ATTEMPTS} code=${codeSha}@${codeAt}Z pid=${process.pid}`);
   // 标签要先存在，否则后面所有「打标签」都是静默无效的。放在轮询之前、只跑一次。
   try { await ensureLabels(); } catch (e) { log(`[labels] 补齐出错：${e.message}`); }
   prepareStrongPatch();

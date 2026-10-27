@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// 把 .logs/usage.jsonl 汇成 docs/cost-report.md：按天汇总花费、按单列最贵的几单。
+// 把 .logs/usage.jsonl 汇成 .logs/cost-report.md：按天汇总花费、按单列最贵的几单。
+// 输出落在 .logs/ 里是有意的（2026-10-28）：以前写 docs/，每天生成一次就把工作树弄脏，
+// 而 ci/land.sh 是 `git add -A`，于是任何一次不相关的提交都会顺手带上几十行报表噪声。
 // 数据来自调度器每次 headless 结束时写的记录（免费档 cny=0，付费档按官方价目表估算）。
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -8,7 +10,7 @@ import { registryStats } from './semantic-review.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const USAGE = process.env.DSH_USAGE_LOG || path.join(ROOT, '.logs', 'usage.jsonl');
-const OUT = process.env.DSH_COST_REPORT || path.join(ROOT, 'docs', 'cost-report.md');
+const OUT = process.env.DSH_COST_REPORT || path.join(ROOT, '.logs', 'cost-report.md');
 
 export function bjDate(iso) {
   const t = Date.parse(iso);
