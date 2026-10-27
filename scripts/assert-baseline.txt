@@ -103,6 +103,7 @@
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
+1 674340056cef0f79 assert.ok(patchFile, 'dispatch.mjs 里找不到 PAID_PATCH');
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
 4 689bf358a088942b assert.equal(merged.verdict, 'pass');
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
@@ -130,12 +131,15 @@
 1 7b2eeead88eebc59 assert.deepEqual(parseVerdict(text), { verdict: 'pass', reason: '第二次' });
 1 7b3c49ae0e6a0b49 assert.equal(reverseWords(''), '');
 1 7b57bbc4cf4a2ddd assert.equal(isPalindrome(''), true);
+1 7bf08c527e3baaa8 assert.ok(m, 'semantic-review.mjs 里找不到 PAID_REVIEW_MODELS 默认值');
 1 7d4da2570f24aea9 assert.deepEqual([...a.issues].sort(), [27, 44]);
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 7f1005bbdd172666 assert.equal(truncateWords('a b c d', 2), 'a b');
+1 7fd188bb9a5e0383 assert.ok(allowed.has(model), `评审升级档用了规范外的模型：${model}`);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
+1 827b29edaca7e3d8 assert.ok(models.length > 0, '付费 patch 里没解析出模型');
 1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
@@ -258,6 +262,7 @@
 1 ed55559488f166f3 assert.match(p, /\+export function reverseWords/);
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
+1 ef55af71a30c0ca3 assert.ok(allowed.size > 0, 'policy.paid.models 不能为空');
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
 1 f125fcb297933f94 assert.equal(classifyConflicts(undefined).kind, 'none');
 1 f30bc43c7cfb62c3 assert.equal(merged.reviewers.length, 2);
