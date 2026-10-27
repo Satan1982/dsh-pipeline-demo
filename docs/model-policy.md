@@ -92,3 +92,4 @@
 ## 免费池不可用时的默认行为
 
 - **免费池不可用 → 挂起工单（默认）**：额度耗尽或连续 2 次 0 token 时打 `agent:blocked` 等人决定，不自动切付费；要放行付费就打 `model:paid`，要恢复旧行为设 `DSH_FREE_POOL_BLOCK=0`。
+- **挂起之后会自动重投（2026-10-28）**：`agent:blocked` 不再是死胡同——调度器按 5/10/20/40/60 分钟退避探活免费池（判据：`fm.py stats` 里至少一个 `ok` 模型，`stale` 不算），恢复后自动摘 `agent:blocked`、打 `agent:ready`，并在 issue 里留言「自动重投第 N 次」。同一张单最多自动重投 3 次（`DSH_BLOCKED_MAX_REQUEUE`），用完打 `agent:blocked:manual` 停下等人。关掉：`DSH_BLOCKED_AUTO_REQUEUE=0`。

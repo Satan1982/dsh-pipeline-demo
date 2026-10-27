@@ -30,6 +30,7 @@ import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryS
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
+import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -128,6 +129,8 @@ function escapeCwd(p) {
 }
 
 async function pruneDeadSessions() {
+  // --dry-run 是只读承诺：归档会话会搬目录，别在试跑里动它。
+  if (DRY) { log('[dry-run] 跳过已删 worktree 的会话归档'); return 0; }
   const listed = (await git(['worktree', 'list', '--porcelain'])).out;
   const live = new Set(
     listed.split(NL).filter((l) => l.startsWith('worktree ')).map((l) => escapeCwd(l.slice('worktree '.length).trim())),
@@ -545,18 +548,159 @@ async function blockTask(issue, why, detail) {
   await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
   await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
   await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:blocked'] }).catch(() => {});
+  // 本地记一份挂起状态：自动恢复靠它算退避与重投次数（重投次数要跨次继承，
+  // 否则池子抖一下就变成无限重跑）。
+  try {
+    const state = readBlockedState();
+    state[n] = initialEntry({ now: Date.now(), why, requeues: state[n]?.requeues ?? 0, backoff: REQUEUE_BACKOFF });
+    writeBlockedState(state);
+  } catch (e) { log(`⚠ 记 blocked-state 失败（不影响挂起）：${e.message}`); }
   const fenced = d ? ['```', d, '```'].join(NL) : '';
   const body = [
     `⏸ 免费池暂时不可用（${why}），调度器没有替你改烧付费，先把这张单挂起。`,
     '',
     fenced,
     '**怎么继续**：',
-    '- 等免费池恢复（`python ~/.dsh/tools/free-models/fm.py stats --json` 看 ok 与额度），去掉 `agent:blocked`、重新打 `agent:ready`；',
+    `- 大部分情况不用管：调度器会按退避（5/10/20/40/60 分钟）探活免费池，恢复后自动把单放回 \`agent:ready\`，最多自动重投 ${MAX_REQUEUE} 次，用完后会打 \`agent:blocked:manual\` 停下等人；`,
+    '- 想立刻重试：等免费池好了（`python ~/.dsh/tools/free-models/fm.py stats --json` 看 ok 与额度），手动去掉 `agent:blocked`、重新打 `agent:ready`；',
     '- 或者这张单可以花付费的钱：额外打 `model:paid` 再打 `agent:ready`，调度器会走 `deepseek-flash`；',
-    '- 想恢复旧的「自动切付费」行为：把调度器环境变量 `DSH_FREE_POOL_BLOCK` 设成 `0`。',
+    '- 想彻底关掉自动重投：调度器环境变量 `DSH_BLOCKED_AUTO_REQUEUE=0`；想恢复旧的「自动切付费」行为：`DSH_FREE_POOL_BLOCK=0`（两者独立）。',
   ].filter(Boolean).join(NL);
   await api('POST', `/repos/${REPO}/issues/${n}/comments`, { body }).catch(() => {});
   try { recordFailure({ text: `free-pool: ${why}`, issue: n, attempt: 0, reason: why }, FAIL_STORE); } catch { /* 记账失败不影响挂起 */ }
+}
+
+// ---------- agent:blocked 自动恢复 ----------
+// 「免费池不可用 → 挂起等人」在无人值守时有个死角：池子半夜恢复了，单子还躺在 blocked 里。
+// 这里补一层：按退避探活，恢复就把工单放回 agent:ready 重跑；重投有上限，池子抖动不会无限循环。
+// 判据（何时再试 / 何时放弃）在 blocked-recovery.mjs 里做纯函数 + 单测，这里只做网络动作。
+const BLOCKED_STATE_FILE = path.join(LOG_DIR, 'blocked-state.json');
+const AUTO_REQUEUE = (process.env.DSH_BLOCKED_AUTO_REQUEUE ?? '1') !== '0';
+const MAX_REQUEUE = Math.max(1, Number(process.env.DSH_BLOCKED_MAX_REQUEUE ?? MAX_AUTO_REQUEUE));
+const REQUEUE_BACKOFF = parseBackoff(process.env.DSH_BLOCKED_BACKOFF_MIN ?? '5,10,20,40,60');
+// 探活结果缓存：一轮里挂着好几张单时，不要每张都跑一次 fm.py。
+const POOL_PROBE_TTL_MS = Number(process.env.DSH_BLOCKED_PROBE_TTL_MS ?? 60000);
+let POOL_PROBE = { at: 0, value: null };
+
+function readBlockedState() {
+  try {
+    if (!existsSync(BLOCKED_STATE_FILE)) return {};
+    const parsed = JSON.parse(readFileSync(BLOCKED_STATE_FILE, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+function writeBlockedState(state) {
+  try {
+    if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+    const tmp = `${BLOCKED_STATE_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(state, null, 2));
+    renameSync(tmp, BLOCKED_STATE_FILE);
+  } catch (e) { log(`⚠ 写 blocked-state 失败：${e.message}`); }
+}
+
+// 免费池算「恢复了」的判据：fm.py 健康快照里至少一个 ok 模型。
+// stale 不算（要重试/换档）、degraded/unknown/down 都不算——宁可多等一轮，
+// 也不要在池子还没好的时候把工单投出去白跑一次任务。
+function poolHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
+  if (POOL_PROBE.value && now - POOL_PROBE.at < ttl) return POOL_PROBE.value;
+  let value;
+  try {
+    const entries = Object.entries(registryStats(true) || {});
+    if (!entries.length) {
+      value = { ok: false, why: '读不到免费池快照（fm.py stats 不可用）' };
+    } else {
+      const counts = {};
+      for (const [, v] of entries) {
+        const s = String(v?.status ?? 'unknown');
+        counts[s] = (counts[s] ?? 0) + 1;
+      }
+      const okCount = counts.ok ?? 0;
+      value = okCount
+        ? { ok: true, why: `${okCount}/${entries.length} 个模型 ok` }
+        : { ok: false, why: `没有 ok 模型（${Object.entries(counts).map(([k, c]) => `${k} ${c}`).join('、')}）` };
+    }
+  } catch (e) {
+    value = { ok: false, why: `探活失败：${e.message}` };
+  }
+  POOL_PROBE = { at: Date.now(), value };
+  return value;
+}
+
+async function recoverBlocked() {
+  const now = Date.now();
+  const state = pruneState(readBlockedState(), { now });
+  if (!AUTO_REQUEUE) {
+    writeBlockedState(state);
+    return 0;
+  }
+  let issues = [];
+  try {
+    const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:blocked')}&state=open&per_page=50`);
+    issues = (Array.isArray(data) ? data : []).filter((i) => !i.pull_request);
+  } catch (e) {
+    log(`[blocked] 查询挂起工单失败：${e.message}`);
+    writeBlockedState(state);
+    return 0;
+  }
+  // 本代进程第一次见到的挂起单（上一代挂起 / 手工打的 label）：从此刻开始计时，
+  // 不继承任何重投计数——那一份可能属于完全不同的一次挂起。
+  for (const issue of issues) {
+    const n = issue.number;
+    if (state[n]) continue;
+    state[n] = initialEntry({ now, why: '无本地记录（可能是上一代进程挂起的）', backoff: REQUEUE_BACKOFF });
+    log(`[blocked] #${n} 已挂起但没有本地记录，从现在开始计时（下次探活 ${state[n].nextProbeAt}）`);
+  }
+  const due = issues.filter((i) => isDue(state[i.number], now));
+  if (!due.length) {
+    writeBlockedState(state);
+    return 0;
+  }
+  const pool = poolHealth({ now });
+  let requeued = 0;
+  for (const issue of due) {
+    const n = issue.number;
+    const d = recoveryDecision({ entry: state[n], now, pool, maxRequeue: MAX_REQUEUE, backoff: REQUEUE_BACKOFF });
+    if (d.action === 'skip') continue;
+    if (DRY) {
+      log(`[dry-run] [blocked] #${n} would ${d.action}：${d.reason}`);
+      continue;
+    }
+    state[n] = d.entry;
+    if (d.action === 'wait') {
+      log(`[blocked] #${n} ${d.reason}`);
+      continue;
+    }
+    if (d.action === 'requeue') {
+      await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:blocked')}`).catch(() => {});
+      await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:ready'] }).catch(() => {});
+      await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+        body: [
+          `▶ 免费池恢复了（${pool.why}），调度器自动把这张单放回 \`agent:ready\` 重跑。`,
+          '',
+          `自动重投 ${d.entry.requeues}/${MAX_REQUEUE} 次。再挂起会继续按退避探活；次数用完会打 \`agent:blocked:manual\` 停下等人。`,
+        ].join(NL),
+      }).catch(() => {});
+      log(`[blocked] #${n} ${d.reason}，自动重投 agent:ready（第 ${d.entry.requeues}/${MAX_REQUEUE} 次）`);
+      requeued += 1;
+      continue;
+    }
+    // giveup：池子好了但重投次数用完。不再自动投，打标记 + 说清怎么接手。
+    await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:blocked:manual'] }).catch(() => {});
+    await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+      body: [
+        `⛔ ${d.reason}。`,
+        '',
+        '**怎么接手**：',
+        '- 先看这张单最后一次失败的评论/日志，判断是池子容量问题还是任务本身写不过；',
+        '- 修好后去掉 `agent:blocked` 与 `agent:blocked:manual`、重新打 `agent:ready`（重投计数会重置）；',
+        '- 这张单可以花钱的话：加 `model:paid` 走 `deepseek-flash`。',
+      ].join(NL),
+    }).catch(() => {});
+    log(`[blocked] #${n} ${d.reason}`);
+  }
+  writeBlockedState(state);
+  return requeued;
 }
 
 // ---------- 独立门禁 + 评审层 ----------
@@ -1442,6 +1586,10 @@ async function checkAgentPRs() {
 
     // 冲突分支：CI 修不了（推送前就 405），先尝试自动 rebase。
     // 同一个提交最多试 3 次——工具修好之后还有机会重试，但不会每分钟空转。
+    if (DRY) {
+      log(`[dry-run] [prs] #${pr.number}（${pr.head.ref}）跳过 rebase / CI 修复 / 自动合并`);
+      continue;
+    }
     const rebaseTries = list.filter((c) => c.body?.includes(`auto-rebase:${pr.head.sha}`)).length;
     const conflicts = await branchConflictFiles(pr.head.ref);
     if (conflicts && conflicts.length && rebaseTries < REBASE_MAX_TRIES) {
@@ -1515,6 +1663,8 @@ async function checkAgentPRs() {
 // 调度器重启后，上一个进程可能留下 agent:working 的孤儿 issue；启动时清掉，
 // 否则这些 issue 会因为"正在执行"被永久跳过。
 async function cleanupStaleWorking() {
+  // --dry-run 不能改远端：这里会 DELETE 别人的 agent:working 标签。
+  if (DRY) { log('[dry-run] 跳过孤儿 agent:working 清理'); return; }
   const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:working')}&state=open&per_page=50`);
   for (const i of Array.isArray(data) ? data : []) {
     if (i.pull_request || i.labels.some((l) => l.name === 'agent:done')) continue;
@@ -1585,9 +1735,12 @@ async function main() {
   if (pruned) log(`清理 ${pruned} 个超过 ${LOG_RETENTION_DAYS} 天的尝试日志`);
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
+  // 先看有没有「池子恢复后该放回去」的挂起单，再领新任务：恢复的单本来就排过队。
+  try { await recoverBlocked(); } catch (e) { log(`[blocked] 恢复流程出错：${e.message}`); }
   await pollOnce();
   await checkAgentPRs();
-  if (ONCE) return;
+  // --dry-run 在文档里是「只看一眼」，不该像常驻进程一样每分钟轮询下去。
+  if (ONCE || DRY) return;
   while (true) {
     await new Promise((r) => setTimeout(r, INTERVAL));
     // 常驻进程要确认锁还是自己的：卡死超过 LOCK_STALE_MS 后会被别人接管，
@@ -1603,6 +1756,7 @@ async function main() {
     } catch { /* 刷不动就等下一轮 */ }
     await maybeDistill();
     try {
+      await recoverBlocked();
       await pollOnce();
       await checkAgentPRs();
     } catch (e) { log(`轮询出错: ${e.message}`); }

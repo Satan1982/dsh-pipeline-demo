@@ -430,12 +430,31 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 | 步骤 | 行为 |
 |---|---|
 | 判定 | `ci/pool-block.mjs` 的 `freePoolDecision()`：文本命中 `QUOTA/insufficient balance/余额不足/无可用模型`，或连续 `zeroTries >= 2` 次 0 token |
-| 处置 | 摘 `agent:ready`/`agent:working`、打 `agent:blocked`、评论区贴失败尾部与三条恢复办法 |
+| 处置 | 摘 `agent:ready`/`agent:working`、打 `agent:blocked`、评论区贴失败尾部与恢复办法（含「大部分情况不用管，会自动重投」） |
 | 人工放行 | 打 `model:paid` 再打 `agent:ready` → 该单走 `deepseek-flash` |
 | 恢复旧行为 | 调度器环境变量 `DSH_FREE_POOL_BLOCK=0` → 自动切付费（会花钱，慎重） |
-| 留痕 | `dispatch.log` 一行 `[issue #N] 免费池不可用（…），工单挂起为 agent:blocked（不自动烧付费）`；失败指纹同时入 `docs/failures.jsonl` |
+| 留痕 | `dispatch.log` 一行 `[issue #N] 免费池不可用（…），工单挂起为 agent:blocked（不自动烧付费）`；失败指纹同时入 `docs/failures.jsonl`；本地状态写 `.logs/blocked-state.json` |
 
 设计理由：模型额度是**环境状态**，不是「这单写错了」；环境坏了还继续跑，只会用付费把钱烧在一个本来免费的任务上。判据与动作分开（纯函数 + 网络调用），单测在 `ci/pool-block.test.mjs`。
+
+### 挂起之后：自动恢复（2026-10-28）
+
+挂起本来是「等人」，无人值守时有个死角：池子半夜恢复了，单子还躺在 `agent:blocked` 里。现在补一层自动恢复：
+
+| 项 | 口径 |
+|---|---|
+| 判据来源 | `ci/blocked-recovery.mjs`（纯函数 + `ci/blocked-recovery.test.mjs` 9 个单测），网络动作只在 `dispatch.mjs` 的 `recoverBlocked()` |
+| 探活节奏 | 退避 5 / 10 / 20 / 40 / 60 分钟，之后固定每小时一次；`DSH_BLOCKED_BACKOFF_MIN=5,10` 可改 |
+| 「恢复了」的判据 | `fm.py stats` 里**至少一个 `ok` 模型**；`stale` 不算（要重试/换档）、`degraded`/`unknown`/`down` 都不算——宁可多等一轮，也不白跑一次任务 |
+| 探活缓存 | 一轮里挂了好几张单只跑一次 `fm.py`（`DSH_BLOCKED_PROBE_TTL_MS`，默认 60 秒） |
+| 恢复动作 | 摘 `agent:blocked` → 打 `agent:ready` → 评论「自动重投第 N 次」；下一轮 `pollOnce()` 就会领到它 |
+| 重投上限 | 同一张单最多自动重投 3 次（`DSH_BLOCKED_MAX_REQUEUE`）；次数用完 → 打 `agent:blocked:manual` + 评论「怎么接手」，不再自动投 |
+| 计数为什么要跨次继承 | `blockTask()` 重新挂起时继承 `requeues`，否则「池子抖一下 → 重投 → 立刻又挂 → 再重投」会无限循环 |
+| 老单子怎么办 | 本代进程第一次见到的 `agent:blocked`（上一代挂的 / 手动打的）从此刻开始计时，不继承旧计数 |
+| 状态文件 | `.logs/blocked-state.json`（原子写：写 `.tmp` 再 rename）；7 天没动过的条目自动清 |
+| 日志判读 | `[blocked] #N 已挂起但没有本地记录，从现在开始计时` / `[blocked] #N 免费池仍不可用（…）` / `[blocked] #N 免费池恢复（3/103 个模型 ok），自动重投 agent:ready（第 1/3 次）` / `[blocked] #N …停止自动恢复` |
+| 关掉 | `DSH_BLOCKED_AUTO_REQUEUE=0`（回到「只挂起、等人工」） |
+| dry-run | 只打印 `[dry-run] [blocked] #N would requeue：…`，不改标签、不写状态 |
 
 ## 成本计量与预算闸（2026-10-27）
 
