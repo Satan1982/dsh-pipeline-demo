@@ -4,6 +4,7 @@
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 0b0711f6fe5254fb assert.equal(u.steps, 2);
 1 0b5e0ffff796a07a assert.equal(add(-1, 1), 0);
+1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f98f04241274434 assert.equal(square(-3), 9);
 1 103a0d7c0d21268f assert.ok(r.findings.some((f) => f.severity === 'warn' && f.rule === 'diff-large'));
@@ -27,9 +28,11 @@
 1 1c1c8571a290260b assert.equal(subtract(5, 3), 2);
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
 1 1cfce6d124d865d5 assert.throws(() => chunk('abc', -1), RangeError);
+1 1d2b649bfa2bfa6b assert.throws(() => addEntry([], { date: '2026-1-1', amount: 100, note: '工资' }), TypeError);
 1 1e3dd1e22654a683 assert.equal(classifyConflicts(['scripts/assert-baseline.txt']).kind, 'baseline-only');
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
+1 1f9fdee06773c346 assert.deepEqual(next, [{ date: '2026-10-01', amount: 100, note: '工资' }]);
 1 201599a756a1dce0 assert.match(m, /T1 --> T2/);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2187334f96360d1d assert.equal(formatCny(1.234), '¥1.23');
@@ -54,6 +57,7 @@
 1 337af19339b590d9 assert.deepEqual(pickFreeModels(stats, FREE_STRONG_MODELS, 2), ['ZhipuAI/GLM-5.2', 'Qwen/Qwen3.8-27B']);
 1 358dabdaa657515f assert.equal(tasks.length, 4);
 1 36adcb5d07ac7b37 assert.throws(() => shout(123), TypeError);
+1 386168edf889aee3 assert.deepEqual(summarize([], '2025-01'), { income: 0, expense: 0, balance: 0 });
 1 3940250b0cec9530 assert.equal(reverseEachWord(''), '');
 1 39c12bc8378dc311 assert.equal(truncateWords('', 3), '');
 1 3a3dd54a3e4adb24 assert.equal(shout('hi'), 'HI!');
@@ -133,6 +137,7 @@
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 2 733fa19245e2866c assert.equal(f.severity, 'warn');
+1 73ca62e269115cea assert.throws(() => summarize([], '2026-13'), TypeError);
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
@@ -154,6 +159,7 @@
 1 7fd188bb9a5e0383 assert.ok(allowed.has(model), `评审升级档用了规范外的模型：${model}`);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 827b29edaca7e3d8 assert.ok(models.length > 0, '付费 patch 里没解析出模型');
+1 82f6d14266dc3dd6 assert.throws(() => summarize([], '2026-1'), TypeError);
 1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
@@ -211,6 +217,7 @@
 1 af607709d72b60c2 assert.equal(initials('Ada Lovelace'), 'AL');
 1 af73ba80baa9e40a assert.equal(sessionIdOf(nd), "session-abc");
 1 af8d4ba6f4541bcb assert.equal(merged.ok, false);
+1 b052d4385ef5a273 assert.throws(() => addEntry([], { date: '2026-02-30', amount: 100, note: '工资' }), TypeError);
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
@@ -220,6 +227,7 @@
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
 1 b72bd1f74bdf14fc assert.equal(reverseWords(' a b '), 'b a');
 1 b7b256f5d3dad38c assert.match(shortHash('anything'), /^h[0-9a-f]{6}$/);
+1 b7d41175077c1159 assert.deepEqual(summarize(entries, '2026-10'), { income: 0, expense: 0, balance: 0 });
 1 b8819833c8a92041 assert.ok(text.includes('共 2 个根因'));
 1 b896ac46d8646f10 assert.notEqual(shortHash('a'), shortHash('b'));
 1 b8b03a457ccc6eeb assert.ok(formatFindings(r).includes('allow:gate'));
@@ -261,6 +269,7 @@
 1 d3996b5ca688d037 assert.deepEqual(tasks.map((t) => t.id), ['T1', 'T2', 'T3', 'T4']);
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
+1 d6ecf28a7e5607eb assert.notEqual(next, entries);
 1 d828c0390e2f6ca5 assert.deepEqual(tasks[0].deps, []);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
@@ -271,6 +280,7 @@
 1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');
 1 e1a7d1447921ba98 assert.equal(isOdd(0), false);
 1 e243cecc44f7d973 assert.equal(excerpt('abc', 3), 'abc');
+1 e2a1a3d2e575b86c assert.deepEqual(summarize(entries, '2026-10'), { income: 0, expense: 10, balance: -10 });
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
@@ -286,6 +296,7 @@
 1 ed284af615983216 assert.deepEqual(tasks[2].deps, ['T1', 'T2']);
 1 ed55559488f166f3 assert.match(p, /\+export function reverseWords/);
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
+1 eda67453dd7063ba assert.throws(() => addEntry([], { date: '2026-10-01', amount: Number.NaN, note: '工资' }), TypeError);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 ef55af71a30c0ca3 assert.ok(allowed.size > 0, 'policy.paid.models 不能为空');
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
@@ -294,11 +305,13 @@
 1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f4ae9d9fb5284632 assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
 1 f5a2813d25e1a939 assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
+1 f65ce47b820f4de4 assert.equal(entries.length, 0);
 1 f6a69174d4915857 assert.equal(headlessKind(out, '', 0), 'llm-rate-limit');
 1 f6f7efafadedcbed assert.match(formatSemantic(r), /跳过/);
 1 f79333dd3788daf7 assert.deepEqual(words(''), []);
 1 f84004ba8d945187 assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'src/strings.js']);
 1 f843a67ea1e7bc19 assert.equal(fingerprint('agent 未产生任何改动（exit=0）'), fingerprint('agent 未产生任何改动（exit=1）'));
+1 f91b94d9432c0945 assert.throws(() => addEntry([], { date: '2026-10-01', amount: '100', note: '工资' }), TypeError);
 1 f9ca563d01133b30 assert.match(p, /#42/);
 1 fa424e742fb44593 assert.equal(median([1, 3, 2]), 2);
 1 fa5a58382b44e9c9 assert.equal(r.findings[0].rule, 'semantic-unparseable');
