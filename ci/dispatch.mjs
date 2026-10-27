@@ -154,6 +154,12 @@ async function pruneDeadSessions() {
 const ISSUE_SESSION = new Map();
 // 免费档额度用尽（insufficient balance）后，这个工单在本进程里改走付费，避免整单判死。
 const FORCE_PAID = new Set();
+// 连续 0 token 的失败：多半是额度/鉴权/模型下线，而不是「这次改动写错了」。
+// 2026-10-27 实测：报错文本被截断时（只剩「现在验证验收命令」），靠文本匹配抓不到 QUOTA，
+// 于是同一个死模型又白跑两次。这里按「连续 2 次 0 token」兜底换档。
+const ZERO_TOKEN_FAILS = new Map();
+// 每个工单最近一次的原始输出（stdout+stderr），失败时把尾部打进 dispatch.log。
+const LAST_RAW = new Map();
 // 同一提交最多试几次自动 rebase。基线冲突现在能自动重算、源码冲突交给 agent，
 // 所以失败几次多半是工具/网络问题，给到 5 次；同一个 sha 上的失败评论用来计数。
 const REBASE_MAX_TRIES = Number(process.env.DSH_REBASE_MAX_TRIES ?? 5);
@@ -578,6 +584,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
   let prevSession = null;
   let resumeId = '';
+  // 付费档判定要跨 try/catch 用：catch 里的「免费额度用尽 → 改付费」要读它。
+  // 2026-10-27 实测到一个真 bug：这两个曾用 const 声明在 try 里，catch 里一读就
+  // ReferenceError: usePaid is not defined，于是降级分支从来没生效过（白跑两次）。
+  let usePaid = false;
+  let forcePaid = false;
   try {
     await setupWorktree(branch, wt, 'origin/main');
     writePlan(wt, { n: issue.number, title: issue.title, goal, acceptance, constraints, cmds: acceptanceCmdsRaw });
@@ -616,11 +627,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 付费是最后手段，但有一个例外：并发。modelscope 免费档必须串行（并发 6 只剩 7/37），
     // 已经有任务在跑时这个任务必然重叠，硬用免费档会互相挤、最后一齐超时。
     // 这种情况下改走 deepseek-flash（并发 2500，空闲 1/4 元每百万 tokens，一单约 ¥0.1）。
-    const forcePaid = (issue.labels ?? []).some((l) => l.name === 'model:paid');
+    const forcePaidLabel = (issue.labels ?? []).some((l) => l.name === 'model:paid');
     const freeOnly = (issue.labels ?? []).some((l) => l.name === 'model:free');
     const overlap = RUNNING_TASKS > 1;
     const quotaPaid = FORCE_PAID.has(n);
-    const usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
+    forcePaid = forcePaidLabel;
+    usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
     if (usePaid) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
       if (forcePaid) log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
@@ -632,6 +644,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
     const t0 = Date.now();
     const r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
+    LAST_RAW.set(n, String(r.raw ?? r.out ?? ''));
+    if (r.usage && r.usage.totalTokens === 0) ZERO_TOKEN_FAILS.set(n, (ZERO_TOKEN_FAILS.get(n) ?? 0) + 1);
+    else ZERO_TOKEN_FAILS.delete(n);
     const sessionId = sessionIdOf(r.raw);
     if (sessionId) ISSUE_SESSION.set(n, { id: sessionId, kind: '' });
     const secs = Math.round((Date.now() - t0) / 1000);
@@ -870,11 +885,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
   // 免费档额度用尽（modelscope 返回 insufficient balance）不是「这单写错了」，
   // 而是免费池这个模型暂时不可用：本单改走付费档重来一次，不消耗重试预算。
-  if (/QUOTA|insufficient balance/i.test(reason) && !usePaid) {
+  // 免费档不可用时改走付费：两条判据——
+  // ① 文本命中额度/余额/无可用模型（含本轮原始输出的尾部，防止报错被截断后漏判）；
+  // ② 连续 2 次 0 token（模型根本没开始干活），不看文本也能判定。
+  const rawTail = String(LAST_RAW.get(n) || '').slice(-800).replace(/\s+/g, ' ').trim();
+  const zeroTries = ZERO_TOKEN_FAILS.get(n) ?? 0;
+  const quotaish = /QUOTA|insufficient[ _-]?balance|余额不足|无可用模型|no available model/i.test(`${reason}\n${rawTail}`);
+  if ((quotaish || zeroTries >= 2) && !usePaid) {
     FORCE_PAID.add(n);
-    log(`${tag} ⚠ 免费档额度用尽（insufficient balance），本单改用 deepseek-flash（付费）后重试`);
+    const why = quotaish ? '额度/余额不可用' : `连续 ${zeroTries} 次 0 token`;
+    log(`${tag} ⚠ 免费档不可用（${why}），本单改用 deepseek-flash（付费）后重试${rawTail ? '：' + rawTail.slice(-200) : ''}`);
     return runTask(issue, attempt, reason);
   }
+  if (rawTail) log(`${tag} 失败时的原始输出尾部：${rawTail.slice(-400)}`);
 
   if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached/.test(reason)) {
     const tries = RATE_LIMIT_RETRIES.get(n) ?? 0;
@@ -965,6 +988,9 @@ async function depsSatisfied(issue) {
 
 async function pollOnce() {
   if (PAUSE_CLAIM) return 0;
+  // 免费池的状态会变（模型下架 / 额度用尽）：每轮都试着刷一次强档 patch，
+  // registryStats 自带 TTL（DSH_STATS_TTL_MS，默认 10 分钟），所以只有过期时才会真跑 fm.py。
+  prepareStrongPatch();
   const spent = todaySpendCny();
   if (spent >= DAY_MAX_CNY) {
     log(`今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}，今天不再领取新任务（DSH_DAY_MAX_CNY 可调）`);
@@ -1350,6 +1376,16 @@ async function maybeDistill() {
       cwd: REPO_DIR, timeout: 120000, env: { ...scrubbedEnv(), PATH: CHILD_PATH },
     });
     log(`[cost] 成本报表 exit=${cr.code} ${(cr.out || '').trim().slice(0, 160)}`);
+    // 免费池健康：钱是次要的，池子挂了才是真的停工。每天把非 ok 的模型点名一次。
+    try {
+      const stats = registryStats(true);
+      const entries = Object.entries(stats || {});
+      // stale 能用（只是要重试），单独计数；真正要留意的是 down / degraded / unknown / suspect。
+      const stale = entries.filter(([, v]) => String(v?.status ?? 'unknown') === 'stale').length;
+      const bad = entries.filter(([, v]) => !['ok', 'stale'].includes(String(v?.status ?? 'unknown')));
+      if (!entries.length) log('[pool] 读不到免费池快照（fm.py stats 不可用）');
+      else log(`[pool] ${entries.length} 个模型，ok ${entries.length - stale - bad.length} 个、stale ${stale} 个${bad.length ? '；需要留意：' + bad.slice(0, 8).map(([m, v]) => `${m}=${v?.status ?? 'unknown'}`).join('、') + (bad.length > 8 ? `…等 ${bad.length} 个` : '') : ''}`);
+    } catch (e) { log(`[pool] 读免费池失败：${e.message}`); }
   } catch (e) { log(`[distill] 失败：${e.message}`); }
 }
 

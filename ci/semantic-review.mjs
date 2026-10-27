@@ -275,11 +275,24 @@ export function pickFreeModels(stats, candidates = FREE_STRONG_MODELS, want = 2)
     .map((x) => x.m);
 }
 
+// 免费池的状态会变（模型下架、额度用尽），所以缓存必须有 TTL：
+// 2026-10-27 实测常驻进程跑了一整天、缓存还是启动那一刻的，选中的模型早已额度耗尽。
+const STATS_TTL_MS = Number(process.env.DSH_STATS_TTL_MS ?? 10 * 60 * 1000);
+
+// 缓存是否过期（纯函数，方便测试）：没抓过（fetchedAt=0）或超过 TTL 都算过期。
+export function statsExpired(fetchedAt, now = Date.now(), ttl = STATS_TTL_MS) {
+  if (!fetchedAt) return true;
+  return now - fetchedAt >= ttl;
+}
+
 let STATS_CACHE = null;
+let STATS_AT = 0;
 // 读免费池的 health 快照（fm.py stats --json）。读不到就返回空表，调用方按 unknown 处理。
+// reset=true 强制重读；否则按 STATS_TTL_MS 过期（默认 10 分钟）。
 export function registryStats(reset = false) {
-  if (STATS_CACHE && !reset) return STATS_CACHE;
+  if (STATS_CACHE && !reset && !statsExpired(STATS_AT)) return STATS_CACHE;
   STATS_CACHE = {};
+  STATS_AT = Date.now();
   try {
     const home = process.env.USERPROFILE || process.env.HOME || '.';
     const fm = process.env.DSH_FM_CLI || path.join(home, '.dsh', 'tools', 'free-models', 'fm.py');

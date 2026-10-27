@@ -4,6 +4,7 @@
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 0b0711f6fe5254fb assert.equal(u.steps, 2);
 1 0b5e0ffff796a07a assert.equal(add(-1, 1), 0);
+1 0c28f1580a654343 assert.equal(statsExpired(now - 10 * 60 * 1000, now), true, '正好 10 分钟算过期');
 1 0c644da45a1998cc assert.throws(() => parseAddArgs(['--date', '2026-02-30', '--amount', '100']), TypeError);
 1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
@@ -36,6 +37,7 @@
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
 1 1f9fdee06773c346 assert.deepEqual(next, [{ date: '2026-10-01', amount: 100, note: '工资' }]);
+1 2007399da72fc5b3 assert.match(renderPool({}), /读不到 `fm\.py stats` 快照/);
 1 201599a756a1dce0 assert.match(m, /T1 --> T2/);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2187334f96360d1d assert.equal(formatCny(1.234), '¥1.23');
@@ -79,6 +81,7 @@
 1 411b04110872e33a assert.equal(sumUsage('').steps, 0);
 1 4130087e065aeee8 assert.throws(() => chunk('abc', NaN), RangeError);
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
+1 4428a33b332800b8 assert.match(md, /ZhipuAI\/GLM-5\.2=down/);
 1 44355f93774fa1c2 assert.deepEqual(words('a b c'), ['a', 'b', 'c']);
 1 4504ea416efc986c assert.equal(r.verdict, 'skipped');
 1 45c4d2f60f718b9b assert.match(formatCny(null), /价目表/);
@@ -104,9 +107,11 @@
 1 4f37f4df93ae13ae assert.equal(shortHash('hello'), 'h9f2cab');
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
 1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
+1 51d8c9656c598cf4 assert.match(md, /## 成本报表|# 成本报表/);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
 1 52b02ce216326c65 assert.deepEqual(parseVerdict('VERDICT: FAIL median([]) 返回 0'), { verdict: 'fail', reason: 'median([]) 返回 0' });
 3 53095f4c2a89c4b9 assert.equal(d.ok, false);
+1 536622f909dec164 assert.equal(statsExpired(0, now), true, '没抓过就算过期');
 1 546b0971e805cb58 assert.equal(isPalindrome('hello'), false);
 2 5472ab9d99af661c assert.equal(merged.verdict, 'block');
 1 56734436da90d0af assert.equal(cube(0), 0);
@@ -135,6 +140,7 @@
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 692679e3f8c9affb assert.equal(finalText(''), '');
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
+1 6aea5f731fa528a6 assert.match(md, /共 1 个模型，ok 1 个/);
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
 1 6cb4c0e4995411a1 assert.equal(typeof mod, 'object');
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
@@ -194,12 +200,14 @@
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
 1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
+1 97dac011e31a8d24 assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
 1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
 1 9a49cb50df0d1711 assert.equal(res.dropped, 4);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
+1 9a92c28dd8e7ffb6 assert.match(md, /共 3 个模型，ok 1 个/);
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
@@ -234,6 +242,7 @@
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
 1 b2379d4f9dbce23b assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
+1 b39ce1f508f79ed7 assert.match(md, /需要留意 2 个/);
 1 b3c6f8b60b17f2c3 assert.equal(classifyConflicts(['src/test-baseline.txt']).kind, 'manual');
 1 b6c5c89a5e292dd6 assert.equal(costCny(u, 'deepseek-ai/DeepSeek-V4.1-Flash-1017', off), 0);
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
@@ -261,6 +270,7 @@
 1 c47ccc56232070f2 assert.equal(u.inputTokens, 150);
 1 c47f2e6597dcd890 assert.match(p, /"verdict":"pass"\|"block"/);
 1 c4ea3c534f4caf59 assert.equal(capitalize(''), '');
+1 c50c80b938e16b37 assert.match(md, /## 免费池健康/);
 1 c5672a99d6c8291f assert.equal(minOf(-2, -5), -5);
 1 c58083f2b5f9e892 assert.equal(headlessKind('== verify: FAILED ==\n拒绝：测试数量从 40 降到 39', '', 1), 'agent-gate-red');
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
@@ -273,6 +283,7 @@
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
 1 cc17d77254ce0af9 assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
+1 ccb16c6a51276de0 assert.match(renderPool(null), /读不到/);
 1 cd198ae7248c5b40 assert.ok(r.findings.some((f) => f.rule === 'test-removed'));
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
 1 ce5e07a4a9754be6 assert.equal(merged.tier, 'paid');
@@ -316,6 +327,7 @@
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
 1 eda67453dd7063ba assert.throws(() => addEntry([], { date: '2026-10-01', amount: Number.NaN, note: '工资' }), TypeError);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
+1 ee407d61d04734ae assert.equal(statsExpired(now - 60_000, now), false, '1 分钟前抓的还有效');
 1 ef55af71a30c0ca3 assert.ok(allowed.size > 0, 'policy.paid.models 不能为空');
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
 1 f0cd300a6407f245 assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), [

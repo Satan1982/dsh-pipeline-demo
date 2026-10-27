@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { registryStats } from './semantic-review.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const USAGE = process.env.DSH_USAGE_LOG || path.join(ROOT, '.logs', 'usage.jsonl');
@@ -53,7 +54,32 @@ export function summarize(lines, now = new Date()) {
   };
 }
 
-export function render(sum) {
+// 免费池健康段：钱是次要的，池子挂了才是真的停工。
+// 数据来自 `fm.py stats --json`（选型时本来就要读它，这里只多渲染一段）。
+export function renderPool(stats) {
+  const NL = String.fromCharCode(10);
+  const rows = Object.entries(stats ?? {});
+  if (!rows.length) return ['## 免费池健康', '', '> 读不到 `fm.py stats` 快照（免费池工具不可用或没有登记表）。', ''].join(NL);
+  const order = { ok: 0, stale: 1, degraded: 2, unknown: 3, suspect: 3, down: 4 };
+  const sorted = rows
+    .map(([model, info]) => ({ model, status: String(info?.status ?? 'unknown'), p50: info?.p50Ms ?? info?.p50 ?? '', ok: info?.oks24h ?? info?.ok24h ?? '' }))
+    .sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || String(a.model).localeCompare(String(b.model)));
+  // stale = 能用但要重试，不算问题；真正要留意的是 down / degraded / unknown / suspect。
+  const bad = sorted.filter((r) => r.status !== 'ok' && r.status !== 'stale');
+  const shown = bad.slice(0, 8).map((b) => `${b.model}=${b.status}`);
+  const more = bad.length > shown.length ? `…等 ${bad.length} 个` : '';
+  const head = [
+    '## 免费池健康', '',
+    `> 共 ${sorted.length} 个模型，ok ${sorted.filter((r) => r.status === 'ok').length} 个、stale（可用需重试）${sorted.filter((r) => r.status === 'stale').length} 个` +
+      `${bad.length ? `、需要留意 ${bad.length} 个（${shown.join('、')}${more}）` : '、没有 down/degraded 的'}`,
+    '', '| 模型 | 状态 | p50 | 24h 成功 |', '|---|---|---|---|',
+    ...sorted.map((r) => `| ${r.model} | ${r.status} | ${r.p50 || '-'} | ${r.ok === '' ? '-' : r.ok} |`),
+    '',
+  ];
+  return head.join(NL);
+}
+
+export function render(sum, stats = null) {
   const NL = String.fromCharCode(10);
   const y = (v) => (v === 0 ? '¥0' : `¥${Number(v).toFixed(v < 0.01 ? 4 : 2)}`);
   const out = [
@@ -73,7 +99,7 @@ export function render(sum) {
     ...sum.expensive.map((r) => `| #${r.issue} | ${r.attempt} | ${r.model} | ${r.total} | ${y(r.cny)} |`),
     '',
   ];
-  return out.join(NL);
+  return [out.join(NL), renderPool(stats ?? {})].join(NL + NL);
 }
 
 function main() {
@@ -82,9 +108,13 @@ function main() {
     process.exit(0);
   }
   const sum = summarize(readFileSync(USAGE, 'utf8').split('\n'));
-  const md = render(sum);
+  // 池健康：读不到就渲染一段「读不到」，不影响报表主体。
+  let stats = {};
+  try { stats = registryStats(); } catch { stats = {}; }
+  const md = render(sum, stats);
   writeFileSync(OUT, md);
-  console.log(`成本报表已写入 ${OUT}：${sum.runs} 次运行，累计 ¥${sum.totalCny.toFixed(4)}，今日 ¥${sum.todayCny.toFixed(4)}`);
+  const bad = Object.values(stats ?? {}).filter((v) => !['ok', 'stale'].includes(String(v?.status ?? 'unknown'))).length;
+  console.log(`成本报表已写入 ${OUT}：${sum.runs} 次运行，累计 ¥${sum.totalCny.toFixed(4)}，今日 ¥${sum.todayCny.toFixed(4)}；免费池需要留意 ${bad} 个`);
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].split(String.fromCharCode(92)).join('/')}`).href) main();

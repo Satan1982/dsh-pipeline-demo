@@ -24,6 +24,7 @@ import {
   pickFreeModels,
   flattenStats,
   FREE_STRONG_MODELS,
+  statsExpired,
 } from './semantic-review.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'sem-review-'));
@@ -260,4 +261,12 @@ test('flattenStats 把「规范名 + models 列表」摊平成模型 id', () => 
   const flat = flattenStats({ 'deepseek-v4.1-flash': { status: 'ok', models: ['deepseek-ai/DeepSeek-V4.1-Flash-1017'] } });
   assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
   assert.equal(flat['deepseek-ai/DeepSeek-V4.1-Flash-1017'].status, 'ok');
+});
+
+test('免费池快照缓存按 TTL 过期（默认 10 分钟）', () => {
+  const now = 1_000_000_000;
+  assert.equal(statsExpired(0, now), true, '没抓过就算过期');
+  assert.equal(statsExpired(now - 60_000, now), false, '1 分钟前抓的还有效');
+  assert.equal(statsExpired(now - 10 * 60 * 1000, now), true, '正好 10 分钟算过期');
+  assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
 });
