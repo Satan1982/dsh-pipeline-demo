@@ -48,6 +48,8 @@
 | 文件 | 职责 | 关键实现 |
 | --- | --- | --- |
 | `ci/dispatch.mjs` | 调度器：轮询 issue、起 worktree、调 agent、跑门禁、推 PR、处理 CI 失败与冲突 | 单实例锁 + 心跳、并发池、退避重试（fetch/push/SSH 兜底）、重试预算、`merge:auto` 出口 |
+| `ci/pool-block.mjs` | 免费池不可用（额度耗尽 / 连续 2 次 0 token）时的处置判定：把工单挂起等人决定，**不自动烧付费** | 纯函数、可单测：`freePoolDecision()` → `none`/`block`/`paid`，`blockReason()` 生成挂起原因；网络与 GitHub 动作留在 `dispatch.mjs`；`DSH_FREE_POOL_BLOCK=0` 退回旧行为 |
+| `ci/prices.mjs` | 人民币价目表 + 成本闸：每次调用折算成钱，超单任务 / 单日上限就停止领取新任务 | 元 / 百万 tokens；工作日 9:00–12:00、14:00–18:00 高峰双倍、其余半价；免费池模型记 0；`costCny` / `formatCny` / `isPeak` |
 | `ci/headless-task.sh` | 无头执行入口：给 agent 准备 PATH / 模型路由 / 权限档 | 挂 `--patch headless-model.yml`，`DSH_PERMISSION_MODE=danger-full-access`（无人值守不能卡审批） |
 | `scripts/verify.sh` | 唯一门禁：lint → 测试 → 测试数基线 → 断言内容指纹 → build → pack | 数字降了就红，新增必须同 PR `--bless` |
 | `ci/review.mjs` | 机械评审：只看 diff 形状 | `debug-residue` / `test-removed` / `baseline-unsynced` / `no-file-change` / `gate-modified` 等 |
