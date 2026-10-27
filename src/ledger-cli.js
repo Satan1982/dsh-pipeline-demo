@@ -1,10 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addEntry, isValidDate } from './ledger.js';
+import { addEntry, isValidDate, isValidMonth, summarize } from './ledger.js';
 
-const USAGE = 'usage: node src/ledger-cli.js add --date YYYY-MM-DD --amount N [--note TEXT] [--file PATH]';
-const VALUE_FLAGS = new Set(['--date', '--amount', '--note', '--file']);
+const USAGE = [
+  'usage:',
+  '  node src/ledger-cli.js add --date YYYY-MM-DD --amount N [--note TEXT] [--file PATH]',
+  '  node src/ledger-cli.js sum --month YYYY-MM [--file PATH]',
+].join('\n');
+const ADD_FLAGS = new Set(['--date', '--amount', '--note', '--file']);
+const SUM_FLAGS = new Set(['--month', '--file']);
 
 function readValue(argv, index, flag) {
   const value = argv[index + 1];
@@ -25,12 +30,12 @@ function parseAmount(value) {
   return amount;
 }
 
-export function parseAddArgs(argv) {
+function parseFlags(argv, allowedFlags) {
   const args = {};
   const seen = new Set();
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
-    if (!VALUE_FLAGS.has(flag)) {
+    if (!allowedFlags.has(flag)) {
       throw new TypeError(`unknown argument: ${flag}`);
     }
     if (seen.has(flag)) {
@@ -40,6 +45,19 @@ export function parseAddArgs(argv) {
     args[flag.slice(2)] = readValue(argv, i, flag);
     i += 1;
   }
+  return args;
+}
+
+function resolveFile(args) {
+  const file = args.file ?? process.env.LEDGER_FILE ?? 'data/ledger.json';
+  if (file.trim() === '') {
+    throw new TypeError('--file must be a non-empty path');
+  }
+  return file;
+}
+
+export function parseAddArgs(argv) {
+  const args = parseFlags(argv, ADD_FLAGS);
 
   if (args.date === undefined) {
     throw new TypeError('--date is required');
@@ -51,16 +69,27 @@ export function parseAddArgs(argv) {
     throw new TypeError('--amount is required');
   }
 
-  const file = args.file ?? process.env.LEDGER_FILE ?? 'data/ledger.json';
-  if (file.trim() === '') {
-    throw new TypeError('--file must be a non-empty path');
-  }
-
   return {
     date: args.date,
     amount: parseAmount(args.amount),
     note: args.note,
-    file,
+    file: resolveFile(args),
+  };
+}
+
+export function parseSumArgs(argv) {
+  const args = parseFlags(argv, SUM_FLAGS);
+
+  if (args.month === undefined) {
+    throw new TypeError('--month is required');
+  }
+  if (!isValidMonth(args.month)) {
+    throw new TypeError('--month must be a valid YYYY-MM month');
+  }
+
+  return {
+    month: args.month,
+    file: resolveFile(args),
   };
 }
 
@@ -82,14 +111,20 @@ function writeEntries(file, entries) {
 
 export function main(argv) {
   const [command, ...rest] = argv;
-  if (command !== 'add') {
-    throw new TypeError(command === undefined ? USAGE : `unknown command: ${command}`);
+  if (command === 'add') {
+    const { date, amount, note, file } = parseAddArgs(rest);
+    const entries = addEntry(readEntries(file), { date, amount, note });
+    writeEntries(file, entries);
+    return entries;
+  }
+  if (command === 'sum') {
+    const { month, file } = parseSumArgs(rest);
+    const summary = summarize(readEntries(file), month);
+    console.log(`income=${summary.income} expense=${summary.expense} balance=${summary.balance}`);
+    return summary;
   }
 
-  const { date, amount, note, file } = parseAddArgs(rest);
-  const entries = addEntry(readEntries(file), { date, amount, note });
-  writeEntries(file, entries);
-  return entries;
+  throw new TypeError(command === undefined ? USAGE : `unknown command: ${command}`);
 }
 
 const isDirect = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
