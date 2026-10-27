@@ -119,6 +119,16 @@ Stop-Process -Id <pid>
 | `acceptance:optional` | 人 | 免验收命令 |
 | `verdict:strict` | 人 | 缺 `VERDICT:` 直接失败 |
 
+> 标签必须**先在仓库里存在**：GitHub 打不存在的标签不会报错，而是静默丢弃（2026-10-28 实测：`agent:blocked:manual` 当时没建，自动恢复的「交给人」分支就少了这个标记）。换仓库/新环境时先建齐：
+>
+> ```bash
+> for L in agent:ready agent:working agent:done agent:failed agent:blocked agent:blocked:manual \
+>          model:strong model:paid merge:auto allow:gate readonly:ok acceptance:optional verdict:strict; do
+>   curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Accept: application/vnd.github+json' \
+>     https://api.github.com/repos/<owner>/<repo>/labels -d "{\"name\":\"$L\",\"color\":\"ededed\"}" > /dev/null
+> done
+> ```
+
 ---
 
 ## 6. 日常巡检（每天 2 分钟）
@@ -166,6 +176,21 @@ cat docs/cost-report.md                         # 花了多少
 - 闸门：单任务 > `DSH_TASK_MAX_CNY`（0.5 元）告警并暂停本批；单日 > `DSH_DAY_MAX_CNY`（5 元）当天不再领取。
 - 高峰（工作日 9:00–12:00、14:00–18:00）单价翻倍 → 大批量任务尽量错峰。
 - 免费池选型：`python ~/.dsh/tools/free-models/fm.py pick --kind chat --max-ms 4000 --json`，用完 `report` 回报。
+
+### 8.1 用哪个模型、在哪改（DSH 设置里没有这个开关）
+
+**先说结论**：DSH 设置界面里**没有**「子代理 / headless 用哪个模型」这一项（2026-10-28 核对过）。主会话的模型由设置决定，子代理跟随主会话；而**流水线跑任务时挂的模型，是 `--patch` 文件说了算**，三个文件对应三档：
+
+| 档 | 文件（默认路径，env 可覆盖） | 谁在用 |
+|---|---|---|
+| 弱档（省） | `D:\code\.secrets\headless-model.yml`（`ci/headless-task.sh:22` 默认值；env `DSH_HEADLESS_PATCH`） | 默认试跑：headless 编码、单文件小改 |
+| 强档 | `.secrets/headless-model-free-strong.yml`，或每轮按免费池健康生成的 `.logs/headless-model-free-strong.generated.yml`（env `DSH_HEADLESS_STRONG_PATCH` 一设就不再生成） | 工单带 `model:strong`、失败重试升级、冲突解决 |
+| 付费档 | `.secrets/headless-model-paid.yml`（env `DSH_HEADLESS_PAID_PATCH`） | 免费池不可用且人明确打了 `model:paid` |
+
+- 想「子代理用便宜模型」= 改**弱档 patch 文件**（里面就是 `- id: ... / providers: ... / models: - id: ...` 的 DSH patch 结构），不是去设置里找开关。
+- 只改弱档、不动强档：省钱的活走弱档，卡住了自动升级到强档重试，语义评审另有自己的模型选择（`docs/model-policy.md` §2）。
+- 每次使用前先 `python ~/.dsh/tools/free-models/fm.py stats --json` 看池子状态；`down` 的模型不要写进 patch。
+- 改完 patch 不用重启调度器：`ci/headless-task.sh` 每次起任务时读文件，下一张单就生效。
 
 ---
 

@@ -29,6 +29,8 @@
 | 重试升级 / 冲突解决 | 强档（`model:strong`） | 实测 29B 解多文件冲突不稳（成功 41s / 失败 522s） |
 | 语义评审（判定层） | 免费优先（`XingChenAGI/Xing4.0-29B` 或 free picks）→ 拿不到合法 JSON 才切 `deepseek-flash` | 一次只花 2~5 千 tokens，但必须可靠 |
 
+**这些档位不是 DSH 设置里的开关**（2026-10-28 核对）：设置里既没有「子代理模型」也没有「headless 模型」这一项，主会话按设置走、子代理跟随主会话；流水线跑任务时的模型完全由 `--patch` 文件决定 —— 弱档 `D:\code\.secrets\headless-model.yml`（env `DSH_HEADLESS_PATCH`）、强档 `.secrets/headless-model-free-strong.yml` 或每轮生成的 `.logs/headless-model-free-strong.generated.yml`（env `DSH_HEADLESS_STRONG_PATCH`）、付费档 `.secrets/headless-model-paid.yml`（env `DSH_HEADLESS_PAID_PATCH`）。所以「让子代理用便宜模型」= 改弱档 patch 文件，详见 `docs/manual.md` §8.1。
+
 ## 3. 自动切换规则（代码位置）
 
 | 情况 | 行为 | 代码 | 日志痕迹 |
