@@ -109,6 +109,10 @@ function prepareStrongPatch() {
 
 const TIMEOUT = Number(process.env.DSH_TASK_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_ATTEMPTS = Number(process.env.DSH_MAX_ATTEMPTS ?? 3);
+// 花钱的三个闸：单任务上限、单日上限、留痕阈值（低于阈值只打日志，不写 issue 评论）。
+const TASK_MAX_CNY = Number(process.env.DSH_TASK_MAX_CNY ?? 0.5);
+const DAY_MAX_CNY = Number(process.env.DSH_DAY_MAX_CNY ?? 5);
+const NOTIFY_CNY = Number(process.env.DSH_NOTIFY_CNY ?? 0.05);
 // 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
 const RATE_LIMIT_MAX = Number(process.env.DSH_RATE_LIMIT_MAX ?? 4);
 const RATE_LIMIT_RETRIES = new Map();
@@ -631,13 +635,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const tail = (r.out || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 300);
     log(`${tag} headless 结束 exit=${r.code} ${secs}s ${tail ? '→ ' + tail : ''}`);
     // token 用量：headless profile 不装 cost-meter，账本里没有这些 run，只能靠 --json 事件流自己记。
+    let taskCny = null;
+    const billedModel = usePaid ? 'deepseek-flash' : (STRONG_MODEL_NAME || 'free-pool');
     if (r.usage && r.usage.steps) {
       log(`${tag} 消耗 ${formatUsage(r.usage)}`);
       try {
         if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
-        const billedModel = usePaid ? 'deepseek-flash' : (STRONG_MODEL_NAME || 'free-pool');
         const cny = costCny(r.usage, billedModel);
-        if (cny !== null && cny > 0) log(`${tag} 估算成本 ${formatCny(cny)}（${billedModel}，按官方价目表）`);
+        taskCny = cny;
+        if (cny !== null && cny > 0) log(`${tag} 估算成本 ${formatCny(cny)}（${billedModel}，按官方价目表；缓存命中量未透出，按未命中计）`);
+        if (cny !== null && cny > TASK_MAX_CNY) {
+          log(`${tag} ⚠ 单任务估算 ${formatCny(cny)} 超过上限 ${formatCny(TASK_MAX_CNY)}：本批次暂停领取新任务（DSH_TASK_MAX_CNY 可调）`);
+          PAUSE_CLAIM = true;
+        }
         appendFileSync(
           path.join(LOG_DIR, 'usage.jsonl'),
           JSON.stringify({ at: new Date().toISOString(), issue: n, attempt, model: billedModel, paid: usePaid, cny, ...r.usage }) + NL,
@@ -775,7 +785,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       // 用户 2026-10-27：留痕本身也要花钱，所以默认只进 dispatch.log 与 PR body 一行；
       // 只有这次付费评审的估算成本超过阈值（默认 ¥0.05）才额外写 issue 评论。
       log(`${tag} ⚠ 语义评审切到付费面板（免费模型 ${semantic.freeModel} 不可用：${semantic.escalatedFrom}）`);
-      const notifyCny = Number(process.env.DSH_PAID_NOTIFY_CNY ?? 0.05);
+      const notifyCny = Number(process.env.DSH_NOTIFY_CNY ?? process.env.DSH_PAID_NOTIFY_CNY ?? 0.05);
       const semCny = (semantic.tokens ?? 0) * (4 / 1e6); // 保守按输出价 4 元/百万估算
       if (semCny < notifyCny) {
         log(`${tag} 付费评审估算 ${formatCny(semCny)} < 阈值 ${formatCny(notifyCny)}，只记日志不写 issue 评论`);
@@ -822,7 +832,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 语义评审：${formatSemantic(semantic).split(String.fromCharCode(10))[0]}${semantic.paidUsed ? `（⚠ 免费模型 ${semantic.freeModel} 不可用，已切付费）` : ''}`,
         `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
         `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
-        `- 本次 agent 消耗：${formatUsage(usage)}`,
+        `- 本次 agent 消耗：${formatUsage(usage)}${taskCny !== null ? `（估算 ${formatCny(taskCny)}）` : ''}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
         '',
         '## 需要人工确认（调度器不做）',
@@ -903,13 +913,70 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
   throw new Error(`push 失败（退避重试 ${backoff.length + 1} 次 + SSH 端点）: ${last.err.trim().slice(0, 200)}`);
 }
 
+// 本批次是否因为超预算而暂停领取新任务（软熔断：已完成的活不丢，只是不再开新的）。
+let PAUSE_CLAIM = false;
+
+function todaySpendCny() {
+  try {
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const f = path.join(LOG_DIR, 'usage.jsonl');
+    if (!existsSync(f)) return 0;
+    let sum = 0;
+    for (const line of readFileSync(f, 'utf8').split(NL)) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const e = JSON.parse(t);
+        const d = new Date(Date.parse(e.at) + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        if (d === today) sum += Number(e.cny || 0);
+      } catch { /* 坏行跳过 */ }
+    }
+    return sum;
+  } catch { return 0; }
+}
+
+// 依赖门：issue 上带 dep-on:T1 → 只有 T1 对应的 issue 关闭后才允许开工。
+// 标签里的 T1 是 tasks.md 的任务号，靠标题里的 [slug/T1] 反查 issue 号。
+async function depsSatisfied(issue) {
+  const deps = (issue.labels ?? []).map((l) => l.name).filter((n) => n.startsWith('dep-on:')).map((n) => n.slice('dep-on:'.length));
+  if (!deps.length) return { ok: true };
+  const slug = /^\[([^/\]]+)\//.exec(issue.title || '')?.[1] || '';
+  for (const d of deps) {
+    const q = encodeURIComponent(`[${slug}/${d}]`);
+    const { data } = await api('GET', `/repos/${REPO}/issues?state=closed&per_page=100&labels=agent:done`);
+    const list = Array.isArray(data) ? data : [];
+    const closedDep = list.some((i) => !i.pull_request && String(i.title || '').includes(`[${slug}/${d}]`));
+    if (!closedDep) return { ok: false, dep: d };
+  }
+  return { ok: true };
+}
+
 async function pollOnce() {
+  if (PAUSE_CLAIM) return 0;
+  const spent = todaySpendCny();
+  if (spent >= DAY_MAX_CNY) {
+    log(`今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}，今天不再领取新任务（DSH_DAY_MAX_CNY 可调）`);
+    PAUSE_CLAIM = true;
+    return 0;
+  }
   const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`);
   const issues = (Array.isArray(data) ? data : []).filter(
     (i) => !i.pull_request && !i.labels.some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
   );
   if (issues.length === 0) {
     log('没有待处理任务');
+    return 0;
+  }
+  const runnable = [];
+  for (const issue of issues) {
+    const dep = await depsSatisfied(issue);
+    if (dep.ok) runnable.push(issue);
+    else log(`[dep] #${issue.number} 在等 ${dep.dep} 关闭，本轮跳过`);
+  }
+  issues.length = 0;
+  issues.push(...runnable);
+  if (issues.length === 0) {
+    log('待处理任务都被依赖门挡住了');
     return 0;
   }
   log(`发现 ${issues.length} 个待处理任务（并发上限 ${CONCURRENCY}）`);
@@ -1266,6 +1333,11 @@ async function maybeDistill() {
     });
     const lastLine = (r.out || '').trim().split(NL).filter(Boolean).slice(-1)[0] || '';
     log(`[distill] 每日写入 Hindsight exit=${r.code} ${lastLine.slice(0, 140)}`);
+    // 顺手生成成本报表：数据就在本地 usage.jsonl，多跑一次 node 不到 0.2 秒。
+    const cr = await run(process.execPath, [path.join(REPO_DIR, 'ci', 'cost-report.mjs')], {
+      cwd: REPO_DIR, timeout: 120000, env: { ...scrubbedEnv(), PATH: CHILD_PATH },
+    });
+    log(`[cost] 成本报表 exit=${cr.code} ${(cr.out || '').trim().slice(0, 160)}`);
   } catch (e) { log(`[distill] 失败：${e.message}`); }
 }
 

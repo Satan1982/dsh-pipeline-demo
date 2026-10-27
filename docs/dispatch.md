@@ -395,3 +395,24 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 
 实测（2026-10-26）：免费档对同一 diff 回了「分析 + 没有 JSON 结论」→ 触发升级 → 付费面板 Qwen+Kimi 在 43 秒内给出
 两条具体 block（点名验收里要求的文件没改、约束被违反）。免费档 3037 tokens、34 秒。
+
+## 设计院层：规格 → 任务分解 → 建单（2026-10-27）
+
+小切片用 issue 就够；一个系统（多个模块、跨文件、要并行）先写规格，再拆任务，别让 agent 猜。
+
+1. 复制模板：`docs/specs/_template/{spec,design,tasks}.md` + `contracts/README.md` 到 `docs/specs/<slug>/`。
+2. 填 `tasks.md` 的表格（任务 / 说明 / 依赖 / 验收命令），验收命令必须自己打印 `VERDICT: PASS`。
+3. 预览：`node ci/plan.mjs <slug> --graph`（依赖分层 + mermaid）；`node ci/plan.mjs <slug> --dry`（会建哪些单）。
+4. 真建：`node ci/plan.mjs <slug> --create` → 每个任务一张 issue，依赖变成 `dep-on:T1` 标签。
+5. 调度器只在前置 issue 关闭后开工（日志 `[dep] #N 在等 T1 关闭，本轮跳过`）。
+6. 跨切片验收：`docs/specs/<slug>/integration.md` 里写 bash 代码块，`bash scripts/integration.sh <slug>` 逐块执行。
+
+现成样例：`docs/specs/ledger/`（记账小工具，T1→T2→T3 三层）。
+
+## 成本计量与预算闸（2026-10-27）
+
+- 每次 headless 的 token 用量写 `.logs/usage.jsonl`，按 DeepSeek 官方价目表折成人民币（`ci/prices.mjs`；免费池记 ¥0）。
+- 缓存命中量 DSH 没透出，输入一律按「未命中」计 → 金额偏高、保守。
+- 单任务超过 `DSH_TASK_MAX_CNY`（默认 0.5 元）→ 日志告警并暂停本批次新任务；当日累计超过 `DSH_DAY_MAX_CNY`（默认 5 元）→ 当天不再领取。
+- 切付费评审只在估算超过 `DSH_NOTIFY_CNY`（默认 0.05 元）时才写 issue 评论，否则只进日志与 PR body。
+- 每日（本地 7 点后）自动跑 `ci/distill-failures.mjs` 与 `ci/cost-report.mjs`，产出 `docs/cost-report.md`。

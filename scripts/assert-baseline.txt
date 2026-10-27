@@ -11,6 +11,7 @@
 1 1259e84d5e917c45 assert.equal(d.verdict, 'fail');
 1 12b31ef99486dbce assert.equal(headlessKind('dsh: MISSING_CREDENTIAL: no API key', '', 1), 'llm-missing-credential');
 1 13043c62fe6b6060 assert.equal(classifyConflicts([]).kind, 'none');
+1 13c29ba19637d5a8 assert.match(m, /T1\["T1 存储层"\]/);
 1 142ddf6ec2c0d7a5 assert.equal(wordCount('a b c'), 3);
 1 14e58d67102137a4 assert.equal(groups.length, 2);
 12 171d4db9216880f9 assert.equal(r.ok, false);
@@ -29,6 +30,7 @@
 1 1e3dd1e22654a683 assert.equal(classifyConflicts(['scripts/assert-baseline.txt']).kind, 'baseline-only');
 1 1ec4c31a0544f737 assert.equal(initials(' Ada Lovelace '), 'AL');
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
+1 201599a756a1dce0 assert.match(m, /T1 --> T2/);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2187334f96360d1d assert.equal(formatCny(1.234), '¥1.23');
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
@@ -40,6 +42,7 @@
 2 2bae680979f5f4ad assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt']);
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
 1 2c1007c2f797ae76 assert.equal(res.after, 3);
+1 2dbfc654170dd52d assert.match(text, /第 3 层（集成）：T3 .*T4/);
 1 2f121b96683ee14d assert.ok(r.findings.some((f) => f.rule === 'dependency-added'));
 1 31922bf5ba0a3532 assert.equal(a.last, '2026-10-25T02:00:00Z');
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
@@ -49,6 +52,7 @@
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
 1 337af19339b590d9 assert.deepEqual(pickFreeModels(stats, FREE_STRONG_MODELS, 2), ['ZhipuAI/GLM-5.2', 'Qwen/Qwen3.8-27B']);
+1 358dabdaa657515f assert.equal(tasks.length, 4);
 1 36adcb5d07ac7b37 assert.throws(() => shout(123), TypeError);
 1 3940250b0cec9530 assert.equal(reverseEachWord(''), '');
 1 39c12bc8378dc311 assert.equal(truncateWords('', 3), '');
@@ -102,11 +106,13 @@
 1 579405978276dd0f assert.equal(d.ok, true);
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
+1 5caaf3e3d7ccd9b9 assert.match(m, /T2 --> T3/);
 1 5cd19d3b0ca3b5ff assert.equal(panelModels('').length, 2);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
 1 5ee5ab971f9c3fd4 assert.equal(s, '21082 tokens（in 21013 / out 69，1 步）');
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
 1 60b6c6b3c613cdd7 assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
+1 6107689f9c33d685 assert.throws(() => topoLevels(parseTasks(cyclic)), /依赖成环/);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
@@ -187,6 +193,7 @@
 1 a196f516d59ab5d5 assert.equal(merged.tier, 'free');
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
+1 a40f672578d410b4 assert.deepEqual(map, { T1: 0, T2: 1, T3: 2, T4: 2 });
 1 a596f1d7945025cf assert.equal(classifyConflicts(['', ' ']).kind, 'none');
 1 a5a768c434d2455c assert.equal(cube(-2), -8);
 1 a5f86a958cc577f5 assert.equal(finalText([ev({ type: 'final', text: '答案是 42' })].join('\n')), '答案是 42');
@@ -195,6 +202,7 @@
 1 a79526c232c68eaa assert.equal(capitalize('abc'), 'Abc');
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
 1 ab00b6a4ecb9702f assert.match(d.detail, /exit=1/);
+1 ab2711af8e30a76f assert.match(text, /第 1 层（起点）：T1/);
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
@@ -221,6 +229,7 @@
 1 bb71957e7af94fb5 assert.ok(text.toLowerCase().includes('docs/failures.jsonl') || text.includes('failures.jsonl'));
 1 bc0048fe54601a1e assert.match(r.model, /^mock:/);
 1 bca4f35142462246 assert.equal(initials('grace brewster hopper'), 'GBH');
+1 be583b44c3249f3e assert.match(tasks[0].cmd, /VERDICT: PASS/);
 1 bead3790b8ad00ab assert.equal(loadStore(file).size, 1);
 1 bf76e5ba6adfebc6 assert.match(d.detail, /RangeError/);
 1 c16f7fa143962e57 assert.equal(res.before, 6);
@@ -248,8 +257,10 @@
 1 d2fd8c92b9f744f3 assert.match(formatSemantic(merged), /\[付费\]/);
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
+1 d3996b5ca688d037 assert.deepEqual(tasks.map((t) => t.id), ['T1', 'T2', 'T3', 'T4']);
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
+1 d828c0390e2f6ca5 assert.deepEqual(tasks[0].deps, []);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
 1 de49255d4edbb185 assert.equal(shortHash('hello'), shortHash('hello'));
@@ -271,6 +282,7 @@
 1 eb80d76d1aae398d assert.equal(divide(10, 2), 5);
 1 ebc909946ec9d173 assert.ok(sig.length <= 600);
 1 ec51b4aebfd727fd assert.equal(left.length, 2);
+1 ed284af615983216 assert.deepEqual(tasks[2].deps, ['T1', 'T2']);
 1 ed55559488f166f3 assert.match(p, /\+export function reverseWords/);
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
