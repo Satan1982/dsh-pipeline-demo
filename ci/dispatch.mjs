@@ -32,6 +32,8 @@ import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
+import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
+import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -369,7 +371,11 @@ async function fetchWithRetry(args = ['origin', '--quiet'], cwd = REPO_DIR) {
 // 计划任务每 5 分钟一轮，人（或 agent）也可能手动跑一次；两个进程会抢同一个
 // worktree 路径和分支，表现为「agent 未产生任何改动」这种假故障。用文件锁串行化。
 const LOCK_FILE = path.join(LOG_DIR, 'dispatch.lock');
+// once 口径：领到单后要干到超时才回来，这期间心跳是停的，只能按「超时 + 10 分钟」判。
 const LOCK_STALE_MS = TIMEOUT + 10 * 60 * 1000;
+// serve 口径：每轮都刷心跳，停 3 分钟就是卡死/被杀（原来是 40 分钟才接管，见 ci/lock-policy.mjs）。
+const LOCK_BEAT_STALE_MS = Number(process.env.DSH_LOCK_BEAT_STALE_MS ?? DEFAULT_BEAT_STALE_MS);
+const LOCK_MODE = ONCE ? 'once' : 'serve';
 
 // 谁在跑：只有「进程还活着且锁不算太旧」才算占用，否则视为陈旧可接管。
 function lockHolder() {
@@ -382,7 +388,8 @@ function lockHolder() {
   // --ensure 接管了 1 分钟前才刷过心跳的 pid）。真死是 ESRCH。
   try { process.kill(cur.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
   const age = cur.at ? Date.now() - Date.parse(cur.at) : Infinity;
-  return alive && age < LOCK_STALE_MS ? cur : null;
+  const held = lockHeld({ alive, ageMs: age, mode: cur.mode, beatStaleMs: LOCK_BEAT_STALE_MS, staleMs: LOCK_STALE_MS });
+  return held ? cur : null;
 }
 
 function ownsLock() {
@@ -391,7 +398,7 @@ function ownsLock() {
 
 function acquireLock() {
   if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
-  const me = { pid: process.pid, at: new Date().toISOString() };
+  const me = lockPayload({ pid: process.pid, at: new Date().toISOString(), mode: LOCK_MODE });
   const write = () => writeFileSync(LOCK_FILE, JSON.stringify(me));
   // 只有锁还是自己写的那份才删。常驻进程被接管后退出时若无条件 unlink，会把新持有者的锁删掉，
   // 第三个进程再「接管」一次——2026-10-25 07:17 实测就是这样滚成「谁都没有锁、也没有常驻进程」。
@@ -1732,6 +1739,29 @@ function startResident() {
   return child.pid;
 }
 
+// 残留工作树巡检：WT_ROOT 下的 issue-N 目录对不上任何 open 工单时，只记一行日志。
+// 不自动删（未提交改动会跟着没），也不进轮询循环（工作树不会每分钟长一个）。
+async function auditStaleWorktrees() {
+  if (!existsSync(WT_ROOT)) return;
+  let dirs = [];
+  try { dirs = readdirSync(WT_ROOT); } catch { return; }
+  if (!parseWorktreeDirs(dirs).length) return;
+  let open = [];
+  const r = await api('GET', `/repos/${REPO}/issues?state=open&per_page=100`);
+  if (r.status !== 200 || !Array.isArray(r.data)) {
+    log(`[worktrees] 读不到 open 工单（status=${r.status}），跳过巡检`);
+    return;
+  }
+  open = r.data.map((i) => i.number);
+  const dirty = {};
+  for (const d of parseWorktreeDirs(dirs)) {
+    if (open.includes(d.n)) continue;
+    const st = await git(['-C', path.join(WT_ROOT, d.dir), 'status', '--porcelain'], { cwd: REPO_DIR });
+    dirty[d.dir] = st.code !== 0 || Boolean(String(st.out ?? '').trim());
+  }
+  for (const line of formatAudit(auditWorktrees({ dirs, openNumbers: open, dirty }))) log(line);
+}
+
 async function main() {
   // --ensure：只负责「保证有一个人在跑」。要么报出已经有的那个，要么脱离父进程拉起一个
   // 常驻的 --serve。它自己不等任务、不持锁，所以登录自启/计划任务反复调用都安全。
@@ -1789,6 +1819,7 @@ async function main() {
     if (archivedSessions) log(`归档 ${archivedSessions} 个已删 worktree 的会话（移到 sessions-archived/pipeline-old）`);
   } catch (e) { log(`会话归档跳过：${e.message}`); }
   if (pruned) log(`清理 ${pruned} 个超过 ${LOG_RETENTION_DAYS} 天的尝试日志`);
+  try { await auditStaleWorktrees(); } catch (e) { log(`[worktrees] 巡检出错：${e.message}`); }
   if (!existsSync(ASKPASS)) throw new Error(`缺少 ${ASKPASS}`);
   await cleanupStaleWorking();
   // 先看有没有「池子恢复后该放回去」的挂起单，再领新任务：恢复的单本来就排过队。
@@ -1808,7 +1839,7 @@ async function main() {
     // 心跳：每轮把锁的时间刷成现在。没有它，一个只是「闲了很久」的常驻进程会被别的进程
     // 判成陈旧锁接管，而它自己还在轮询——两边都以为自己是主人。
     try {
-      writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+      writeFileSync(LOCK_FILE, JSON.stringify(lockPayload({ pid: process.pid, at: new Date().toISOString(), mode: 'serve' })));
     } catch { /* 刷不动就等下一轮 */ }
     await maybeDistill();
     try {

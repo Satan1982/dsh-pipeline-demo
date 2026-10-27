@@ -7,6 +7,7 @@
 #   bash ci/land.sh "提交说明"            # 默认：门禁 + 提交 + 推送 + 镜像
 #   DSH_ALLOW_GATE=1 bash ci/land.sh "…"  # 确需改门禁脚本时放行（会在输出里标明）
 #   DSH_LAND_PUSH=0 bash ci/land.sh "…"   # 只提交不推送
+#   DSH_LAND_ALL=1 bash ci/land.sh "…"    # 连未跟踪的新文件一起收（默认只收已跟踪文件的改动）
 #
 # 失败即停（set -e），并打印失败那一步的原话，不吞错误。
 set -euo pipefail
@@ -36,7 +37,21 @@ echo "== 1/4 门禁 =="
 bash scripts/verify.sh
 
 echo "== 2/4 提交 =="
-"$GIT" add -A
+# 只暂存「已跟踪文件」的改动。原来是 `git add -A`：任何自动生成的产物（成本报表、尝试日志
+# 之外的临时脚本）都会被顺手卷进下一次提交，2026-10-28 实测一个 95 行的报表噪声就是这样进仓库的。
+# 未跟踪的新文件需要明确放行：DSH_LAND_ALL=1（或先自己 `git add <文件>`）。
+"$GIT" add -u
+UNTRACKED=$("$GIT" ls-files --others --exclude-standard)
+if [ -n "$UNTRACKED" ]; then
+  echo "有未跟踪文件，本次默认不提交："
+  printf '%s\n' "$UNTRACKED" | sed 's/^/  /'
+  if [ "${DSH_LAND_ALL:-0}" = "1" ]; then
+    echo "（DSH_LAND_ALL=1：一并收进本次提交）"
+    "$GIT" add -A
+  else
+    echo "要一起提交：DSH_LAND_ALL=1 bash ci/land.sh \"提交说明\"（或先 git add <文件>）"
+  fi
+fi
 if "$GIT" diff --cached --quiet; then
   echo "没有待提交的改动，跳过提交"
 else

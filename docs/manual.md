@@ -90,7 +90,7 @@ Stop-Process -Id <pid>
 |---|---|---|
 | `bash scripts/verify.sh` | 跑门禁六步 | 唯一门禁入口 |
 | `bash scripts/verify.sh --bless` | 改了测试/断言后同步基线 | 必须和代码同一次提交 |
-| `bash ci/land.sh "短句说明"` | 门禁 → 提交 → 推 https/SSH → 镜像 Gitee | 不许分开手跑；`DSH_LAND_PUSH=0` 只提交 |
+| `bash ci/land.sh "短句说明"` | 门禁 → 提交 → 推 https/SSH → 镜像 Gitee | 不许分开手跑；`DSH_LAND_PUSH=0` 只提交；默认只收已跟踪文件的改动，新增文件要 `DSH_LAND_ALL=1` |
 | `bash ci/watch.sh 300 '关键词'` | 等 5 分钟再打日志尾部 | 比反复 tail 省钱；可丢后台 |
 | `node ci/plan.mjs <slug> --graph` | 看规格的依赖分层 | `--dry` 预览建单，`--create` 真建 |
 | `node ci/dispatch.mjs --dry-run` | 只列待办 | 一轮就退出 |

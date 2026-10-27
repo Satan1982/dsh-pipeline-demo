@@ -200,7 +200,11 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 两个进程同时干同一批 worktree 和分支时，agent 会看到别人刚改过的树，表现成「agent 未产生任何改动」这种**假故障**——
 所以撞车不是崩溃，而是**谁安静谁让位**，日志正常也会出现接管记录。
 
-- **锁内容**：`{pid, at}`。**陈旧窗口** `LOCK_STALE_MS = DSH_TASK_TIMEOUT_MS + 10min`（默认 30 + 10 分钟）。
+- **锁内容**：`{pid, at, mode}`，`mode` 是 `serve`（常驻）或 `once`（跑一轮就退）。
+- **陈旧窗口按模式分**（2026-10-28 改）：`serve` 每轮刷心跳，停 `DSH_LOCK_BEAT_STALE_MS`（默认 3 分钟）就判陈旧——
+  卡死的常驻不必等 40 分钟；`once` 领到单要干到超时才回来（心跳是停的），沿用 `LOCK_STALE_MS = DSH_TASK_TIMEOUT_MS + 10min`
+  （默认 30 + 10 分钟）。老锁文件里没有 `mode` 时按 `once` 处理：宁可多等，也不误杀一个正在跑长任务的进程。
+  判据是纯函数（`ci/lock-policy.mjs` 的 `lockHeld()`），有单测。
 - **判定顺序**：文件不存在（`wx` 原子创建成功）→ 拿锁；持有者进程还活着（`process.kill(pid, 0)`）且锁龄 < 窗口 → 退出；
   否则按陈旧锁接管，并记一行 `接管陈旧锁（pid=… 起于 …）`。
 - **`EPERM` 算活着**：Windows 上跨用户 / 提权的进程，`process.kill(pid, 0)` 抛的是 `EPERM`（进程在、只是没权限发信号），
@@ -214,6 +218,10 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 - **被接管后主动退出**：常驻进程每轮轮询前用 `ownsLock()` 确认锁还是自己的，不是就记 `锁已被接管（pid=… 不再是持有者），常驻进程退出` 并退出。
 - **怎么判读日志**：出现 `接管陈旧锁（…）` 或 `锁已被接管（…），常驻进程退出` 属**正常让位**，不是故障；
   真故障信号是「两边都以为自己持锁」（同一批 worktree 同时有两条 `[issue #N] 领取`）。
+- **残留工作树巡检**（2026-10-28 加）：启动时看一眼 `WT_ROOT`（默认同级 `.worktrees/`）下的 `issue-<号>` 目录，
+  对不上任何 open 工单的记一行 `[worktrees] #N 已无 open 工单，工作树干净：issue-N（可移除：git worktree remove …）`，
+  有未提交改动的改成「不自动删，人工确认」。**只报不删**：删会连未提交改动一起丢，这种动作留给人。
+  判据在 `ci/worktree-audit.mjs`（纯函数 + 单测），只在启动时跑一次，不进轮询。
 
 三种形态都只做「领取 → 干活 → 推分支 → 开 PR」，**不会自动合 PR**。
 
