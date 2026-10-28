@@ -550,7 +550,9 @@ node ci/dispatch.mjs --pool-snapshot   # 一行 JSON 追加到 ~/.dsh/coord/log/
 ```
 
 - 输出：`{"at":…,"ok":34,"stale":114,"suspect":9,"unknown":1,"down":0,"other":0,"total":158}`（计数判据是 `ci/probe-plan.mjs` 的 `poolCounts()`）。
-- 路径可用 `DSH_POOL_SNAPSHOT_LOG` 改。digest 每天读它出趋势，不必再翻 `fm.py stats` 的人肉截图。
+- 路径可用 `DSH_POOL_SNAPSHOT_LOG` 改。常驻进程每小时自动写一行（`DSH_POOL_SNAPSHOT_EVERY_MS` 可调，0=关），
+  所以它本身就是趋势数据；**还没接进每日 digest**（TODO：`ci/distill-failures.mjs` 里读最近 N 行出曲线），
+  在那之前排查池子直接 `tail ~/.dsh/coord/log/pool-snapshot.jsonl`。
 - 只读、不探活、不改登记表；`--dry-run` 无需特判（它本来就不写远端）。
 
 ## 状态对账（常驻进程内，每 30 轮一次）
