@@ -140,6 +140,7 @@ tail -40 .logs/dispatch.log                     # 在干什么
 grep -c '领取' .logs/dispatch.log               # 今天领了几张
 tail -5 docs/failures.jsonl                     # 最近失败都长什么样
 cat .logs/cost-report.md                        # 花了多少（每日自动刷新）
+tail -20 ~/.dsh/coord/log/events.jsonl          # 需要人知道的事（失败/要接手/花费到顶）
 ```
 
 看这几个关键词就够了：
@@ -153,6 +154,7 @@ cat .logs/cost-report.md                        # 花了多少（每日自动刷
 | `[blocked] #N …停止自动恢复` | 重投 3 次用完 | 人去修单子 |
 | `接管陈旧锁` / `锁已被接管…常驻进程退出` | 两个实例撞了，正常让位 | 无 |
 | `[dep] #N 在等 T1 关闭` | 依赖没完成 | 无 |
+| `[notify] 已发系统通知：…` | 弹了 Windows 通知 | 看一眼是什么事 |
 
 ---
 

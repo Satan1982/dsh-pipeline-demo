@@ -34,6 +34,8 @@ import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AU
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
+import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript } from './notify.mjs';
+import { homedir } from 'node:os';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -234,6 +236,36 @@ const log = (m) => {
     appendFileSync(LOG_FILE, `${line}\n`);
   } catch { /* 日志失败不能影响主流程 */ }
 };
+
+// ---------- 事件通知 ----------
+// 无人值守时，「任务失败」「重投用完需要人工接手」「今日花费到顶」是三种必须让人知道的事。
+// 落两处：events.jsonl（digest 次日读）+ Windows 通知（当场弹）。
+// 弹窗失败只记一行：通知挂掉不该让调度器停摆（和日志同一个口径）。
+const EVENTS_FILE = process.env.DSH_EVENTS_LOG || path.join(homedir(), '.dsh', 'coord', 'log', 'events.jsonl');
+const NOTIFY_OFF = (process.env.DSH_NOTIFY ?? '1') === '0';
+
+function notifyEvent({ kind, issue, why, cny }) {
+  if (DRY) return;
+  const rec = eventRecord({ kind, issue, why, cny });
+  try {
+    appendEvent(EVENTS_FILE, rec);
+  } catch (e) {
+    log(`[notify] 事件落盘失败：${e.message}`);
+  }
+  if (NOTIFY_OFF) return;
+  try {
+    const { title, message } = toastText({ kind, issue, why });
+    const script = writeToastScript(path.join(LOG_DIR, 'notify-toast.ps1'), { title, message });
+    spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
+      timeout: 15000,
+      stdio: 'ignore',
+    });
+    log(`[notify] 已发系统通知：${title}`);
+  } catch (e) {
+    log(`[notify] 弹窗失败（不影响任务）：${e.message}`);
+  }
+}
+
 
 // 每次尝试都会落一份 prompt 和一份完整输出；无人值守跑几天就是几千个文件。
 // 只清理「目录里看起来像尝试产物」的文件，别的（锁、轮转后的 .1）一律不碰。
@@ -591,6 +623,7 @@ async function failTask(issue, reason) {
   await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
     body: `❌ 调度器执行失败：\n\n\`\`\`\n${r}\n\`\`\`\n\n处理完后去掉 \`agent:failed\`、重新加 \`agent:ready\` 即可重试。`,
   }).catch(() => {});
+  notifyEvent({ kind: 'failed', issue: n, why: r.split('\n')[0].slice(0, 120) });
 }
 
 async function blockTask(issue, why, detail) {
@@ -750,6 +783,7 @@ async function recoverBlocked() {
       ].join(NL),
     }).catch(() => {});
     log(`[blocked] #${n} ${d.reason}`);
+    notifyEvent({ kind: 'blocked-manual', issue: n, why: d.reason });
   }
   writeBlockedState(state);
   return requeued;
@@ -1179,6 +1213,8 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
 
 // 本批次是否因为超预算而暂停领取新任务（软熔断：已完成的活不丢，只是不再开新的）。
 let PAUSE_CLAIM = false;
+// 日闸通知的「最后一次通知是哪一天」（北京时间日期）。进程重启会重置，重启后再提示一次也合理。
+let DAYCAP_NOTIFIED = '';
 
 function todaySpendCny() {
   try {
@@ -1223,6 +1259,16 @@ async function pollOnce() {
   const spent = todaySpendCny();
   if (spent >= DAY_MAX_CNY) {
     log(`今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}，今天不再领取新任务（DSH_DAY_MAX_CNY 可调）`);
+    // 一天只通知一次：日闸一旦触发，每轮轮询都会走到这里，不按日去重就是每分钟一次弹窗。
+    const day = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    if (DAYCAP_NOTIFIED !== day) {
+      DAYCAP_NOTIFIED = day;
+      notifyEvent({
+        kind: 'daycap',
+        why: `今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}，今天不再领取新任务`,
+        cny: spent,
+      });
+    }
     PAUSE_CLAIM = true;
     return 0;
   }

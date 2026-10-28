@@ -54,6 +54,7 @@
 | `ci/labels.mjs` | 调度器需要的仓库标签清单与差集判据：启动时把缺的标签补齐，避免「打标签静默丢弃」 | 纯函数、可单测：`REQUIRED_LABELS`（14 个）、`missingLabels(existing)`（忽略大小写/空格，保序）、`labelPayload()`（带颜色与说明）、`formatLabelList()`；网络动作留在 `dispatch.mjs` 的 `ensureLabels()`，失败只记一行日志；`dep-on:*` 不纳入 |
 | `ci/lock-policy.mjs` | 单实例锁「算不算还活着」的判据：按模式分窗口，卡死的常驻 3 分钟可接管，跑长任务的 `--once` 不被误杀 | 纯函数、可单测：`lockHeld({alive, ageMs, mode, beatStaleMs, staleMs})`、`staleLimitMs()`、`lockPayload()`；`serve` 用 `DSH_LOCK_BEAT_STALE_MS`（默认 3 分钟），`once` 用 `DSH_TASK_TIMEOUT_MS + 10min`；老锁无 `mode` 按 `once` |
 | `ci/worktree-audit.mjs` | `.worktrees/issue-N` 残留巡检：对不上 open 工单的目录只报不删 | 纯函数、可单测：`parseWorktreeDirs()`、`auditWorktrees({dirs, openNumbers, dirty})`、`formatAudit()`；网络与 `git status` 留在 `dispatch.mjs` 的 `auditStaleWorktrees()`，只在启动时跑 |
+| `ci/notify.mjs` | 三种「必须让人知道」的事件（任务失败 / 重投用完要人工接手 / 今日花费到顶）落 `events.jsonl` 并弹 Windows 通知 | 纯函数、可单测：`eventRecord()`、`toastText()`、`psToastBody()`、`writeToastScript()`（写 UTF-8 BOM 的 `.ps1`，PS 5.1 没 BOM 会把中文按 GBK 解）、`appendEvent()`；日志截断 300 / 弹窗 60+200 字符；弹窗失败只记一行，不影响任务 |
 | `ci/headless-task.sh` | 无头执行入口：给 agent 准备 PATH / 模型路由 / 权限档 | 挂 `--patch headless-model.yml`，`DSH_PERMISSION_MODE=danger-full-access`（无人值守不能卡审批） |
 | `scripts/verify.sh` | 唯一门禁：lint → 测试 → 测试数基线 → 断言内容指纹 → build → pack | 数字降了就红，新增必须同 PR `--bless` |
 | `ci/review.mjs` | 机械评审：只看 diff 形状 | `debug-residue` / `test-removed` / `baseline-unsynced` / `no-file-change` / `gate-modified` 等 |

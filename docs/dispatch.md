@@ -475,3 +475,19 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 - 单任务超过 `DSH_TASK_MAX_CNY`（默认 0.5 元）→ 日志告警并暂停本批次新任务；当日累计超过 `DSH_DAY_MAX_CNY`（默认 5 元）→ 当天不再领取。
 - 切付费评审只在估算超过 `DSH_NOTIFY_CNY`（默认 0.05 元）时才写 issue 评论，否则只进日志与 PR body。
 - 每日（本地 7 点后）自动跑 `ci/distill-failures.mjs` 与 `ci/cost-report.mjs`，产出 `.logs/cost-report.md`（2026-10-28 起不再写 `docs/`：每天自动生成会把工作树弄脏，而 `ci/land.sh` 曾经是 `git add -A`，报表会混进不相关的提交）。
+
+## 事件通知（2026-10-28）
+
+无人值守最容易出的事不是「跑错」，是**跑挂了没人知道**。所以三类事件会主动推出来：
+
+| 事件 | 什么时候 | 记录 |
+|---|---|---|
+| `failed` | 任务重试用完被标 `agent:failed` | issue 评论 + 日志 + 事件 |
+| `blocked-manual` | 重投次数用完，打了 `agent:blocked:manual`，真的需要人 | issue 评论 + 日志 + 事件 |
+| `daycap` | 当日估算花费到 `DSH_DAY_MAX_CNY`，今天不再领新任务 | 日志 + 事件（一天只弹一次） |
+
+- 落盘：`~/.dsh/coord/log/events.jsonl`，一行一条，字段 `at / kind / issue / why / cny`（`why` 截 300 字符）。digest 每天读它出摘要；`DSH_EVENTS_LOG` 可改路径。
+- 弹窗：Windows Toast，标题 `流水线 #N 任务失败` 之类；脚本 `.logs/notify-toast.ps1` 每次重写（UTF-8 带 BOM——PS 5.1 没 BOM 会把中文按 GBK 解，见 `PITFALLS.md` P1）。
+- 弹窗是 best-effort：`powershell` 起不来、超时 15 秒、没有通知通道，都只记一行 `[notify] 弹窗失败（不影响任务）：…`，任务照跑。
+- 关掉：`DSH_NOTIFY=0`（只落事件、不弹窗）；`--dry-run` 下完全不发。
+
