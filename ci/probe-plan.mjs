@@ -23,10 +23,12 @@ export function listModels(stats) {
 // 同状态按 id 排序，保证同一份快照每次挑出来的是同一批，便于对照。
 export const INCLUDE_PAID_ENV = 'DSH_PROBE_INCLUDE_PAID';
 
-// probe.py 里 `kind === "video"` 直接 return「跳过（视频生成耗时长，未纳入自动巡检）」，
-// 没有任何 flag 能让它被测 —— 挂在候选里只会把「选中 N 个」变成又一次空跑。
-// 所以挑之前也按 kind 过滤，并把跳过的数量单独报出来。
-export const UNPROBEABLE_KINDS = ['video'];
+// probe.py 里两种 kind 挑进来就是白占名额：
+// - `video`：直接 return「跳过（视频生成耗时长，未纳入自动巡检）」，任何 flag 都不测；
+// - `image`：只在带 `--image` 时才测，而本流程不带 → 「跳过（--image 才测）」。
+// 所以挑之前先按 kind 过滤，并把跳过的数量单独报出来；要单独探出图模型就手动
+// `probe.py --image --only <id>`。
+export const UNPROBEABLE_KINDS = ['video', 'image'];
 
 // 挑谁、跳过谁：登记表里 free === false 的模型（千帆按量、glm/kimi 付费档）probe.py
 // 不带 --include-paid 会整组 continue。而按 id 字典序排在最前的恰好全是这批，

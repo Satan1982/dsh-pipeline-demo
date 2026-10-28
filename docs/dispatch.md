@@ -501,11 +501,12 @@ DSH_PROBE_INCLUDE_PAID=1 node ci/dispatch.mjs --probe-stale   # 连付费模型�
 node ci/dispatch.mjs --probe-stale --dry-run  # 只打印会探哪几个
 ```
 
-- 挑谁：先按**免费面**过滤（`free-models.json` 里 `free === false` 的一律跳过），再在剩下的里 `stale` 优先、其次 `unknown`，同状态按 id 排序；`ok`/`degraded`/`down` 不浪费探活时间。
+- 挑谁：先按**免费面**过滤（`free-models.json` 里 `free === false` 的一律跳过），再滤掉**探不了的 kind**（`video` 在 `probe.py` 里直接记「跳过（视频生成耗时长，未纳入自动巡检）」，任何 flag 都不测；`image` 只在带 `--image` 时才测，本流程不带），剩下的里 `stale` 优先、其次 `unknown`，同状态按 id 排序；`ok`/`degraded`/`down` 不浪费探活时间。
   - 这一步不能省：`probe.py` 不带 `--include-paid` 会对付费模型整组 `continue`，而按 id 排最前的恰好全是它们 → 「每天选中同一批、每天被跳过」（2026-10-28 实测：选 8 个全是 qianfan/glm/kimi 付费档，实际探 1 个）。
-  - 想连付费一起探：`DSH_PROBE_INCLUDE_PAID=1`，会额外拼 `--include-paid`，日志也会标「已含付费」。
+  - 第二次同样的空转：修完付费面后剩下的唯一免费 stale 是 `cogvideox-flash`（kind=video），probe.py 仍不测 → 「选中 1 个、实际 0 个」。所以 kind 也要在挑的时候就滤掉（`ci/probe-plan.mjs` 的 `UNPROBEABLE_KINDS`）。
+  - 想连付费一起探：`DSH_PROBE_INCLUDE_PAID=1`，会额外拼 `--include-paid`，日志也会标「已含付费」（kind 过滤仍生效，因为 probe.py 对 video 是硬跳过）。
 - 怎么探：调 `probe.py --only <id,id,…> --quiet`（其余模型沿用上次结果），超时 `DSH_PROBE_TIMEOUT_MS`（默认 15 分钟）。
-- 日志：`[probe] 选中 N 个（stale X，免费候选 Y，付费跳过 Z）：…` → `[probe] 汇总：…` → `[probe] 探活后：95/158 个模型 ok`；一个免费 stale 都没有时明确写 `没有可探的免费 stale/unknown 模型…要探付费设 DSH_PROBE_INCLUDE_PAID=1`，不再谎报「探活 N 个」。
+- 日志：`[probe] 选中 N 个（stale X，免费候选 Y，付费跳过 Z，不可探 video/image W）：…` → `[probe] 汇总：…` → `[probe] 探活后：95/158 个模型 ok`；没有可探的免费 stale 时明确写 `没有可探的免费 stale/unknown 模型（共 158 个，stale 47，付费跳过 46，不可探 video 1）…要探付费设 DSH_PROBE_INCLUDE_PAID=1`，不再谎报「探活 N 个」。
 - **为什么不进轮询**：探活要连网、要几分钟，放在轮询里会让每轮变慢；池子掉了有挂起 + 自动重投兜着，探活是「人想让池子更好用」时才做的事。
 
 ## 同账号多库（`--repos repos.json`，2026-10-28）

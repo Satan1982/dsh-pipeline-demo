@@ -102,3 +102,11 @@ test('planProbe：付费优先于 kind（付费先跳，kind 只数免费的）'
   assert.equal(plan.skippedKind, 1);
   assert.deepEqual(plan.picked, []);
 });
+
+test('planProbe：image 也跳过（本流程不带 --image，挑进来只会「未测」）', () => {
+  const stats = { 'Z-Image-Turbo': { status: 'stale' }, 'chat/a': { status: 'stale' } };
+  const kinds = { 'Z-Image-Turbo': 'image', 'chat/a': 'chat' };
+  const plan = planProbe(stats, { kindOf: (id) => kinds[id] ?? null });
+  assert.deepEqual(plan.picked, ['chat/a']);
+  assert.deepEqual(plan.skippedKindIds, ['Z-Image-Turbo']);
+});

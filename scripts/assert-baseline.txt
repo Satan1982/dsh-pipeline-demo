@@ -206,6 +206,7 @@
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 692679e3f8c9affb assert.equal(finalText(''), '');
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
+1 6ac131abda23be3b assert.deepEqual(plan.skippedKindIds, ['Z-Image-Turbo']);
 1 6aea5f731fa528a6 assert.match(md, /共 1 个模型，ok 1 个/);
 1 6b563b2afb220424 assert.equal(d.entry.lastRequeueAt, '2026-10-28T00:05:00.000Z');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
@@ -429,6 +430,7 @@
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 1 d3996b5ca688d037 assert.deepEqual(tasks.map((t) => t.id), ['T1', 'T2', 'T3', 'T4']);
+1 d3e6eccab5c1f8cb assert.deepEqual(plan.picked, ['chat/a']);
 1 d4e0ef3b94cd0001 assert.equal(lines.length, 1);
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');

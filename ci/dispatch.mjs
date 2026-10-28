@@ -1897,7 +1897,7 @@ async function probeStale() {
   const ids = plan.picked;
   if (!ids.length) {
     log(
-      `[probe] 没有可探的免费 stale/unknown 模型（共 ${plan.total} 个，stale ${plan.stale}，付费跳过 ${plan.skippedPaid}，不可探 video ${plan.skippedKind}${
+      `[probe] 没有可探的免费 stale/unknown 模型（共 ${plan.total} 个，stale ${plan.stale}，付费跳过 ${plan.skippedPaid}，不可探 video/image ${plan.skippedKind}${
         includePaid ? '' : `；要探付费设 ${INCLUDE_PAID_ENV}=1`
       }）`,
     );
@@ -1908,7 +1908,7 @@ async function probeStale() {
     return 0;
   }
   log(
-    `[probe] 选中 ${ids.length} 个（stale ${plan.stale}，免费候选 ${plan.candidates}，付费跳过 ${plan.skippedPaid}，不可探 video ${plan.skippedKind}${
+    `[probe] 选中 ${ids.length} 个（stale ${plan.stale}，免费候选 ${plan.candidates}，付费跳过 ${plan.skippedPaid}，不可探 video/image ${plan.skippedKind}${
       includePaid ? '，已含付费' : ''
     }）：${ids.join(', ')}`,
   );
