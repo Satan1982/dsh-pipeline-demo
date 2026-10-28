@@ -234,8 +234,14 @@ const LOG_DIR = process.env.DSH_LOG_DIR || path.join(REPO_DIR, '.logs');
 // 换行常量：本文件里避免在模板字符串中写转义（历史上被脚本改坏过两次）。
 const NL = String.fromCharCode(10);
 const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
+// 本地时间带日期：旧格式是 UTC 的 [HH:MM:SS]、不带日期，跨天翻日志会把昨天的行当成「刚才」。
+const stamp = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 const log = (m) => {
-  const line = `[${new Date().toISOString().slice(11, 19)}] ${m}`;
+  const line = `[${stamp()}] ${m}`;
   console.log(line);
   try {
     if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
