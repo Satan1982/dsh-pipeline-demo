@@ -94,6 +94,8 @@ Stop-Process -Id <pid>
 | `bash ci/watch.sh 300 '关键词'` | 等 5 分钟再打日志尾部 | 比反复 tail 省钱；可丢后台 |
 | `node ci/plan.mjs <slug> --graph` | 看规格的依赖分层 | `--dry` 预览建单，`--create` 真建 |
 | `node ci/dispatch.mjs --dry-run` | 只列待办 | 一轮就退出 |
+| `node ci/dispatch.mjs --probe-stale` | 探活免费池里 stale/unknown 的模型 | 手动跑，不进轮询；`DSH_PROBE_LIMIT`（默认 8）控制个数 |
+| `node ci/dispatch.mjs --repos repos.json` | 同账号多库：每库起一个独立常驻 | 每库独立 `.logs` / `.worktrees` / 锁；清单写 `[{"repo":"owner/name","dir":"D:/code/x"}]` |
 | `node ci/distill-failures.mjs` | 失败库蒸馏进 Hindsight | 每天自动也会跑 |
 | `node ci/cost-report.mjs` | 生成 `.logs/cost-report.md` | 看钱花在哪；别再写进 `docs/`（会脏工作树） |
 | `python ~/.dsh/tools/free-models/fm.py stats --json` | 免费池健康快照 | 判断该不该重投 |

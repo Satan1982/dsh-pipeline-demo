@@ -55,6 +55,8 @@
 | `ci/lock-policy.mjs` | 单实例锁「算不算还活着」的判据：按模式分窗口，卡死的常驻 3 分钟可接管，跑长任务的 `--once` 不被误杀 | 纯函数、可单测：`lockHeld({alive, ageMs, mode, beatStaleMs, staleMs})`、`staleLimitMs()`、`lockPayload()`；`serve` 用 `DSH_LOCK_BEAT_STALE_MS`（默认 3 分钟），`once` 用 `DSH_TASK_TIMEOUT_MS + 10min`；老锁无 `mode` 按 `once` |
 | `ci/worktree-audit.mjs` | `.worktrees/issue-N` 残留巡检：对不上 open 工单的目录只报不删 | 纯函数、可单测：`parseWorktreeDirs()`、`auditWorktrees({dirs, openNumbers, dirty})`、`formatAudit()`；网络与 `git status` 留在 `dispatch.mjs` 的 `auditStaleWorktrees()`，只在启动时跑 |
 | `ci/notify.mjs` | 三种「必须让人知道」的事件（任务失败 / 重投用完要人工接手 / 今日花费到顶）落 `events.jsonl` 并弹 Windows 通知 | 纯函数、可单测：`eventRecord()`、`toastText()`、`psToastBody()`、`writeToastScript()`（写 UTF-8 BOM 的 `.ps1`，PS 5.1 没 BOM 会把中文按 GBK 解）、`appendEvent()`；日志截断 300 / 弹窗 60+200 字符；弹窗失败只记一行，不影响任务 |
+| `ci/probe-plan.mjs` | 免费池 stale 探活：挑哪几个模型、怎么调 `probe.py`、怎么读它的输出 | 纯函数、可单测：`listModels()`、`staleTargets()`（stale 优先、按 id 排、默认 8 个）、`probeArgv()`（空清单不拼 `--only ""`）、`summarizeProbe()`；真正跑 python 留在 `dispatch.mjs` 的 `probeStale()`，只由 `--probe-stale` 手动触发 |
+| `ci/repos.mjs` | 同账号多库：解析 `repos.json`、给每库的子进程造三件套环境变量 | 纯函数、可单测：`parseRepos()`（非法/重复/空清单进 `errors` 不抛）、`childEnv()`（只覆盖 `DSH_REPO`/`DSH_LOG_DIR`/`DSH_WORKTREES`，带 `DSH_REPOS_CHILD` 防套娃）、`formatPlan()`；隔离是进程级的，单库路径没改 |
 | `ci/headless-task.sh` | 无头执行入口：给 agent 准备 PATH / 模型路由 / 权限档 | 挂 `--patch headless-model.yml`，`DSH_PERMISSION_MODE=danger-full-access`（无人值守不能卡审批） |
 | `scripts/verify.sh` | 唯一门禁：lint → 测试 → 测试数基线 → 断言内容指纹 → build → pack | 数字降了就红，新增必须同 PR `--bless` |
 | `ci/review.mjs` | 机械评审：只看 diff 形状 | `debug-residue` / `test-removed` / `baseline-unsynced` / `no-file-change` / `gate-modified` 等 |

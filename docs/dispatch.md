@@ -491,3 +491,37 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 - 弹窗是 best-effort：`powershell` 起不来、超时 15 秒、没有通知通道，都只记一行 `[notify] 弹窗失败（不影响任务）：…`，任务照跑。
 - 关掉：`DSH_NOTIFY=0`（只落事件、不弹窗）；`--dry-run` 下完全不发。
 
+## 免费池探活（`--probe-stale`，2026-10-28）
+
+`fm.py stats` 里 `stale` 不是坏，是「上次失败过、还没再试」；而强档选型只看 `ok`。所以给一条手动命令：
+
+```bash
+node ci/dispatch.mjs --probe-stale            # 探最多 8 个（DSH_PROBE_LIMIT 可调）
+node ci/dispatch.mjs --probe-stale --dry-run  # 只打印会探哪几个
+```
+
+- 挑谁：`stale` 优先，其次 `unknown`（从没测过），同状态按 id 排序——同一份快照每次挑同一批，便于对照；`ok`/`degraded`/`down` 不浪费探活时间。
+- 怎么探：调 `probe.py --only <id,id,…> --quiet`（其余模型沿用上次结果），超时 `DSH_PROBE_TIMEOUT_MS`（默认 15 分钟）。
+- 日志：`[probe] 探活 N 个 stale/unknown 模型：…` → `[probe] 汇总：6 个模型，可用 3，失败 0…` → `[probe] 探活后：95/158 个模型 ok`。
+- **为什么不进轮询**：探活要连网、要几分钟，放在轮询里会让每轮变慢；池子掉了有挂起 + 自动重投兜着，探活是「人想让池子更好用」时才做的事。
+
+## 同账号多库（`--repos repos.json`，2026-10-28）
+
+一个账号下接管多个仓库时，**不要**在一个进程里轮询多个库：锁、日志、worktree 全是模块级状态，串起来会互相删标签。做成「每库一个自己的常驻」：
+
+```json
+[
+  { "repo": "Satan1982/dsh-pipeline-demo", "dir": "D:/code/dsh-pipeline-demo" },
+  { "repo": "Satan1982/other-repo",        "dir": "D:/code/other-repo" }
+]
+```
+
+```bash
+node ci/dispatch.mjs --repos repos.json     # 逐库跑一次 --ensure（已在跑的就报 pid，不重复拉）
+```
+
+- 子进程只多三个环境变量：`DSH_REPO` / `DSH_LOG_DIR=<dir>/.logs` / `DSH_WORKTREES=<dir>/.worktrees`，外加 `DSH_REPOS_CHILD=1` 防套娃；**单库路径一行没改**。
+- 隔离因此是真的：每库自己的 `dispatch.lock`、`dispatch.log`、`blocked-state.json`、工作树目录；两个库不可能互相接管锁。
+- 清单写错（`owner/name` 格式、重复、目录不存在）逐条报 `[repos] 跳过 …` / `[repos] … 的目录不存在`，有失败退出码 1；没写 `dir` 就用仓库名当目录（相对清单所在目录）。
+- 代价：N 个库 = N 个进程，各自每 60 秒轮询一次；按需加减，不要为「以后可能」常开。
+

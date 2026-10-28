@@ -10,6 +10,8 @@
  *   node ci/dispatch.mjs --serve    常驻轮询（--ensure 拉起时用它；不带参数默认也是它）
  *   node ci/dispatch.mjs --once     跑一轮就退出（适合本地验证与计划任务）
  *   node ci/dispatch.mjs --dry-run  只列出待办 issue，不执行
+ *   node ci/dispatch.mjs --probe-stale  只探活免费池里 stale/unknown 的模型，不领任务
+ *   node ci/dispatch.mjs --repos repos.json  按多库清单各起一个常驻（每库独立日志/锁/worktree）
  *
  * 环境变量:
  *   DSH_REPO               owner/repo，默认 Satan1982/dsh-pipeline-demo
@@ -35,6 +37,8 @@ import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript } from './notify.mjs';
+import { listModels, probeArgv, staleTargets, summarizeProbe } from './probe-plan.mjs';
+import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
@@ -185,6 +189,11 @@ const ONCE      = process.argv.includes('--once');
 const ENSURE    = process.argv.includes('--ensure');
 const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const DRY       = process.argv.includes('--dry-run');
+const PROBE_STALE = process.argv.includes('--probe-stale');
+const REPOS_FILE = (() => {
+  const i = process.argv.indexOf('--repos');
+  return i > 0 ? process.argv[i + 1] ?? null : null;
+})();
 const INTERVAL  = Number(process.env.DSH_POLL_INTERVAL ?? 60) * 1000;
 
 function gitEnv() {
@@ -1808,7 +1817,107 @@ async function auditStaleWorktrees() {
   for (const line of formatAudit(auditWorktrees({ dirs, openNumbers: open, dirty }))) log(line);
 }
 
+// ---------- 免费池探活（手动，不自动跑）----------
+// stale 不等于坏：它只是「上次失败过、还没再试」，而强档选型只看 ok。探一遍能把可用面拉回来，
+// 但它要连网、要花几分钟，所以做成手动命令，绝不进轮询路径。
+function freeModelsDir() {
+  return process.env.DSH_FREE_MODELS_DIR || path.join(homedir(), '.dsh', 'tools', 'free-models');
+}
+
+function runFm(script, args, timeout) {
+  return spawnSync('python', [path.join(freeModelsDir(), script), ...args], { encoding: 'utf8', timeout });
+}
+
+function readPoolStats() {
+  const r = runFm('fm.py', ['stats', '--json'], 60000);
+  if (r.status !== 0) {
+    log(`[probe] 读池子状态失败（exit=${r.status}）：${String(r.stderr || '').trim().slice(0, 200)}`);
+    return null;
+  }
+  try {
+    return JSON.parse(String(r.stdout || '{}'));
+  } catch (e) {
+    log(`[probe] 池子状态不是 JSON：${e.message}`);
+    return null;
+  }
+}
+
+async function probeStale() {
+  const stats = readPoolStats();
+  if (!stats) return 1;
+  const total = listModels(stats).length;
+  const ids = staleTargets(stats, { limit: Number(process.env.DSH_PROBE_LIMIT ?? 8) });
+  if (!ids.length) {
+    log(`[probe] 没有 stale/unknown 模型（共 ${total} 个），不用探活`);
+    return 0;
+  }
+  if (DRY) {
+    log(`[dry-run] [probe] 会探活 ${ids.length} 个：${ids.join(', ')}`);
+    return 0;
+  }
+  log(`[probe] 探活 ${ids.length} 个 stale/unknown 模型：${ids.join(', ')}`);
+  const r = runFm('probe.py', probeArgv(ids), Number(process.env.DSH_PROBE_TIMEOUT_MS ?? 15 * 60 * 1000));
+  for (const line of summarizeProbe(r.stdout)) log(`[probe] ${line}`);
+  if (r.status !== 0) {
+    log(`[probe] probe.py 退出码 ${r.status}：${String(r.stderr || '').trim().slice(0, 200)}`);
+    return r.status ?? 1;
+  }
+  const after = readPoolStats();
+  if (after) {
+    const models = listModels(after);
+    log(`[probe] 探活后：${models.filter((m) => m.status === 'ok').length}/${models.length} 个模型 ok`);
+  }
+  return 0;
+}
+
+// ---------- 多库：每库一个独立常驻 ----------
+// 只做一层「挨个 --ensure」：子进程靠 DSH_REPO / DSH_LOG_DIR / DSH_WORKTREES 变成另一个库的常驻。
+// 这样单库路径一行没改，隔离却是真的（各自的锁文件、日志、工作树目录）。
+function ensureRepos() {
+  const file = path.resolve(REPOS_FILE);
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    log(`[repos] 读不出清单 ${file}：${e.message}`);
+    return 1;
+  }
+  const { entries, errors } = parseRepos(raw, { baseDir: path.dirname(file) });
+  for (const err of errors) log(`[repos] 跳过 ${err}`);
+  if (!entries.length) {
+    log('[repos] 清单里没有可用的库');
+    return 1;
+  }
+  for (const line of formatPlan(entries)) log(`[repos] ${line}`);
+  let failed = 0;
+  for (const entry of entries) {
+    if (!existsSync(entry.dir)) {
+      log(`[repos] ${entry.repo} 的目录不存在：${entry.dir}`);
+      failed += 1;
+      continue;
+    }
+    const r = spawnSync(process.execPath, [SELF, '--ensure'], {
+      cwd: entry.dir,
+      env: childEnv(entry),
+      encoding: 'utf8',
+      timeout: 120000,
+    });
+    const out = `${r.stdout || ''}${r.stderr || ''}`.trim().split('\n').filter(Boolean).slice(-1)[0] || '(无输出)';
+    log(`[repos] ${entry.repo}：${out}`);
+    if (r.status !== 0) failed += 1;
+  }
+  return failed ? 1 : 0;
+}
+
 async function main() {
+  if (REPOS_FILE) {
+    process.exitCode = ensureRepos();
+    return;
+  }
+  if (PROBE_STALE) {
+    process.exitCode = await probeStale();
+    return;
+  }
   // --ensure：只负责「保证有一个人在跑」。要么报出已经有的那个，要么脱离父进程拉起一个
   // 常驻的 --serve。它自己不等任务、不持锁，所以登录自启/计划任务反复调用都安全。
   if (ENSURE) {
