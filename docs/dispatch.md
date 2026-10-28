@@ -506,7 +506,9 @@ node ci/dispatch.mjs --probe-stale --dry-run  # 只打印会探哪几个
   - 第二次同样的空转：修完付费面后剩下的唯一免费 stale 是 `cogvideox-flash`（kind=video），probe.py 仍不测 → 「选中 1 个、实际 0 个」。所以 kind 也要在挑的时候就滤掉（`ci/probe-plan.mjs` 的 `UNPROBEABLE_KINDS`）。
   - 想连付费一起探：`DSH_PROBE_INCLUDE_PAID=1`，会额外拼 `--include-paid`，日志也会标「已含付费」（kind 过滤仍生效，因为 probe.py 对 video 是硬跳过）。
 - 怎么探：调 `probe.py --only <id,id,…> --quiet`（其余模型沿用上次结果），超时 `DSH_PROBE_TIMEOUT_MS`（默认 15 分钟）。
-- 日志：`[probe] 选中 N 个（stale X，免费候选 Y，付费跳过 Z，不可探 video/image W）：…` → `[probe] 汇总：…` → `[probe] 探活后：95/158 个模型 ok`；没有可探的免费 stale 时明确写 `没有可探的免费 stale/unknown 模型（共 158 个，stale 47，付费跳过 46，不可探 video 1）…要探付费设 DSH_PROBE_INCLUDE_PAID=1`，不再谎报「探活 N 个」。
+  - `--only` 是**子串**匹配（`probeArgv` 就这么拼），同族 id 会一起命中（`deepseek-v4-pro` 会带出 `-0813`）。
+  - `--dry-run` 现在也认 `--only`（2026-10-28 修；此前它忽略 `--only`、把整表都打成 `would test`，别拿它判断 `--only` 是否生效）。
+- 日志：`[probe] 选中 N 个（stale X，免费候选 Y，付费跳过 Z，不可探 video/image W）：…` → `[probe] 汇总：…` → `[probe] 探活后：95/158 个模型 ok`；没有可探的免费 stale 时明确写 `没有可探的免费 stale/unknown 模型（共 158 个，stale 47，付费跳过 46，不可探 video/image 1）…要探付费设 DSH_PROBE_INCLUDE_PAID=1`，不再谎报「探活 N 个」。
 - **为什么不进轮询**：探活要连网、要几分钟，放在轮询里会让每轮变慢；池子掉了有挂起 + 自动重投兜着，探活是「人想让池子更好用」时才做的事。
 
 ## 同账号多库（`--repos repos.json`，2026-10-28）
