@@ -36,8 +36,8 @@ import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AU
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
-import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript } from './notify.mjs';
-import { listModels, probeArgv, staleTargets, summarizeProbe } from './probe-plan.mjs';
+import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey } from './notify.mjs';
+import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
 
@@ -253,6 +253,12 @@ const log = (m) => {
 const EVENTS_FILE = process.env.DSH_EVENTS_LOG || path.join(homedir(), '.dsh', 'coord', 'log', 'events.jsonl');
 const NOTIFY_OFF = (process.env.DSH_NOTIFY ?? '1') === '0';
 
+// toast 要一个已注册的 AppUserModelId 才会真的弹；注册只是写 HKCU，幂等且无副作用。
+function ensureAumid() {
+  if (spawnSync('reg', regQueryArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0) return true;
+  return spawnSync('reg', regAddArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0;
+}
+
 function notifyEvent({ kind, issue, why, cny }) {
   if (DRY) return;
   const rec = eventRecord({ kind, issue, why, cny });
@@ -265,11 +271,13 @@ function notifyEvent({ kind, issue, why, cny }) {
   try {
     const { title, message } = toastText({ kind, issue, why });
     const script = writeToastScript(path.join(LOG_DIR, 'notify-toast.ps1'), { title, message });
+    const aumid = ensureAumid();
     spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
       timeout: 15000,
       stdio: 'ignore',
     });
-    log(`[notify] 已发系统通知：${title}`);
+    const seen = spawnSync('reg', ['query', settingsKey()], { timeout: 5000, stdio: 'ignore' });
+    log(`[notify] 已发系统通知：${title}（AUMID ${aumid ? '已注册' : '注册失败'}，送达 ${seen.status === 0 ? '确认' : '未确认'}）`);
   } catch (e) {
     log(`[notify] 弹窗失败（不影响任务）：${e.message}`);
   }
@@ -1842,21 +1850,57 @@ function readPoolStats() {
   }
 }
 
+
+// 登记表里的付费面：probe.py 不带 --include-paid 会整组跳过 free === false 的模型，
+// 而按 id 排最前的恰好全是它们 → 「每天选中同一批、每天被跳过」的空转。
+function paidModelIds() {
+  const file = path.join(freeModelsDir(), 'free-models.json');
+  try {
+    const reg = JSON.parse(readFileSync(file, 'utf8'));
+    const list = Array.isArray(reg) ? reg : Array.isArray(reg.models) ? reg.models : [];
+    const ids = new Set();
+    for (const m of list) {
+      if (m && m.free === false && m.id) ids.add(String(m.id));
+    }
+    if (!ids.size) {
+      log(`[probe] 登记表 ${list.length} 条里没读到 free === false，本轮不筛付费`);
+      return null;
+    }
+    return ids;
+  } catch (e) {
+    log(`[probe] 读登记表失败（${file}）：${e.message}，本轮不筛付费`);
+    return null;
+  }
+}
+
 async function probeStale() {
   const stats = readPoolStats();
   if (!stats) return 1;
-  const total = listModels(stats).length;
-  const ids = staleTargets(stats, { limit: Number(process.env.DSH_PROBE_LIMIT ?? 8) });
+  const includePaid = (process.env[INCLUDE_PAID_ENV] ?? '0') === '1';
+  const paidIds = includePaid ? null : paidModelIds();
+  const plan = planProbe(stats, {
+    limit: Number(process.env.DSH_PROBE_LIMIT ?? 8),
+    paid: paidIds ? (id) => paidIds.has(id) : null,
+  });
+  const ids = plan.picked;
   if (!ids.length) {
-    log(`[probe] 没有 stale/unknown 模型（共 ${total} 个），不用探活`);
+    log(
+      `[probe] 没有可探的免费 stale/unknown 模型（共 ${plan.total} 个，stale ${plan.stale}，付费跳过 ${plan.skippedPaid}${
+        includePaid ? '' : `；要探付费设 ${INCLUDE_PAID_ENV}=1`
+      }）`,
+    );
     return 0;
   }
   if (DRY) {
     log(`[dry-run] [probe] 会探活 ${ids.length} 个：${ids.join(', ')}`);
     return 0;
   }
-  log(`[probe] 探活 ${ids.length} 个 stale/unknown 模型：${ids.join(', ')}`);
-  const r = runFm('probe.py', probeArgv(ids), Number(process.env.DSH_PROBE_TIMEOUT_MS ?? 15 * 60 * 1000));
+  log(
+    `[probe] 选中 ${ids.length} 个（stale ${plan.stale}，免费候选 ${plan.candidates}，付费跳过 ${plan.skippedPaid}${
+      includePaid ? '，已含付费' : ''
+    }）：${ids.join(', ')}`,
+  );
+  const r = runFm('probe.py', probeArgv(ids, { includePaid }), Number(process.env.DSH_PROBE_TIMEOUT_MS ?? 15 * 60 * 1000));
   for (const line of summarizeProbe(r.stdout)) log(`[probe] ${line}`);
   if (r.status !== 0) {
     log(`[probe] probe.py 退出码 ${r.status}：${String(r.stderr || '').trim().slice(0, 200)}`);

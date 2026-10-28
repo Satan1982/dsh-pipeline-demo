@@ -21,23 +21,44 @@ export function listModels(stats) {
 
 // 优先级：stale 先（失败过但可能已恢复），unknown 后（从没测过，更不确定）。
 // 同状态按 id 排序，保证同一份快照每次挑出来的是同一批，便于对照。
-export function staleTargets(stats, { limit = DEFAULT_LIMIT } = {}) {
+export const INCLUDE_PAID_ENV = 'DSH_PROBE_INCLUDE_PAID';
+
+// 挑谁、跳过谁：登记表里 free === false 的模型（千帆按量、glm/kimi 付费档）probe.py
+// 不带 --include-paid 会整组 continue。而按 id 字典序排在最前的恰好全是这批，
+// 于是「每天选中同一批、每天被试跑跳过」= 空转，日志却写「探活 N 个」。
+// 所以挑之前先按免费面过滤，并把跳过的数量单独报出来给人看。
+export function planProbe(stats, { limit = DEFAULT_LIMIT, paid = null } = {}) {
   const all = listModels(stats);
   const rank = (s) => (s === 'stale' ? 0 : 1);
-  const picked = all
-    .filter((m) => PROBE_STATUSES.includes(m.status))
+  const isPaid = typeof paid === 'function' ? paid : () => false;
+  const stale = all.filter((m) => PROBE_STATUSES.includes(m.status));
+  const skipped = stale.filter((m) => isPaid(m.id)).map((m) => m.id).sort();
+  const candidates = stale.filter((m) => !isPaid(m.id));
+  const picked = candidates
     .sort((a, b) => (rank(a.status) - rank(b.status)) || a.id.localeCompare(b.id))
     .slice(0, Math.max(0, Number(limit) || 0))
     .map((m) => m.id);
-  return [...new Set(picked)];
+  return {
+    total: all.length,
+    stale: stale.length,
+    candidates: candidates.length,
+    skippedPaid: skipped.length,
+    skippedPaidIds: skipped,
+    picked: [...new Set(picked)],
+  };
+}
+
+export function staleTargets(stats, { limit = DEFAULT_LIMIT, paid = null } = {}) {
+  return planProbe(stats, { limit, paid }).picked;
 }
 
 // probe.py 的 --only 是「id 含这些子串」的过滤，逗号分隔。
 // 「没挑中任何模型」时返回空数组——别拼出 `--only ""`，那等于让 probe 测全部。
-export function probeArgv(ids, { quiet = true } = {}) {
+export function probeArgv(ids, { quiet = true, includePaid = false } = {}) {
   const list = (ids || []).filter(Boolean);
   if (!list.length) return [];
   const argv = ['--only', list.join(',')];
+  if (includePaid) argv.push('--include-paid');
   if (quiet) argv.push('--quiet');
   return argv;
 }

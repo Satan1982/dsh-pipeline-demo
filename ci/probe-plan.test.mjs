@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, staleTargets, probeArgv, summarizeProbe, DEFAULT_LIMIT } from '../ci/probe-plan.mjs';
+import { listModels, staleTargets, planProbe, probeArgv, summarizeProbe, DEFAULT_LIMIT } from '../ci/probe-plan.mjs';
 
 test('listModels：接受 models 包一层、纯对象、数组三种形状', () => {
   assert.deepEqual(listModels({ models: { a: { status: 'ok' } } }), [{ id: 'a', status: 'ok' }]);
@@ -44,4 +44,29 @@ test('summarizeProbe：只留含结论的行，取最后几行', () => {
   assert.deepEqual(summarizeProbe(out), ['模型 B fail 429', '模型 C ok', '总计 3 个模型：2 ok / 1 fail']);
   assert.equal(summarizeProbe(out, { maxLines: 1 }).length, 1);
   assert.deepEqual(summarizeProbe('没有有用信息'), []);
+});
+
+test('planProbe：付费模型默认跳过，跳过数单独报出来', () => {
+  const stats = { 'glm-5.2': { status: 'stale' }, 'free/a': { status: 'stale' }, 'free/b': { status: 'unknown' } };
+  const paid = (id) => id.startsWith('glm');
+  const plan = planProbe(stats, { limit: 8, paid });
+  assert.deepEqual(plan.picked, ['free/a', 'free/b']);
+  assert.equal(plan.stale, 3);
+  assert.equal(plan.candidates, 2);
+  assert.equal(plan.skippedPaid, 1);
+  assert.deepEqual(plan.skippedPaidIds, ['glm-5.2']);
+});
+
+test('planProbe：全是付费时 picked 为空（别拼 --only 空串）', () => {
+  const stats = { a: { status: 'stale' }, b: { status: 'unknown' } };
+  const plan = planProbe(stats, { paid: () => true });
+  assert.deepEqual(plan.picked, []);
+  assert.equal(plan.skippedPaid, 2);
+  assert.equal(plan.candidates, 0);
+  assert.deepEqual(probeArgv(plan.picked), []);
+});
+
+test('probeArgv：--include-paid 只在显式打开时拼', () => {
+  assert.deepEqual(probeArgv(['a'], { includePaid: true }), ['--only', 'a', '--include-paid', '--quiet']);
+  assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
 });

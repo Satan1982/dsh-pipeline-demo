@@ -2,11 +2,13 @@
 1 0165d91ddac72fea assert.deepEqual(probeArgv([]), []);
 1 01925de1b49a6453 assert.deepEqual(p, { pid: 123, at: '2026-10-28T00:00:00.000Z', mode: 'serve' });
 1 02a41e27ae823617 assert.match(skipped.skipped, /超时/);
+1 02fef7c69671c475 assert.equal(plan.stale, 3);
 1 034a857be64208b3 assert.equal(powOf(-2, 3), -8);
 1 03bf59f8666e6c9f assert.equal(res.after, 2);
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 044971a6cb999b93 assert.deepEqual(parseBackoff(''), REQUEUE_BACKOFF_MS);
 1 07068f04c0de0bb5 assert.match(d.reason, /仍不可用/);
+1 0719893b41e77460 assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
 1 0a3be9a49d23d49e assert.equal(initialEntry({ now: T0, requeues: 2 }).requeues, 2);
 1 0aaaee4be0d3af09 assert.deepEqual(listModels({ models: { a: { status: 'ok' } } }), [{ id: 'a', status: 'ok' }]);
 1 0b0711f6fe5254fb assert.equal(u.steps, 2);
@@ -15,6 +17,7 @@
 1 0c28f1580a654343 assert.equal(statsExpired(now - 10 * 60 * 1000, now), true, '正好 10 分钟算过期');
 1 0c644da45a1998cc assert.throws(() => parseAddArgs(['--date', '2026-02-30', '--amount', '100']), TypeError);
 1 0cf650fea6451fc8 assert.ok(raw.includes('流水线 #1 任务失败'));
+1 0db41d7cec133d16 assert.deepEqual(probeArgv(plan.picked), []);
 1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f0f914bb5c7f41d assert.equal(eventRecord({ kind: 'x' }).issue, undefined);
@@ -72,6 +75,7 @@
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
 1 2a5a4fb935f6b515 assert.ok(env.DSH_WORKTREES.includes('.worktrees'));
 1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
+1 2aaf6d38990e34d1 assert.equal(plan.skippedPaid, 2);
 2 2bae680979f5f4ad assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt']);
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
 1 2c1007c2f797ae76 assert.equal(res.after, 3);
@@ -308,6 +312,7 @@
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
 1 a40f672578d410b4 assert.deepEqual(map, { T1: 0, T2: 1, T3: 2, T4: 2 });
+1 a581740d685654a1 assert.equal(plan.candidates, 2);
 1 a596f1d7945025cf assert.equal(classifyConflicts(['', ' ']).kind, 'none');
 1 a5a768c434d2455c assert.equal(cube(-2), -8);
 1 a5f86a958cc577f5 assert.equal(finalText([ev({ type: 'final', text: '答案是 42' })].join('\n')), '答案是 42');
@@ -355,6 +360,7 @@
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
 1 ba0091d5449410b6 assert.deepEqual(toastText({ kind: 'failed', issue: 88, why: 'boom' }), { title: '流水线 #88 任务失败', message: 'boom' });
+1 ba342f3fe10539a8 assert.equal(plan.candidates, 0);
 1 ba7e8e2604057020 assert.equal(a, b);
 1 bb15690086877b7a assert.throws(() => parseSumArgs([]), TypeError);
 1 bb71957e7af94fb5 assert.ok(text.toLowerCase().includes('docs/failures.jsonl') || text.includes('failures.jsonl'));
@@ -377,6 +383,7 @@
 1 c472b006b5fcbe49 assert.equal(headlessKind('Now I will add the function', '', 0), 'agent-no-change');
 1 c47ccc56232070f2 assert.equal(u.inputTokens, 150);
 1 c47f2e6597dcd890 assert.match(p, /"verdict":"pass"\|"block"/);
+1 c4ea18689d079119 assert.deepEqual(plan.skippedPaidIds, ['glm-5.2']);
 1 c4ea3c534f4caf59 assert.equal(capitalize(''), '');
 1 c50c80b938e16b37 assert.match(md, /## 免费池健康/);
 1 c5672a99d6c8291f assert.equal(minOf(-2, -5), -5);
@@ -387,6 +394,7 @@
 1 c64ff5763723aa3a assert.deepEqual(summarizeProbe('没有有用信息'), []);
 1 c66e3a30f721ceb7 assert.match(d.reason, /免费池恢复/);
 1 c72bab1588f71090 assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
+1 c76b2cdcf8dd90d3 assert.equal(plan.skippedPaid, 1);
 1 c7714e1a5392182c assert.throws(() => truncateWords('a b', -1), RangeError);
 1 c7e46a750c7c2f8f assert.deepEqual(parseSumArgs(['--month', '2026-10', '--file', 'ledger.json']), { month: '2026-10', file: 'ledger.json' });
 1 c8453243d9ee00ed assert.deepEqual(Object.keys(EVENT_KINDS).sort(), ['blocked-manual', 'daycap', 'failed']);
@@ -456,6 +464,7 @@
 1 eb385586462ab0fd assert.equal(headlessKind('boom', '', 137), 'agent-exit-137');
 1 eb80d76d1aae398d assert.equal(divide(10, 2), 5);
 1 ebc909946ec9d173 assert.ok(sig.length <= 600);
+1 ec025fed4d485969 assert.deepEqual(probeArgv(['a'], { includePaid: true }), ['--only', 'a', '--include-paid', '--quiet']);
 1 ec109741ecffdee7 assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', ' ']), TypeError);
 1 ec51b4aebfd727fd assert.equal(left.length, 2);
 1 ed284af615983216 assert.deepEqual(tasks[2].deps, ['T1', 'T2']);
@@ -479,12 +488,14 @@
 1 f660231c56fbc116 assert.deepEqual(Object.keys(kept), ['1']);
 1 f69421b44b65d40c assert.equal(freePoolDecision({ text: 'insufficient balance', usePaid: false, enabled: false }), 'paid');
 1 f6a69174d4915857 assert.equal(headlessKind(out, '', 0), 'llm-rate-limit');
+1 f6c19a480e67a77f assert.deepEqual(plan.picked, ['free/a', 'free/b']);
 1 f6f7efafadedcbed assert.match(formatSemantic(r), /跳过/);
 1 f79333dd3788daf7 assert.deepEqual(words(''), []);
 1 f84004ba8d945187 assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'src/strings.js']);
 1 f843a67ea1e7bc19 assert.equal(fingerprint('agent 未产生任何改动（exit=0）'), fingerprint('agent 未产生任何改动（exit=1）'));
 1 f91b94d9432c0945 assert.throws(() => addEntry([], { date: '2026-10-01', amount: '100', note: '工资' }), TypeError);
 1 f9ca563d01133b30 assert.match(p, /#42/);
+1 f9cd5545a40a237d assert.deepEqual(plan.picked, []);
 1 fa424e742fb44593 assert.equal(median([1, 3, 2]), 2);
 1 fa5a58382b44e9c9 assert.equal(r.findings[0].rule, 'semantic-unparseable');
 1 fa9cd155eb0e3eb9 assert.equal(a.count, 2);

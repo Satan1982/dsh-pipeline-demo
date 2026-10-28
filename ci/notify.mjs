@@ -38,6 +38,24 @@ export function formatEventLine(rec) {
 }
 
 // 弹窗文案：标题说清「哪张单、什么事」，正文说原因。太长就截断——Toast 显示不下也没用。
+export const AUMID = 'DSH Pipeline';
+
+// Windows 只在 AppUserModelId 已注册时才真的弹 toast；没注册时 CreateToastNotifier
+// 不报错、脚本 exit 0，通知被静默丢弃（08:05 实测：HKCU 下两个键都不存在）。
+// 送达证据 = Notifications\Settings\<AUMID>：系统真弹过一次才会建它。
+export function aumidKey(aumid = AUMID) {
+  return `HKCU\\Software\\Classes\\AppUserModelId\\${aumid}`;
+}
+export function settingsKey(aumid = AUMID) {
+  return `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\${aumid}`;
+}
+export function regQueryArgs(aumid = AUMID) {
+  return ['query', aumidKey(aumid)];
+}
+export function regAddArgs(aumid = AUMID) {
+  return ['add', aumidKey(aumid), '/v', 'DisplayName', '/t', 'REG_SZ', '/d', aumid, '/f'];
+}
+
 export function toastText({ kind, issue, why } = {}) {
   const name = EVENT_KINDS[kind] ?? String(kind ?? '事件');
   const head = issue !== undefined && issue !== null ? `流水线 #${issue} ${name}` : `流水线 ${name}`;
