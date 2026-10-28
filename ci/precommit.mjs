@@ -9,12 +9,14 @@
  * 这里复用评审层的规则（不另写一套，否则两边迟早不一致）：机械评审在 push 前看
  * `origin/main...HEAD`，钩子在做时看**暂存区**，两处判定口径相同。
  *
- * 保留的手工出口：`git commit --no-verify`（标准做法），以及 `DSH_ALLOW_GATE=1`
- * 放行「改门禁脚本」这一类（对应 issue 上的 allow:gate 标签）。
+ * 保留的手工出口：`git commit --no-verify`（标准做法），以及
+ * `DSH_ALLOW_GATE=1 DSH_ALLOW_GATE_REASON="<为什么>"` 放行「改门禁脚本」这一类
+ * （对应 issue 上的 allow:gate 标签；放行会记进 gate-override.jsonl，见 gate-override.mjs）。
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { reviewDiff, formatFindings } from './review.mjs';
+import { appendOverride, gateFilesFromFindings, overrideDecision, overrideRecord } from './gate-override.mjs';
 
 const GIT = 'C:/Program Files/Git/cmd/git.exe';
 const git = (args) => spawnSync(GIT, ['-c', 'credential.helper=', ...args], {
@@ -38,7 +40,15 @@ const files = names.map((filename) => ({
   patch: git(['diff', '--cached', '--unified=3', '--', filename]).stdout,
 }));
 
-const result = reviewDiff({ files, allowGate: process.env.DSH_ALLOW_GATE === '1' });
+// 放行门禁修改：必须带理由（DSH_ALLOW_GATE_REASON），且每次都要在 gate-override.jsonl 留痕。
+// 拦不住「有权限的人」，但事后能查出「什么时候、谁、为什么」放行了门禁改动。
+const override = overrideDecision(process.env);
+if (override.on && !override.ok) {
+  console.error(`✗ ${override.error}`);
+  process.exit(1);
+}
+
+const result = reviewDiff({ files, allowGate: override.ok });
 
 // baseline-unsynced 只是「改了测试文件却没动基线」的形迹判据：改了测试文件的**断言内容**
 // 但计数与指纹都没变时（比如只动 fixture 字符串），它其实不该挡提交。所以真拿门禁说一次话：
@@ -64,6 +74,18 @@ if (unsynced) {
 }
 
 if (result.ok) {
+  // 真的放行了门禁改动才留痕（普通提交不写，免得账本里全是噪声）。
+  const gateFiles = gateFilesFromFindings(result.findings);
+  if (override.ok && gateFiles.length) {
+    try {
+      const top = git(['rev-parse', '--show-toplevel']).stdout.trim();
+      const head = git(['rev-parse', '--short', 'HEAD']).stdout.trim();
+      const file = appendOverride(overrideRecord({ reason: override.reason, files: gateFiles, repo: top, head }));
+      console.error(`⚠ 已放行门禁改动（理由：${override.reason}），留痕：${file}`);
+    } catch (e) {
+      console.error(`⚠ 放行留痕写入失败（不影响提交）：${e.message}`);
+    }
+  }
   for (const f of result.findings) {
     console.error(`⚠ 提示 [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
   }
@@ -73,5 +95,5 @@ if (result.ok) {
 console.error('✗ 提交被红线规则挡下（机械评审，与 push 前评审同一套规则）：');
 console.error(formatFindings(result));
 console.error('');
-console.error('确需提交：用 git commit --no-verify（并在 PR 里说明原因）；改门禁脚本另加 DSH_ALLOW_GATE=1。');
+console.error('确需提交：用 git commit --no-verify（并在 PR 里说明原因）；改门禁脚本另加 DSH_ALLOW_GATE=1 DSH_ALLOW_GATE_REASON="<为什么>"。');
 process.exit(1);

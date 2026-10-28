@@ -131,7 +131,7 @@ test('评审团聚合：任一模型 block 就是 block（保守）', () => {
   assert.equal(merged.findings.length, 2);
 });
 
-test('评审团聚合：两个都 pass 才算 pass，全跳过才是跳过', () => {
+test('评审团聚合：两个都 pass 才算 pass，全跳过是「缺失」不是 pass', () => {
   const pass = aggregateReviewers([
     { model: 'a', verdict: 'pass', findings: [] },
     { model: 'b', verdict: 'pass', findings: [] },
@@ -139,12 +139,36 @@ test('评审团聚合：两个都 pass 才算 pass，全跳过才是跳过', () 
   assert.equal(pass.verdict, 'pass');
   assert.equal(pass.ok, true);
 
-  const skipped = aggregateReviewers([
+  // 2026-10-28 架构评审 P0-1：全跳过 = 这一层不存在，不能当 pass 放行。
+  const missing = aggregateReviewers([
     { model: 'a', verdict: 'skipped', skipped: '超时' },
     { model: 'b', verdict: 'skipped', skipped: '没有凭证' },
   ]);
-  assert.equal(skipped.verdict, 'skipped');
-  assert.match(skipped.skipped, /超时/);
+  assert.equal(missing.verdict, 'missing');
+  assert.equal(missing.ok, false);
+  assert.match(missing.skipped, /超时/);
+  assert.match(formatSemantic(missing), /评审缺失/);
+});
+
+test('评审团聚合：面板凑不够 minValid 家时 pass 但要人工复核', () => {
+  const partial = aggregateReviewers([
+    { model: 'a', verdict: 'pass', findings: [] },
+    { model: 'b', verdict: 'skipped', skipped: '限流' },
+  ], { minValid: 2 });
+  assert.equal(partial.verdict, 'pass');
+  assert.equal(partial.ok, true);
+  assert.equal(partial.valid, 1);
+  assert.equal(partial.degraded, 'panel-partial');
+  assert.equal(partial.needsHuman, true);
+  assert.match(formatSemantic(partial), /需人工复核/);
+});
+
+test('评审团聚合：免费档单模型标 free-single，但不升级为需人工', () => {
+  const single = aggregateReviewers([{ model: 'x', verdict: 'pass', findings: [] }], { minValid: 1, single: true });
+  assert.equal(single.ok, true);
+  assert.equal(single.degraded, 'free-single');
+  assert.equal(single.needsHuman, undefined);
+  assert.match(formatSemantic(single), /单模型免费档/);
 });
 
 test('评审团聚合：一个跳过、一个 pass 仍算 pass（不当成没评审）', () => {

@@ -25,9 +25,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, sta
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
-import { sumUsage, formatUsage, finalText, sessionIdOf } from './usage.mjs';
+import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_UNIT_CNY } from './usage.mjs';
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
+import { gateFilesFromFindings } from './gate-override.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
@@ -36,8 +37,9 @@ import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AU
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
-import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey } from './notify.mjs';
-import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, INCLUDE_PAID_ENV } from './probe-plan.mjs';
+import { formatDrift, localDrift } from './drift.mjs';
+import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
+import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
 
@@ -190,6 +192,7 @@ const ENSURE    = process.argv.includes('--ensure');
 const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const DRY       = process.argv.includes('--dry-run');
 const PROBE_STALE = process.argv.includes('--probe-stale');
+const POOL_SNAPSHOT = process.argv.includes('--pool-snapshot');
 const REPOS_FILE = (() => {
   const i = process.argv.indexOf('--repos');
   return i > 0 ? process.argv[i + 1] ?? null : null;
@@ -257,7 +260,13 @@ const log = (m) => {
 // 落两处：events.jsonl（digest 次日读）+ Windows 通知（当场弹）。
 // 弹窗失败只记一行：通知挂掉不该让调度器停摆（和日志同一个口径）。
 const EVENTS_FILE = process.env.DSH_EVENTS_LOG || path.join(homedir(), '.dsh', 'coord', 'log', 'events.jsonl');
+// 池子快照落这里（digest 读趋势用）：默认与 events.jsonl 同目录。
+const POOL_SNAPSHOT_FILE = process.env.DSH_POOL_SNAPSHOT_LOG || path.join(homedir(), '.dsh', 'coord', 'log', 'pool-snapshot.jsonl');
 const NOTIFY_OFF = (process.env.DSH_NOTIFY ?? '1') === '0';
+// 远端出口：人不在机器前时 Toast 等于没发（2026-10-28 架构评审 P0-3）。
+// 没配就是空串，postWebhook 直接返回 skipped，行为与以前一致。
+const NOTIFY_WEBHOOK = process.env.DSH_NOTIFY_WEBHOOK || '';
+let WEBHOOK_WARNED = false;
 
 // toast 要一个已注册的 AppUserModelId 才会真的弹；注册只是写 HKCU，幂等且无副作用。
 function ensureAumid() {
@@ -272,6 +281,18 @@ function notifyEvent({ kind, issue, why, cny }) {
     appendEvent(EVENTS_FILE, rec);
   } catch (e) {
     log(`[notify] 事件落盘失败：${e.message}`);
+  }
+  if (NOTIFY_WEBHOOK) {
+    // 不 await：通知是旁路，慢端点不能拖住调度循环。失败只记一行。
+    void postWebhook(NOTIFY_WEBHOOK, rec)
+      .then((r) => {
+        if (r.ok) log(`[notify] webhook 已投递（${r.status ?? 'ok'}）`);
+        else if (!WEBHOOK_WARNED) {
+          WEBHOOK_WARNED = true;
+          log(`[notify] ⚠ webhook 投递失败（后续同类失败不再重复记）：${r.error ?? r.skipped ?? r.status}`);
+        }
+      })
+      .catch(() => {});
   }
   if (NOTIFY_OFF) return;
   try {
@@ -934,23 +955,29 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // token 用量：headless profile 不装 cost-meter，账本里没有这些 run，只能靠 --json 事件流自己记。
     let taskCny = null;
     const billedModel = usePaid ? 'deepseek-flash' : (STRONG_MODEL_NAME || 'free-pool');
-    if (r.usage && r.usage.steps) {
-      log(`${tag} 消耗 ${formatUsage(r.usage)}`);
-      try {
-        if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
-        const cny = costCny(r.usage, billedModel);
-        taskCny = cny;
-        if (cny !== null && cny > 0) log(`${tag} 估算成本 ${formatCny(cny)}（${billedModel}，按官方价目表；缓存命中量未透出，按未命中计）`);
-        if (cny !== null && cny > TASK_MAX_CNY) {
-          log(`${tag} ⚠ 单任务估算 ${formatCny(cny)} 超过上限 ${formatCny(TASK_MAX_CNY)}：本批次暂停领取新任务（DSH_TASK_MAX_CNY 可调）`);
-          PAUSE_CLAIM = true;
-        }
-        appendFileSync(
-          path.join(LOG_DIR, 'usage.jsonl'),
-          JSON.stringify({ at: new Date().toISOString(), issue: n, attempt, model: billedModel, paid: usePaid, cny, ...r.usage }) + NL,
-        );
-      } catch { /* 记账失败不影响任务本身 */ }
-    }
+    // 计量要么准、要么明确记为「未计量」。以前 usage 缺失就一行都不写（跑过但账本上不存在），
+    // 日闸因此系统性低估（2026-10-28 实测：39 行里 9 行 0 token，另有一批压根没行）。
+    const unmetered = !(r.usage && r.usage.totalTokens > 0);
+    if (r.usage && r.usage.steps) log(`${tag} 消耗 ${formatUsage(r.usage)}`);
+    try {
+      if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+      const cny = unmetered ? null : costCny(r.usage, billedModel);
+      taskCny = cny;
+      if (cny !== null && cny > 0) log(`${tag} 估算成本 ${formatCny(cny)}（${billedModel}，按官方价目表；缓存命中量未透出，按未命中计）`);
+      if (unmetered) log(`${tag} ⚠ 本次没有 token 统计（cost-meter 没吐 usage）：记为未计量，日闸按 ${formatCny(UNMETERED_UNIT_CNY)}/次保守计入`);
+      if (cny !== null && cny > TASK_MAX_CNY) {
+        log(`${tag} ⚠ 单任务估算 ${formatCny(cny)} 超过上限 ${formatCny(TASK_MAX_CNY)}：本批次暂停领取新任务（DSH_TASK_MAX_CNY 可调）`);
+        PAUSE_CLAIM = true;
+      }
+      appendFileSync(
+        path.join(LOG_DIR, 'usage.jsonl'),
+        JSON.stringify({
+          at: new Date().toISOString(), issue: n, attempt, model: billedModel, paid: usePaid, cny,
+          ...(unmetered ? { unmetered: true } : {}),
+          ...(r.usage ?? {}),
+        }) + NL,
+      );
+    } catch { /* 记账失败不影响任务本身 */ }
     // 只留最后 3 行不够排障：完整输出落盘，事后能看清 agent 为什么什么都没做。
     try {
       if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
@@ -1059,6 +1086,14 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       throw new Error(review.detail);
     }
     const warns = (review.findings ?? []).filter((f) => f.severity === 'warn');
+    // 自动化路径的放行也要留痕：issue 上的 allow:gate 有机械校验，但同样得能被事后翻出来。
+    if (allowGate) {
+      const gateFiles = gateFilesFromFindings(review.findings ?? []);
+      if (gateFiles.length) {
+        log(`${tag} ⚠ 按 issue 的 allow:gate 放行门禁改动：${gateFiles.join('、')}`);
+        notifyEvent({ kind: 'gate-override', issue: n, why: `allow:gate 放行：${gateFiles.join('、')}` });
+      }
+    }
 
     // 3) 语义评审：机械规则只看 diff 的形状（删测试、漏 bless、动 workflows），
     // 看不出「代码写得像那么回事，但根本没满足验收标准」。这里请另一个家族的模型
@@ -1102,9 +1137,19 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         log(`${tag} ⚠ 付费切换的 issue 评论没发出去：${e.message}`);
       }
     }
-    if (semantic.verdict === 'skipped') {
-      // 放行但必须留痕：凭证失效/网络故障时这一层会静默消失，只有日志里一行就会没人发现。
-      log(`${tag} ⚠ 语义评审未执行（这一层等于没有）：${semantic.skipped}`);
+    // 评审层整层缺失（全跳过）不等于 pass：默认 fail-closed，只有显式 DSH_REVIEW_MISSING=allow
+    // 才放行，且两种情况都必须发事件——凭证失效时这一层会静默消失，只有日志一行没人会发现。
+    if (semantic.verdict === 'missing') {
+      log(`${tag} ⚠ 语义评审缺失（这一层等于没有）：${semantic.skipped}`);
+      notifyEvent({ kind: 'review-missing', issue: n, why: `语义评审没有可用的模型：${semantic.skipped}` });
+      const allowMissing = (process.env.DSH_REVIEW_MISSING ?? '') === 'allow';
+      if (!allowMissing) {
+        const detail = `语义评审缺失（改动未推送）：\n${formatSemantic(semantic)}\n确需放行：设 DSH_REVIEW_MISSING=allow（会写进 events.jsonl）。`;
+        recordFailure({ text: detail, issue: n, attempt, reason: detail.slice(0, 1500) }, FAIL_STORE);
+        throw new Error(detail);
+      }
+      log(`${tag} ⚠ 已按 DSH_REVIEW_MISSING=allow 放行（本次没有语义评审，PR 里会标注）`);
+      semantic.ok = true;
     }
     if (!semantic.ok) {
       const detail = `语义评审拒绝（改动未推送）：\n${formatSemantic(semantic)}`;
@@ -1127,7 +1172,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         `- 评审层：通过${warns.length ? `，${warns.length} 条提示` : '，无问题'}`,
         ...warns.map((w) => `  - ⚠ [${w.rule}] ${w.message}${w.file ? `（${w.file}）` : ''}`),
         `- 语义评审：${formatSemantic(semantic).split(String.fromCharCode(10))[0]}${semantic.paidUsed ? `（⚠ 免费模型 ${semantic.freeModel} 不可用，已切付费）` : ''}`,
-        `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
+        ...(semantic.needsHuman
+          ? ['- ⚠ 评审团没凑够家数：**不允许自动合并**，必须人工复核']
+          : semantic.verdict === 'missing' ? ['- ⚠ 本次没有语义评审（按 `DSH_REVIEW_MISSING=allow` 放行）：**不允许自动合并**'] : []),
         `- 验收命令：${acceptanceCmds ? `已通过（${acceptanceCmds.split('\n').length} 行，调度器执行，裁决=${acceptanceVerdict}）` : 'issue 里没有给 `### 验收命令`（按 acceptance:optional 豁免）'}`,
         `- 本次 agent 消耗：${formatUsage(usage)}${taskCny !== null ? `（估算 ${formatCny(taskCny)}）` : ''}`,
         ...(semantic.findings ?? []).map((f) => `  - ${f.severity === 'block' ? '✗' : '⚠'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`),
@@ -1137,6 +1184,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         '- 合并动作本身：本流水线不会自动 merge，也不会自动打 tag / 发版。',
         '- 若验收命令没有打印 `VERDICT: PASS`，说明这次只是「命令没崩」，人工要自己看一眼输出。',
         '', '---', 'CI 通过后请人工 review 再合并。',
+        // 机器读的标记：评审降级/缺失时禁止 merge:auto 自动合并（不依赖人记得看正文）。
+        ...(semantic.needsHuman || semantic.verdict === 'missing' ? ['', '<!-- semantic:needs-human -->'] : []),
       ].join('\n'),
     });
     let prUrl = pr.status === 201 ? pr.data.html_url : null;
@@ -1244,17 +1293,22 @@ function todaySpendCny() {
     const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const f = path.join(LOG_DIR, 'usage.jsonl');
     if (!existsSync(f)) return 0;
-    let sum = 0;
+    const rows = [];
     for (const line of readFileSync(f, 'utf8').split(NL)) {
       const t = line.trim();
       if (!t) continue;
       try {
         const e = JSON.parse(t);
         const d = new Date(Date.parse(e.at) + 8 * 3600 * 1000).toISOString().slice(0, 10);
-        if (d === today) sum += Number(e.cny || 0);
+        if (d === today) rows.push(e);
       } catch { /* 坏行跳过 */ }
     }
-    return sum;
+    // 已计量按 cny 求和，未计量按次估价：宁可高估（日闸是熔断器，低估等于没有）。
+    const spend = spendOfRows(rows);
+    if (spend.unmetered > 0) {
+      log(`[cost] 今日 ${rows.length} 次跑动里 ${spend.unmetered} 次没有 token 统计，按 ${formatCny(spend.unitCny)}/次保守计入`);
+    }
+    return spend.cny;
   } catch { return 0; }
 }
 
@@ -1730,6 +1784,12 @@ async function checkAgentPRs() {
         log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），等人工合并（未打 merge:auto）`);
         continue;
       }
+      // 评审降级/缺失时 PR body 带机器标记：即使打了 merge:auto 也不自动合并（评审层不是装饰）。
+      if (String(pr.body ?? '').includes('<!-- semantic:needs-human -->')) {
+        log(`[issue #${issueN}][prs] #${pr.number} 语义评审降级（团未凑够/缺失），不自动合并，等人工`);
+        notifyEvent({ kind: 'review-degraded', issue: issueN, why: `PR #${pr.number} 的语义评审降级，已跳过 merge:auto` });
+        continue;
+      }
       // ruleset 要求分支是最新的（strict_required_status_checks_policy），落后的 PR 即使 CI 绿也合不了：
       // 这类「behind」没有冲突文件，merge-tree 查不出来，只能在这里按状态补一次 rebase。
       if (mergeState === 'behind' && rebaseTries < REBASE_MAX_TRIES) {
@@ -1808,6 +1868,42 @@ function startResident() {
   return child.pid;
 }
 
+// 周期性状态对账：标签 ↔ 本地（每 DSH_RECONCILE_EVERY 轮一次，默认 30）。
+// 只报警不改远端——同一份标签可能是另一台机器在跑，自动摘标会把那边正在干的任务抢掉。
+let RECONCILE_TICK = 0;
+let LAST_SNAPSHOT_AT = 0;
+// 池子快照本身要起 python，别每轮都跑：默认一小时一次（DSH_POOL_SNAPSHOT_EVERY_MS 可调，0=关）。
+async function maybePoolSnapshot() {
+  const everyMs = Number(process.env.DSH_POOL_SNAPSHOT_EVERY_MS ?? 3600 * 1000);
+  if (!Number.isFinite(everyMs) || everyMs <= 0) return;
+  if (Date.now() - LAST_SNAPSHOT_AT < everyMs) return;
+  LAST_SNAPSHOT_AT = Date.now();
+  try { await poolSnapshot(); } catch (e) { log(`[pool] 快照失败：${e.message}`); }
+}
+let LAST_DRIFT_KEY = '';
+async function reconcileState() {
+  RECONCILE_TICK += 1;
+  const every = Number(process.env.DSH_RECONCILE_EVERY ?? 30);
+  if (!Number.isFinite(every) || every <= 0 || RECONCILE_TICK % every !== 0) return;
+  const r = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:working')}&state=open&per_page=50`);
+  if (r.status !== 200 || !Array.isArray(r.data)) {
+    log(`[state] 对账读不到 open 工单（status=${r.status}），本轮跳过`);
+    return;
+  }
+  const working = r.data
+    .filter((i) => !i.pull_request && !(i.labels ?? []).some((l) => l?.name === 'agent:done'))
+    .map((i) => i.number);
+  let dirs = [];
+  try { dirs = existsSync(WT_ROOT) ? readdirSync(WT_ROOT) : []; } catch { dirs = []; }
+  const drift = localDrift({ working, worktrees: parseWorktreeDirs(dirs), active: [...ISSUE_SESSION.keys()] });
+  const key = JSON.stringify({ l: drift.orphanLabels, w: drift.orphanWorktrees });
+  if (key === LAST_DRIFT_KEY) return; // 同一批不一致不重复刷屏/重复弹窗
+  LAST_DRIFT_KEY = key;
+  if (drift.ok) { log('[state] 对账通过：标签与本地状态一致'); return; }
+  log(`[state] ⚠ 状态不一致：${formatDrift(drift)}`);
+  notifyEvent({ kind: 'state-drift', why: formatDrift(drift) });
+}
+
 // 残留工作树巡检：WT_ROOT 下的 issue-N 目录对不上任何 open 工单时，只记一行日志。
 // 不自动删（未提交改动会跟着没），也不进轮询循环（工作树不会每分钟长一个）。
 async function auditStaleWorktrees() {
@@ -1881,6 +1977,22 @@ function readRegistry() {
     log(`[probe] 读登记表失败（${file}）：${e.message}，本轮不筛付费/kind`);
     return null;
   }
+}
+
+async function poolSnapshot() {
+  const stats = readPoolStats();
+  if (!stats) return 1;
+  const rec = { at: new Date().toISOString(), ...poolCounts(stats) };
+  try {
+    const dir = path.dirname(POOL_SNAPSHOT_FILE);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    appendFileSync(POOL_SNAPSHOT_FILE, `${JSON.stringify(rec)}${NL}`, 'utf8');
+  } catch (e) {
+    log(`[pool] 快照写入失败：${e.message}`);
+    return 1;
+  }
+  log(`[pool] ${rec.ok} ok / ${rec.stale} stale / ${rec.suspect} suspect / ${rec.unknown} unknown / ${rec.down} down（共 ${rec.total}）→ ${POOL_SNAPSHOT_FILE}`);
+  return 0;
 }
 
 async function probeStale() {
@@ -1966,14 +2078,17 @@ function ensureRepos() {
 }
 
 async function main() {
+  if (POOL_SNAPSHOT) {
+    process.exitCode = await poolSnapshot();
+    return;
+  }
   if (REPOS_FILE) {
     process.exitCode = ensureRepos();
     return;
   }
   if (PROBE_STALE) {
     process.exitCode = await probeStale();
-    return;
-  }
+    return;  }
   // --ensure：只负责「保证有一个人在跑」。要么报出已经有的那个，要么脱离父进程拉起一个
   // 常驻的 --serve。它自己不等任务、不持锁，所以登录自启/计划任务反复调用都安全。
   if (ENSURE) {
@@ -2057,6 +2172,8 @@ async function main() {
       await recoverBlocked();
       await pollOnce();
       await checkAgentPRs();
+      await reconcileState();
+      await maybePoolSnapshot();
     } catch (e) { log(`轮询出错: ${e.message}`); }
   }
 }

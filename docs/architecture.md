@@ -120,10 +120,17 @@
 - 但**agent 与调度器同用户运行**：agent 仍可从磁盘读 `.secrets`。这是当前最大的残余风险，
   根因是「无人值守需要 danger-full-access」。真正隔离要换低权用户跑 agent，属于下一步。
 - PAT 仍是 classic（`repo, workflow`，对本账号所有仓库可写）；建议换 fine-grained 单仓库 token。
-- 分支保护：私有库免费版 API 返回 403，开不了；即仓库层面没有「禁止直推 main」的强制。
+- 分支保护：**已修正（2026-10-28 实测）**。旧结论「私有库免费版 API 返回 403，开不了分支保护」只在
+  「用 API 建 protection」这条路上成立；仓库上其实已经有 ruleset（要求走 PR + verify check 通过）。
+  证据：直接 `git push origin main` 返回 `Bypassed rule violations …` —— 规则存在、admin 直推被放行并留痕。
+  所以准确说法是「有规则，但 admin 能绕过」，而不是「没有强制」。
+- 合并侧同样有约束：调度器只在 CI 绿 + `merge:auto` + 语义评审未降级时才 squash 合并（见 `docs/dispatch.md`）。
 
 ## 经济性
 
 见 `docs/cost-model.md`：GitHub Actions 实测 135 次 run 共 45 分钟；语义评审团单次约 9k tokens
-（1 文件 diff），随 diff 线性增长；agent 侧 token 目前无法本地计量（DSH headless 不吐 usage），
-只能按 run 时长与模型单价估算。
+（1 文件 diff），随 diff 线性增长。
+agent 侧 token **现在能计量**（2026-10-28 修正旧结论）：`dsh --headless --json` 的事件流里有 usage，
+`ci/usage.mjs` 的 `sumUsage()` 累加后写 `.logs/usage.jsonl`（`inputTokens` / `outputTokens` / `steps`）。
+缺口是**部分 run 不吐 usage**：这类以前一行都不记（账本上不存在），现在记 `unmetered: true` 并按
+`DSH_UNMETERED_CNY`（默认 0.1 元/次）保守计入日闸。缓存命中量仍未透出，输入一律按未命中计 → 金额偏高。

@@ -334,25 +334,46 @@ export function totalTokens(usage) {
   return a + b;
 }
 
-export function aggregateReviewers(reviewers) {
+// 评审的「有效数」判据：`minValid` 是这一层最低限度的交叉校验家数。
+//   - 全跳过（凭证失效/模型下架/全限流）＝ verdict `missing` 且 `ok:false`：
+//     这一层**等于不存在**，绝不能当成 pass 放行（2026-10-28 架构评审 P0-1）。
+//     调用方要么 fail-closed，要么显式用逃生阀放行并留痕。
+//   - 跑到但不够 `minValid` 家 ＝ 仍然 pass，但打 `needsHuman`（评审团没凑够，
+//     自动合并要停下等人工）；单模型免费档是设计上的便宜路径，只标 `degraded='free-single'`。
+export function aggregateReviewers(reviewers, opts = {}) {
+  const minValid = Number.isFinite(Number(opts.minValid)) ? Number(opts.minValid) : 1;
+  const single = Boolean(opts.single);
   const tokens = reviewers.reduce((n, r) => n + totalTokens(r.usage), 0);
   const ran = reviewers.filter((r) => r.verdict !== 'skipped');
   const blocked = ran.filter((r) => r.verdict === 'block');
   if (blocked.length) {
     // 阻断时也把其它评审器的提示一并带上：回灌给下一次重试的失败原因越具体越好。
-    return { ok: false, verdict: 'block', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers, tokens };
+    return { ok: false, verdict: 'block', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers, tokens, valid: ran.length, minValid };
   }
-  if (ran.length) {
-    return { ok: true, verdict: 'pass', findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])), reviewers, tokens };
+  if (!ran.length) {
+    return {
+      ok: false,
+      verdict: 'missing',
+      findings: [],
+      skipped: reviewers.map((r) => r.skipped || '跳过').join('；') || '没有可用的评审模型',
+      reviewers,
+      tokens,
+      valid: 0,
+      minValid,
+    };
   }
-  return {
+  const base = {
     ok: true,
-    verdict: 'skipped',
-    findings: [],
-    skipped: reviewers.map((r) => r.skipped || '跳过').join('；'),
+    verdict: 'pass',
+    findings: dedupeFindings(ran.flatMap((r) => r.findings ?? [])),
     reviewers,
     tokens,
+    valid: ran.length,
+    minValid,
   };
+  if (single) return { ...base, degraded: 'free-single' };
+  if (ran.length < minValid) return { ...base, degraded: 'panel-partial', needsHuman: true };
+  return base;
 }
 
 /**
@@ -378,7 +399,7 @@ async function runPanel(options = {}) {
       return { ...r, model, tier: routeFor(model).paid ? 'paid' : 'free' };
     }),
   );
-  return aggregateReviewers(reviewers);
+  return aggregateReviewers(reviewers, { minValid: 2 });
 }
 
 /**
@@ -401,7 +422,8 @@ export async function reviewWithPanel(options = {}) {
   const unparsable = (free.findings ?? []).some((f) => f.rule === 'semantic-unparseable');
   if (free.verdict !== 'skipped' && !unparsable) {
     const reviewers = [{ ...free, model: freeModel, tier: 'free' }];
-    return { ...aggregateReviewers(reviewers), model: freeModel, tier: 'free', paidUsed: false };
+    // 免费档就是「单模型先跑通」这条便宜路径：不算交叉校验，标 free-single 让上层能看见。
+    return { ...aggregateReviewers(reviewers, { minValid: 1, single: true }), model: freeModel, tier: 'free', paidUsed: false };
   }
 
   // 免费档不可用：切付费面板（默认就是 DSH 设置里那档 flash），并带回「为什么切」。
@@ -425,8 +447,13 @@ export function formatSemantic(result) {
   const cost = result.tokens ? `，tokens=${result.tokens}` : '';
   const head = panel ? `${panel}${cost}；` : '';
   const mark = result.paidUsed ? '[付费] ' : '';
+  // 评审缺失（全跳过）与「凑不够家数」都要在文案里说清楚：这层没做成不等于没问题。
+  if (result.verdict === 'missing') return `${head}${mark}评审缺失（${result.skipped}）`;
   if (result.verdict === 'skipped') return `${head}${mark}跳过（${result.skipped}）`;
+  const degraded = result.degraded === 'panel-partial'
+    ? `⚠ 评审团只有 ${result.valid ?? 0}/${result.minValid ?? 2} 家给出结论，需人工复核；`
+    : result.degraded === 'free-single' ? '单模型免费档（未做交叉校验）；' : '';
   const lines = result.findings.map((f) => `${f.severity === 'block' ? '✗ 阻断' : '⚠ 提示'} [${f.rule}] ${f.message}${f.file ? `（${f.file}）` : ''}`);
-  if (lines.length === 0) return `${head}${mark}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
-  return `${head}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model ?? 'panel'}）\n${lines.join('\n')}`;
+  if (lines.length === 0) return `${head}${mark}${degraded}${result.verdict === 'pass' ? '通过' : '阻断'}（0 个问题，model=${result.model ?? 'panel'}）`;
+  return `${head}${degraded}${result.verdict === 'pass' ? '通过' : '阻断'}（${lines.length} 个问题，model=${result.model ?? 'panel'}）\n${lines.join('\n')}`;
 }

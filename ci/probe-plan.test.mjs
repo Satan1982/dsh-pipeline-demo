@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, staleTargets, planProbe, probeArgv, summarizeProbe, DEFAULT_LIMIT } from '../ci/probe-plan.mjs';
+import { listModels, staleTargets, planProbe, probeArgv, summarizeProbe, DEFAULT_LIMIT, poolCounts } from '../ci/probe-plan.mjs';
+
+test('池子快照计数：按状态分开数，未知状态进 other', () => {
+  const counts = poolCounts({
+    models: {
+      a: { status: 'ok' }, b: { status: 'ok' }, c: { status: 'stale' },
+      d: { status: 'suspect' }, e: { status: 'unknown' }, f: { status: 'down' },
+      g: { status: 'weird' },
+    },
+  });
+  assert.deepEqual(counts, { ok: 2, stale: 1, suspect: 1, unknown: 1, down: 1, other: 1, total: 7 });
+});
+
+test('池子快照计数：空池子全是 0', () => {
+  assert.deepEqual(poolCounts({}), { ok: 0, stale: 0, suspect: 0, unknown: 0, down: 0, other: 0, total: 0 });
+  assert.deepEqual(poolCounts(null), { ok: 0, stale: 0, suspect: 0, unknown: 0, down: 0, other: 0, total: 0 });
+});
 
 test('listModels：接受 models 包一层、纯对象、数组三种形状', () => {
   assert.deepEqual(listModels({ models: { a: { status: 'ok' } } }), [{ id: 'a', status: 'ok' }]);

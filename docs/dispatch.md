@@ -41,6 +41,13 @@ node ci/dispatch.mjs --dry-run
 3. **无改动 = 失败**：worktree 里既没 dirty 也没新 commit → `agent:failed`。
 4. **隔离 worktree**：任务在 `<工作盘>/.worktrees/issue-<N>` 执行，主工作区不受影响。
 
+**改门禁脚本要留痕（2026-10-28）**：本地提交这条路，`ci/precommit.mjs` 原本只认 `DSH_ALLOW_GATE=1` 一个环境变量——谁都能 export 一下放行，事后分不清「用户授权」和「选手自己吹哨」。现在：
+
+- 放行必须带理由：`DSH_ALLOW_GATE=1 DSH_ALLOW_GATE_REASON="<为什么>"`；只设开关不写理由 → 直接拒（打印缺哪个变量）。
+- 每次真的放行了门禁改动，往 `~/.dsh/coord/log/gate-override.jsonl` 追加一行 `{at, kind:'gate-override', reason, files, repo, head}`（`DSH_GATE_OVERRIDE_LOG` 可改路径）。
+- 自动化路径（issue 打 `allow:gate`）本来就有机械校验（`dispatch.mjs` 从标签读 `allowGate`），现在同样补一条 `gate-override` 事件，两边账本一致。
+- 拦不住有权限的人，但把「什么时候、为什么」变成可查的；标准手工出口仍是 `git commit --no-verify`。
+
 ## label 约定
 
 | label | 含义 |
@@ -245,12 +252,23 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 | 默认成员 | `Qwen/Qwen3.5-122B-A10B`、`moonshotai/Kimi-K2.7-Code`（不同家族） |
 | 覆盖方式 | `DSH_REVIEW_MODELS="a,b,c"`（逗号分隔，全部走 siliconflow） |
 | 执行方式 | 并行（`Promise.all`），各自独立读同一份 diff 与验收标准 |
-| 聚合规则 | 任一模型 block → block；至少一个真的跑过且都 pass → pass；全部 skipped → skipped |
+| 聚合规则 | 任一模型 block → block；至少一个真的跑过且都 pass → pass；**全部 skipped → `missing`（ok:false）** |
+| 最小有效数 | 面板 < 2 家给出结论 → 仍 pass 但标 `panel-partial` + `needsHuman`（PR 里禁止自动合并） |
 | 失败原因 | 阻断时把**所有**评审器的问题一起回灌给下一次重试 |
 | 实测耗时 | 最后一次真实 diff：**15s**（两个模型并行；单模型时期是 51–61s 串行） |
 
-边界（如实说明）：两个模型都跑不起来时（无凭证/超时）这层是 skipped，只在日志留
-`⚠ 语义评审未执行（这一层等于没有）`；评审团不能替代可执行的验收命令——
+**「这层没了」不再等于通过（2026-10-28）**：以前两个模型都跑不起来时 verdict 是 `skipped` 且 `ok:true`，
+调度器只记一行日志就继续推 PR——凭证失效一周，语义评审静默消失一周，没人知道。现在：
+
+- 全跳过 → `verdict:'missing'`、`ok:false` → **默认 fail-closed**（当次不推送、当失败重试），
+  并发 `review-missing` 事件（Toast + `events.jsonl` + 配了 webhook 就推到远端）。
+- 确认要继续：`DSH_REVIEW_MISSING=allow`（显式、写进日志与事件，PR body 标注「本次没有语义评审」）。
+- 面板只剩 1 家 → pass 但打 `panel-partial`/`needsHuman`，PR body 带 `<!-- semantic:needs-human -->`；
+  `checkAgentPRs` 看到这个标记就**跳过 `merge:auto`** 的自动合并并发 `review-degraded` 事件——
+  标签不能替代评审，自动合并更不能。
+- 免费档单模型（就是便宜快那条路）标 `free-single`，不升级为需人工；它只是「没做交叉校验」，不是「没评审」。
+
+边界（如实说明）：评审团不能替代可执行的验收命令——
 `### 验收命令` + `VERDICT: PASS/FAIL` 才是硬裁决，评审团只补「验收标准解读」这一类判断。
 
 ## 评审层（push 之前拦）
@@ -282,8 +300,8 @@ powershell -ExecutionPolicy Bypass -File ci\install-autostart.ps1 -Remove
 - 提示词里除了 diff，还给两样证据：`git diff --name-status` 的**改动文件清单**，以及调度器**已经跑过的
   验收命令**。原因见下节的两个误判。
 - 解析失败一律按 block（fail closed）：模型话说一半不能混成「通过」。
-- 评审模型超时、网络失败、没有凭证 → `skipped`，只记日志不阻断（评审层不该让流水线停摆）；
-  skipped 会单独打一行 `⚠ 语义评审未执行（这一层等于没有）`，因为它等于这层不存在。
+- 评审模型超时、网络失败、没有凭证 → 该**模型**记 `skipped`（评审团里其它模型照常表决）；
+  整个评审团一个都没跑成 → `missing`，默认 fail-closed（见上节），需要放行用 `DSH_REVIEW_MISSING=allow`。
 - 超时默认 240s（`DSH_REVIEW_TIMEOUT_MS`）。原来 120s，实测 `Qwen/Qwen3.5-122B-A10B` 常态跑不完，
   两次都是 `This operation was aborted` → skipped，等于白挂一层。
 - `DSH_REVIEW_MOCK=<file>` 用文件内容代替模型输出，用于端到端验证 block 路径而不花钱。
@@ -471,6 +489,10 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 ## 成本计量与预算闸（2026-10-27）
 
 - 每次 headless 的 token 用量写 `.logs/usage.jsonl`，按 DeepSeek 官方价目表折成人民币（`ci/prices.mjs`；免费池记 ¥0）。
+- **没统计到也必须记账（2026-10-28）**：以前 `usage` 缺失就一行都不写，跑过但账本上不存在 → 日闸系统性低估
+  （实测 39 行里 9 行 `totalTokens=0`，另有一批压根没行）。现在每次跑动都写一行，没有 token 统计的写
+  `unmetered: true`，日闸按 `DSH_UNMETERED_CNY`（默认 **0.1 元/次**，实测单任务 ¥0.07–0.11 取上限）保守计入，
+  日志会说明「今日 N 次没有 token 统计」。日闸是熔断器，宁可高估；`DSH_UNMETERED_CNY=0` 可关。
 - 缓存命中量 DSH 没透出，输入一律按「未命中」计 → 金额偏高、保守。
 - 单任务超过 `DSH_TASK_MAX_CNY`（默认 0.5 元）→ 日志告警并暂停本批次新任务；当日累计超过 `DSH_DAY_MAX_CNY`（默认 5 元）→ 当天不再领取。
 - 切付费评审只在估算超过 `DSH_NOTIFY_CNY`（默认 0.05 元）时才写 issue 评论，否则只进日志与 PR body。
@@ -485,8 +507,15 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 | `failed` | 任务重试用完被标 `agent:failed` | issue 评论 + 日志 + 事件 |
 | `blocked-manual` | 重投次数用完，打了 `agent:blocked:manual`，真的需要人 | issue 评论 + 日志 + 事件 |
 | `daycap` | 当日估算花费到 `DSH_DAY_MAX_CNY`，今天不再领新任务 | 日志 + 事件（一天只弹一次） |
+| `review-missing` | 语义评审整层没跑成（默认 fail-closed） | 日志 + 事件 + PR body 标注 |
+| `review-degraded` | 评审团不够家数，PR 带 `semantic:needs-human` 标记、跳过自动合并 | 日志 + 事件 |
+| `state-drift` | 周期性对账发现 `agent:working` 僵尸标签 / 孤儿 worktree | 日志 + 事件 |
+| `gate-override` | 放行修改门禁脚本（本地提交或 issue 的 `allow:gate`） | 日志 + 事件 + `gate-override.jsonl` |
 
 - 落盘：`~/.dsh/coord/log/events.jsonl`，一行一条，字段 `at / kind / issue / why / cny`（`why` 截 300 字符）。digest 每天读它出摘要；`DSH_EVENTS_LOG` 可改路径。
+- **远端出口（2026-10-28）**：Toast 只在本机弹——人离开机器，通知等于没发。配 `DSH_NOTIFY_WEBHOOK=<url>`
+  后每个事件额外 `POST` 一份 JSON（`{text, kind, issue, at}`，5 秒超时、失败只记一行且同一次运行里只警告一次）。
+  不配就完全跳过，行为与以前一致。飞书/钉钉/自建都收这个形状（要加签的话在外面套一层转发）。
 - 弹窗：Windows Toast，标题 `流水线 #N 任务失败` 之类；脚本 `.logs/notify-toast.ps1` 每次重写（UTF-8 带 BOM——PS 5.1 没 BOM 会把中文按 GBK 解，见 `PITFALLS.md` P1）。
 - 弹窗是 best-effort：`powershell` 起不来、超时 15 秒、没有通知通道，都只记一行 `[notify] 弹窗失败（不影响任务）：…`，任务照跑。
 - 关掉：`DSH_NOTIFY=0`（只落事件、不弹窗）；`--dry-run` 下完全不发。
@@ -510,6 +539,28 @@ node ci/dispatch.mjs --probe-stale --dry-run  # 只打印会探哪几个
   - `--dry-run` 现在也认 `--only`（2026-10-28 修；此前它忽略 `--only`、把整表都打成 `would test`，别拿它判断 `--only` 是否生效）。
 - 日志：`[probe] 选中 N 个（stale X，免费候选 Y，付费跳过 Z，不可探 video/image W）：…` → `[probe] 汇总：…` → `[probe] 探活后：95/158 个模型 ok`；没有可探的免费 stale 时明确写 `没有可探的免费 stale/unknown 模型（共 158 个，stale 47，付费跳过 46，不可探 video/image 1）…要探付费设 DSH_PROBE_INCLUDE_PAID=1`，不再谎报「探活 N 个」。
 - **为什么不进轮询**：探活要连网、要几分钟，放在轮询里会让每轮变慢；池子掉了有挂起 + 自动重投兜着，探活是「人想让池子更好用」时才做的事。
+
+## 池子健康快照（`--pool-snapshot`，2026-10-28）
+
+探活是「修」，快照是「量」。池子从 102 ok 掉到 34 ok（2026-10-28 实测）之前，流水线没有任何信号——
+只有任务开始失败才反过来暴露池子坏了。所以给一条只读命令：
+
+```bash
+node ci/dispatch.mjs --pool-snapshot   # 一行 JSON 追加到 ~/.dsh/coord/log/pool-snapshot.jsonl
+```
+
+- 输出：`{"at":…,"ok":34,"stale":114,"suspect":9,"unknown":1,"down":0,"other":0,"total":158}`（计数判据是 `ci/probe-plan.mjs` 的 `poolCounts()`）。
+- 路径可用 `DSH_POOL_SNAPSHOT_LOG` 改。digest 每天读它出趋势，不必再翻 `fm.py stats` 的人肉截图。
+- 只读、不探活、不改登记表；`--dry-run` 无需特判（它本来就不写远端）。
+
+## 状态对账（常驻进程内，每 30 轮一次）
+
+标签是唯一状态源，但状态迁移是多步网络写（打 `agent:working` → 建 worktree → 完成再摘），中间崩了就没有回滚。
+现在常驻进程每 `DSH_RECONCILE_EVERY`（默认 30）轮做一次对账（`ci/drift.mjs` 的 `localDrift()`）：
+
+- `agent:working` 但本地既无 worktree 也不在跑 → 僵尸标签；本地有 worktree 但工单已不在跑 → 孤儿目录。
+- 只记日志 + 发 `state-drift` 事件，**不自动摘标**：同一份标签可能是另一台机器在赶，自动摘标会把那边的任务抢掉。
+- 同一批不一致只报一次（键相同的重复对账不刷屏、不重复弹窗）。
 
 ## 同账号多库（`--repos repos.json`，2026-10-28）
 

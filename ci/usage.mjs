@@ -35,6 +35,28 @@ export function formatUsage(usage) {
   return `${usage.totalTokens} tokens（in ${usage.inputTokens} / out ${usage.outputTokens}，${usage.steps} 步）`;
 }
 
+// 未计量的一次 agent 跑动，按多少钱保守计入日闸。
+// 实测单任务估算在 ¥0.07–0.11（10-26/10-27 的 usage.jsonl），取 0.1 作上限，
+// 宁可高估：日闸是熔断器，低估等于没有。DSH_UNMETERED_CNY=0 可关掉这项。
+export const UNMETERED_UNIT_CNY = Number(process.env.DSH_UNMETERED_CNY ?? 0.1);
+
+/**
+ * 一批 usage 行的花费：已计量的照 cny 求和，未计量的按 unit 估价。
+ * 纯函数（不读文件、不看时钟），日期过滤由调用方做 —— 便宜又容易测。
+ */
+export function spendOfRows(rows = [], { unit = UNMETERED_UNIT_CNY } = {}) {
+  let metered = 0;
+  let unmetered = 0;
+  for (const e of rows) {
+    if (!e || typeof e !== 'object') continue;
+    if (e.unmetered) { unmetered += 1; continue; }
+    const v = Number(e.cny);
+    if (Number.isFinite(v) && v > 0) metered += v;
+  }
+  const unitCny = Number.isFinite(Number(unit)) ? Number(unit) : UNMETERED_UNIT_CNY;
+  return { metered, unmetered, unitCny, cny: metered + unmetered * unitCny };
+}
+
 // `--json` 模式下 stdout 是事件流，人要看的最终回答在 `final` 事件里。
 // 取不到就退回把 text 事件拼起来，再不行保留原始输出（排障用）。
 export function finalText(ndjson) {

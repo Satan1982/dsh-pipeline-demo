@@ -13,6 +13,10 @@ export const EVENT_KINDS = {
   failed: '任务失败',
   'blocked-manual': '需要人工接手',
   daycap: '今日花费到顶',
+  'review-missing': '语义评审缺失',
+  'review-degraded': '语义评审降级',
+  'state-drift': '状态不一致',
+  'gate-override': '门禁被放行修改',
 };
 
 export const MAX_TITLE = 60;
@@ -98,4 +102,36 @@ export function appendEvent(file, rec) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   appendFileSync(file, `${formatEventLine(rec)}\n`, 'utf8');
   return file;
+}
+
+// ── 远端出口（webhook）───────────────────────────────────────────────────────
+// 为什么要有：Toast 只在本机弹。人不在机器前（或者机器是无人值守的）时，
+// `failed` / `blocked-manual` 这类必须打断人的事件等于没人收到（2026-10-28 架构评审 P0-3）。
+// 默认不开：没配 DSH_NOTIFY_WEBHOOK 就整段跳过，行为与以前完全一致。
+// 同样是 best-effort：POST 失败只记一行，绝不影响调度器。
+export function webhookBody(rec) {
+  const name = EVENT_KINDS[rec?.kind] ?? String(rec?.kind ?? '事件');
+  const head = rec?.issue ? `[流水线 #${rec.issue}] ${name}` : `[流水线] ${name}`;
+  // issue 单列一个字段：接收端（飞书/钉钉/自建）经常要按工单路由，不该让它去解析文本。
+  return { text: `${head}\n${rec?.why ?? ''}`.trim(), kind: rec?.kind ?? 'unknown', issue: rec?.issue ?? null, at: rec?.at ?? new Date().toISOString() };
+}
+
+export async function postWebhook(url, rec, { fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
+  if (!url) return { ok: false, skipped: 'no-webhook' };
+  if (typeof fetchImpl !== 'function') return { ok: false, error: 'no-fetch-available' };
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), Math.max(500, Number(timeoutMs) || 5000));
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(webhookBody(rec)),
+      signal: ac.signal,
+    });
+    return { ok: Boolean(res?.ok), status: res?.status ?? null };
+  } catch (e) {
+    return { ok: false, error: String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
 }

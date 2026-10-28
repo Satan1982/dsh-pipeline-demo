@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   EVENT_KINDS, MAX_MESSAGE, eventRecord, formatEventLine, toastText,
-  psToastBody, writeToastScript, appendEvent,
+  psToastBody, writeToastScript, appendEvent, webhookBody, postWebhook,
 } from '../ci/notify.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'notify-'));
@@ -66,6 +66,46 @@ test('appendEvent：建目录 + 追加而不是覆盖', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('EVENT_KINDS 覆盖三类需要人知道的事件', () => {
-  assert.deepEqual(Object.keys(EVENT_KINDS).sort(), ['blocked-manual', 'daycap', 'failed']);
+test('EVENT_KINDS 覆盖所有需要人知道的事件', () => {
+  // 2026-10-28 架构评审后扩了四类：评审缺失/降级、状态不一致、门禁被放行修改。
+  assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
+    'blocked-manual', 'daycap', 'failed', 'gate-override', 'review-degraded', 'review-missing', 'state-drift',
+  ]);
+});
+
+test('webhook 正文：标题带工单号，没有工单号时不带 #', () => {
+  const body = webhookBody({ kind: 'failed', issue: 88, why: '验收命令 exit 1', at: '2026-10-28T00:00:00.000Z' });
+  assert.match(body.text, /\[流水线 #88\] 任务失败/);
+  assert.match(body.text, /验收命令 exit 1/);
+  assert.equal(body.kind, 'failed');
+  assert.equal(body.at, '2026-10-28T00:00:00.000Z');
+  assert.doesNotMatch(webhookBody({ kind: 'daycap', why: '到顶' }).text, /#/);
+});
+
+test('webhook 未配置时直接跳过，不发请求', async () => {
+  let called = 0;
+  const r = await postWebhook('', { kind: 'failed', why: 'x' }, { fetchImpl: () => { called += 1; } });
+  assert.equal(r.ok, false);
+  assert.equal(r.skipped, 'no-webhook');
+  assert.equal(called, 0);
+});
+
+test('webhook 成功投递：POST JSON 到给定 URL', async () => {
+  const seen = [];
+  const fakeFetch = async (url, init) => { seen.push({ url, init }); return { ok: true, status: 204 }; };
+  const r = await postWebhook('https://example.test/hook', { kind: 'failed', issue: 7, why: 'x' }, { fetchImpl: fakeFetch });
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 204);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, 'https://example.test/hook');
+  assert.equal(seen[0].init.method, 'POST');
+  assert.match(seen[0].init.headers['content-type'], /json/);
+  assert.equal(JSON.parse(seen[0].init.body).issue, 7);
+});
+
+test('webhook 失败不抛异常：返回错误原因（调用方只记一行日志）', async () => {
+  const boom = async () => { throw new Error('ECONNREFUSED'); };
+  const r = await postWebhook('https://example.test/hook', { kind: 'failed', why: 'x' }, { fetchImpl: boom });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /ECONNREFUSED/);
 });

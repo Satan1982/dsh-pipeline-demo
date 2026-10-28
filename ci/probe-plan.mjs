@@ -6,6 +6,21 @@
 // 方便单测，也避免测试真的去连网。
 export const DEFAULT_LIMIT = 8;
 export const PROBE_STATUSES = ['stale', 'unknown'];
+export const POOL_STATUSES = ['ok', 'stale', 'suspect', 'unknown', 'down'];
+
+// 池子健康快照按状态计数：digest 每天读这些数字看趋势。
+// 为什么要有（2026-10-28 架构评审 P1-6）：池子从 102 ok 掉到 50 现在没有任何信号，
+// 只能等任务失败挂起；有趋势才能提前探活/换模型。
+export function poolCounts(stats) {
+  const models = listModels(stats);
+  const counts = Object.fromEntries(POOL_STATUSES.map((s) => [s, 0]));
+  let other = 0;
+  for (const m of models) {
+    if (Object.prototype.hasOwnProperty.call(counts, m.status)) counts[m.status] += 1;
+    else other += 1;
+  }
+  return { ...counts, other, total: models.length };
+}
 
 // 池子健康快照的形状有两种（fm.py stats --json 的外层包了一层 models），统一成 [{id, status}]。
 export function listModels(stats) {
