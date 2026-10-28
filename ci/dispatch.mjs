@@ -1851,24 +1851,28 @@ function readPoolStats() {
 }
 
 
-// 登记表里的付费面：probe.py 不带 --include-paid 会整组跳过 free === false 的模型，
-// 而按 id 排最前的恰好全是它们 → 「每天选中同一批、每天被跳过」的空转。
-function paidModelIds() {
+// 登记表的两个用途：① `free === false` 的付费面——probe.py 不带 --include-paid 会整组 continue；
+// ② kind 表——`video` 在 probe.py 里直接记「跳过（未纳入自动巡检）」，任何 flag 都不会测。
+// 两者不筛，就是「选中 N 个、实际 0 个」的空转（按 id 排最前的恰好全是这批）。
+function readRegistry() {
   const file = path.join(freeModelsDir(), 'free-models.json');
   try {
     const reg = JSON.parse(readFileSync(file, 'utf8'));
     const list = Array.isArray(reg) ? reg : Array.isArray(reg.models) ? reg.models : [];
-    const ids = new Set();
-    for (const m of list) {
-      if (m && m.free === false && m.id) ids.add(String(m.id));
-    }
-    if (!ids.size) {
-      log(`[probe] 登记表 ${list.length} 条里没读到 free === false，本轮不筛付费`);
+    if (!list.length) {
+      log(`[probe] 登记表 ${file} 里没有模型条目，本轮不筛付费/kind`);
       return null;
     }
-    return ids;
+    const paid = new Set();
+    const kinds = new Map();
+    for (const m of list) {
+      if (!m || !m.id) continue;
+      if (m.free === false) paid.add(String(m.id));
+      if (m.kind) kinds.set(String(m.id), String(m.kind));
+    }
+    return { paid: paid.size ? paid : null, kinds };
   } catch (e) {
-    log(`[probe] 读登记表失败（${file}）：${e.message}，本轮不筛付费`);
+    log(`[probe] 读登记表失败（${file}）：${e.message}，本轮不筛付费/kind`);
     return null;
   }
 }
@@ -1877,15 +1881,17 @@ async function probeStale() {
   const stats = readPoolStats();
   if (!stats) return 1;
   const includePaid = (process.env[INCLUDE_PAID_ENV] ?? '0') === '1';
-  const paidIds = includePaid ? null : paidModelIds();
+  const reg = readRegistry();
+  const paidIds = includePaid ? null : reg && reg.paid;
   const plan = planProbe(stats, {
     limit: Number(process.env.DSH_PROBE_LIMIT ?? 8),
     paid: paidIds ? (id) => paidIds.has(id) : null,
+    kindOf: reg ? (id) => reg.kinds.get(id) ?? null : null,
   });
   const ids = plan.picked;
   if (!ids.length) {
     log(
-      `[probe] 没有可探的免费 stale/unknown 模型（共 ${plan.total} 个，stale ${plan.stale}，付费跳过 ${plan.skippedPaid}${
+      `[probe] 没有可探的免费 stale/unknown 模型（共 ${plan.total} 个，stale ${plan.stale}，付费跳过 ${plan.skippedPaid}，不可探 video ${plan.skippedKind}${
         includePaid ? '' : `；要探付费设 ${INCLUDE_PAID_ENV}=1`
       }）`,
     );
@@ -1896,7 +1902,7 @@ async function probeStale() {
     return 0;
   }
   log(
-    `[probe] 选中 ${ids.length} 个（stale ${plan.stale}，免费候选 ${plan.candidates}，付费跳过 ${plan.skippedPaid}${
+    `[probe] 选中 ${ids.length} 个（stale ${plan.stale}，免费候选 ${plan.candidates}，付费跳过 ${plan.skippedPaid}，不可探 video ${plan.skippedKind}${
       includePaid ? '，已含付费' : ''
     }）：${ids.join(', ')}`,
   );

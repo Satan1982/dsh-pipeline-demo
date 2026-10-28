@@ -70,3 +70,35 @@ test('probeArgv：--include-paid 只在显式打开时拼', () => {
   assert.deepEqual(probeArgv(['a'], { includePaid: true }), ['--only', 'a', '--include-paid', '--quiet']);
   assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
 });
+
+test('planProbe：video 这类探不了的 kind 默认跳过并单独报数', () => {
+  const stats = { 'cogvideox-flash': { status: 'unknown' }, 'free/a': { status: 'stale' } };
+  const kinds = { 'cogvideox-flash': 'video', 'free/a': 'chat' };
+  const plan = planProbe(stats, { kindOf: (id) => kinds[id] ?? null });
+  assert.deepEqual(plan.picked, ['free/a']);
+  assert.equal(plan.skippedKind, 1);
+  assert.deepEqual(plan.skippedKindIds, ['cogvideox-flash']);
+  assert.equal(plan.candidates, 1);
+});
+
+test('planProbe：只剩 video 时 picked 为空，别拼 --only 空串', () => {
+  const stats = { v1: { status: 'stale' }, v2: { status: 'unknown' } };
+  const plan = planProbe(stats, { kindOf: () => 'video' });
+  assert.deepEqual(plan.picked, []);
+  assert.equal(plan.skippedKind, 2);
+  assert.deepEqual(probeArgv(plan.picked), []);
+});
+
+test('planProbe：没有 kindOf 时行为不变（老调用点不受影响）', () => {
+  const stats = { a: { status: 'stale' } };
+  assert.deepEqual(staleTargets(stats), ['a']);
+  assert.equal(planProbe(stats).skippedKind, 0);
+});
+
+test('planProbe：付费优先于 kind（付费先跳，kind 只数免费的）', () => {
+  const stats = { p: { status: 'stale' }, v: { status: 'stale' } };
+  const plan = planProbe(stats, { paid: (id) => id === 'p', kindOf: (id) => (id === 'v' ? 'video' : 'chat') });
+  assert.equal(plan.skippedPaid, 1);
+  assert.equal(plan.skippedKind, 1);
+  assert.deepEqual(plan.picked, []);
+});
