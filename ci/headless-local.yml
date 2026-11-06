@@ -13,8 +13,8 @@
         defaultContextWindow: 65536
         defaultMaxTokens: 8192
         models:
-          - id: Qwen3-Coder-30B-A3B-Instruct-GGUF
-            name: Qwen3-Coder-30B local
+          - id: Qwen3.5-9B-GGUF
+            name: Qwen3.5-9B local
             contextWindow: 65536
             maxTokens: 8192
             input:
@@ -22,4 +22,4 @@
 - id: agent-default-model
   config:
     provider: lemonade
-    model: Qwen3-Coder-30B-A3B-Instruct-GGUF
+    model: Qwen3.5-9B-GGUF

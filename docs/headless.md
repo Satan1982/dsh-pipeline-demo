@@ -31,7 +31,7 @@ printf '%s' "在 src/index.js 加 subtract 并补测试，然后跑 verify.sh" |
 `headless` profile 默认 provider 是 `deepseek-official`，需要 `DEEPSEEK_API_KEY`，本机没有。
 包装脚本做三件事（**2026-11-06 起默认档已改为「无凭据 + 本地模型」**）：
 
-1. 默认**不注入任何真实 key**：挂仓内 `ci/headless-local.yml`，路由到 `127.0.0.1:13305` 的 Lemonade（Qwen3-Coder-30B）。`LEMONADE_API_KEY` 只是 OpenAI 兼容层要求的占位符，不是秘密。
+1. 默认**不注入任何真实 key**：挂仓内 `ci/headless-local.yml`，路由到 `127.0.0.1:13305` 的 Lemonade（默认档 `Qwen3.5-9B`：本机 20GB 卡放不下 30B 与 Hindsight 的 9B 共存，30B 会被反复顶掉，见 `ci/local-lane.mjs` 头注释）。`LEMONADE_API_KEY` 只是 OpenAI 兼容层要求的占位符，不是秘密。
 2. 默认 `DSH_PERMISSION_MODE=workspace-write`（原来是 `danger-full-access`）：越界写被沙箱拒绝，fail-closed 而不是「什么都让它写」。
 3. 只有 `DSH_HEADLESS_ALLOW_CREDS=1` 时才回退旧行为：从 `~/.dsh/.credentials.yaml` 取 key（不落盘、不回显），默认 patch 换回 `<secrets 目录>/headless-model.yml`。传这个开关的有两类：工单显式打 `model:strong` / `model:paid`（`ci/dispatch.mjs:943`），以及 **rebase 解冲突路径**（`ci/dispatch.mjs:1559`，默认就用强模型）——这是全流程里唯一默认会碰凭据的一步。
 

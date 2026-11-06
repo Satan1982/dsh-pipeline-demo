@@ -307,6 +307,7 @@
 1 6e978471b25d749b assert.ok(UNMETERED_UNIT_CNY >= 0);
 1 6f1291a52d1f89cd assert.equal(median([1, 2, 3, 4]), 2.5);
 1 6f32c2ce3ae49e21 assert.equal(single.ok, true);
+1 6f3e22669e664f05 assert.deepEqual(llmEntries({ all_models_loaded: [EMB, TARGET] }), [TARGET]);
 1 7062b3aa3f965cb8 assert.deepEqual(parseVerdict('全部断言通过'), { verdict: 'unknown', reason: '' });
 1 707e5adb2f87ab50 assert.match(body, /没有给出具体原因/);
 1 70bb169c5f44c933 assert.equal(code, 0);
@@ -434,7 +435,6 @@
 1 9968a8c7797ede3c assert.equal(e.nextProbeAt, '2026-10-28T00:05:00.000Z');
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
-1 99c9c201b3a208a1 assert.deepEqual(llmEntries({ all_models_loaded: [EMB, CODER] }), [CODER]);
 1 9a08d45fdcd52fdb assert.equal(single.needsHuman, undefined);
 1 9a2b9009e63fd1da assert.equal(lane.state, 'occupied');
 1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
@@ -449,7 +449,6 @@
 1 9cf510795804b6b4 assert.equal(toastText({ kind: 'daycap', why: '今日已花 ¥5' }).title, '流水线 今日花费到顶');
 1 9d123203909acabc assert.equal(readFileSync(stateFile(d), 'utf8').includes('"paused": true'), true);
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
-1 9ea8f423b10597cd assert.equal(lane.holder, 'Qwen3.5-9B-GGUF');
 1 9ee74b8fbdd754ae assert.equal(files.length, 1);
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 9f271104d3828c3e assert.equal(parseRepos(['not-a-repo']).entries.length, 0);
@@ -481,6 +480,7 @@
 1 a745b939375945c0 assert.equal(formatFindings({ findings: [] }), '评审通过：没有发现问题。');
 1 a79526c232c68eaa assert.equal(capitalize('abc'), 'Abc');
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
+1 a91a5e5613481138 assert.equal(lane.holder, OTHER.model_name);
 1 a9329e88cab9f731 assert.equal(blockReason({ text: 'agent-exit-1', zeroTries: 3 }), '连续 3 次 0 token（模型没开始干活）');
 1 a9bfe0c290a15d6d assert.equal(missing.verdict, 'missing');
 1 aa160ae73218725c assert.match(d.error, /DSH_ALLOW_GATE_REASON/);
@@ -672,6 +672,7 @@
 1 e6a44db3d90fe843 assert.deepEqual(d.orphanWorktrees, [31, 32]);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e728944a8974cc6b assert.equal(subject, '[needs-info] #42 补 一行文档');
+1 e73b15ca603e3b3c assert.match(v.why, /Qwen3-Coder-30B-A3B-Instruct-GGUF/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
 1 e78e3b3ae169eea3 assert.equal(pass.verdict, 'pass');
 2 e82c52d6f20acaaa assert.equal(existsSync(file), false);
@@ -680,7 +681,6 @@
 1 e89fd1a1003aae39 assert.deepEqual(probeArgv(['a', 'b']), ['--only', 'a,b', '--quiet']);
 1 e8cb5b75b6814786 assert.ok(outs.some((s) => s.includes('"failed": 1')));
 2 e93dba2a8778516b assert.equal(rec.kind, 'failed');
-1 e97338bc04ae1215 assert.match(v.why, /Qwen3\.5-9B-GGUF/);
 1 e9a01dc865531d66 assert.equal(/spend: 今日 ¥1\.2345/.test(text), true);
 1 ea4d4e985c585f4d assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');
 1 eae768bd4a305274 assert.equal(store.get('deadbeefdeadbeef').cause, '环境');
