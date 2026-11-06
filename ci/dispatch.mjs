@@ -497,6 +497,10 @@ const LOCK_FILE = path.join(LOG_DIR, 'dispatch.lock');
 const LOCK_STALE_MS = TIMEOUT + 10 * 60 * 1000;
 // serve 口径：每轮都刷心跳，停 3 分钟就是卡死/被杀（原来是 40 分钟才接管，见 ci/lock-policy.mjs）。
 const LOCK_BEAT_STALE_MS = Number(process.env.DSH_LOCK_BEAT_STALE_MS ?? DEFAULT_BEAT_STALE_MS);
+// 心跳单独用一个定时器：pollOnce 里跑单可能几十分钟，而轮询循环的心跳只在两轮之间刷。
+// 单在跑时锁的 at 不动 → 3 分钟后别的进程（计划任务 / --ensure）判「陈旧」接管，正在跑的单被
+// 孤儿化、issue 被重新领取（2026-11-07 00:31 实测 #95 就是这样丢的）。间隔要小于判陈旧阈值。
+const LOCK_BEAT_INTERVAL_MS = Number(process.env.DSH_LOCK_BEAT_INTERVAL_MS ?? 30_000);
 const LOCK_MODE = ONCE ? 'once' : 'serve';
 
 // 谁在跑：只有「进程还活着且锁不算太旧」才算占用，否则视为陈旧可接管。
@@ -2494,6 +2498,19 @@ async function main() {
     return;
   }
   process.on('exit', lock.release);
+  // 心跳与轮询循环解耦：pollOnce 阻塞期间也要续租（见 LOCK_BEAT_INTERVAL_MS 注释）。
+  // 被接管后（ownsLock 为假）立刻停表，别去写别人的锁。
+  let beatTimer = null;
+  if (!ONCE) {
+    beatTimer = setInterval(() => {
+      try {
+        if (!ownsLock()) { clearInterval(beatTimer); beatTimer = null; return; }
+        writeFileSync(LOCK_FILE, JSON.stringify(lockPayload({ pid: process.pid, at: new Date().toISOString(), mode: 'serve' })));
+      } catch { /* 刷不动就等下一次 */ }
+    }, LOCK_BEAT_INTERVAL_MS);
+    beatTimer.unref?.();
+    process.on('exit', () => { try { clearInterval(beatTimer); } catch { /* 退出中 */ } });
+  }
   // 代码指纹：出问题时第一个要回答的是「跑的是哪份代码」。只有 pid 时，日志里分不清
   // 是旧进程还在跑，还是改了代码没重启。sha 取仓库 HEAD，时间取本文件 mtime（UTC）。
   let codeSha = 'nogit';
@@ -2530,11 +2547,7 @@ async function main() {
       log(`锁已被接管（pid=${process.pid} 不再是持有者），常驻进程退出`);
       return;
     }
-    // 心跳：每轮把锁的时间刷成现在。没有它，一个只是「闲了很久」的常驻进程会被别的进程
-    // 判成陈旧锁接管，而它自己还在轮询——两边都以为自己是主人。
-    try {
-      writeFileSync(LOCK_FILE, JSON.stringify(lockPayload({ pid: process.pid, at: new Date().toISOString(), mode: 'serve' })));
-    } catch { /* 刷不动就等下一轮 */ }
+    // 心跳由上面的独立定时器负责（跑单期间也要续租）；这里只确认锁还是自己的。
     await maybeDistill();
     try {
       await recoverBlocked();

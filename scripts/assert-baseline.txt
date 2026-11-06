@@ -62,6 +62,7 @@
 1 187548b30c671b3c assert.equal(JSON.parse(lines[1]).issue, 2);
 1 18a59c330d9c832f assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', '100', '--amount', '200']), TypeError);
 1 1959ba1d9479f6c2 assert.equal(merged.model, FREE_REVIEW_MODEL);
+1 196fd240f5f72d55 assert.notEqual(DISPATCH.indexOf('LOCK_BEAT_INTERVAL_MS'), -1, 'LOCK_BEAT_INTERVAL_MS 不见了：心跳又回到轮询循环里了？');
 1 1a01b1edb6d14acc assert.equal(checkUnattendedIntake({ acceptanceCmds: 'npm test', labels: ['acceptance:optional'] }).ok, false);
 1 1a38a6ce4d35c6f4 assert.equal(modeOf(undefined), 'once');
 1 1a4310201679f9ed assert.equal(finalText([ev({ type: 'text', text: 'a' }), ev({ type: 'text', text: 'b' })].join('\n')), 'ab');
@@ -90,6 +91,7 @@
 1 1f9fdee06773c346 assert.deepEqual(next, [{ date: '2026-10-01', amount: 100, note: '工资' }]);
 1 2007399da72fc5b3 assert.match(renderPool({}), /读不到 `fm\.py stats` 快照/);
 1 201599a756a1dce0 assert.match(m, /T1 --> T2/);
+1 210f4ae3c8ae2650 assert.ok(Number.isFinite(interval) && interval > 0, `心跳间隔不合法：${m[1]}`);
 1 212dd585d91263dd assert.equal(excerpt('abcdef', 3), 'abc…');
 1 2187334f96360d1d assert.equal(formatCny(1.234), '¥1.23');
 1 2249dfe47f420362 assert.equal(powOf(9, 0), 1);
@@ -176,6 +178,7 @@
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
 1 404c7a6ed3ba27fd assert.equal(isPeak(off), false);
+1 406d340915e6157c assert.ok(m, '缺少心跳间隔的默认值');
 1 40a4830f8d6f8300 assert.deepEqual(stats.map((s) => s.cause), ['环境', '基线', '写错']);
 1 40e8795221375421 assert.match(formatSemantic(single), /单模型免费档/);
 1 40f4a1ccbd5dbb75 assert.equal(seen[0].init.method, 'POST');
@@ -212,6 +215,7 @@
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4bbfd0dba9a3e225 assert.equal(lockHeld({ alive: true, ageMs: 20 * MIN, mode: undefined, staleMs: STALE }), true);
 1 4be59946f36a1c14 assert.equal(formatCny(0), '¥0');
+1 4bef4d6876c69c36 assert.match(block, /ownsLock\(\)/, '定时器里要确认锁还是自己的，别写别人的锁');
 1 4c142bec865a92f8 assert.equal(merged.reviewers.length, 1);
 1 4d1f48799450d386 assert.equal(isPeak(new Date('2026-10-31T10:00:00+08:00')), false); // 周六
 1 4d8b783e6a269324 assert.deepEqual(listModels({ b: { status: 'stale' } }), [{ id: 'b', status: 'stale' }]);
@@ -395,6 +399,7 @@
 1 89e42d0d5796c99e assert.equal(maxOf(-2, -5), -2);
 1 89ea426c5587cec8 assert.equal(called, 0);
 1 8a323602edc8a314 assert.match(overrideLogFile(), /gate-override\.jsonl$/);
+1 8af6b93f0c83a101 assert.match(block, /clearInterval\(beatTimer\)/, '被接管后要停表');
 1 8b1a17ca0c3f0d0d assert.equal(costCny(u, 'no-such-model', off), null);
 1 8b5654e89706d773 assert.ok(lines[0].startsWith('o/a → D:/code/a'));
 1 8b829adfce306389 assert.equal(d.action, 'requeue');
@@ -435,6 +440,7 @@
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 975ea2c125aa5fca assert.deepEqual(r.unknown, [], '--serve 被当成未知旗标会让 startResident() 拉起的进程 exit 2，常驻永远起不来');
 1 97dac011e31a8d24 assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
+1 981cfef14769a936 assert.ok(interval < 3 * 60 * 1000, `心跳间隔 ${interval}ms 不小于判陈旧阈值 180000ms，跑单期间仍会被接管`);
 1 981ffeb12f9f207d assert.match(body, /bash scripts\/verify\.sh/);
 1 98bfb0e2c7ceca59 assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
@@ -475,6 +481,7 @@
 1 a393a54ee4ff6f78 assert.equal(partial.needsHuman, true);
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
 1 a3edf76b5b38b1b8 assert.equal(byCause['环境'].fps, 2);
+1 a3ef9f0264f27ba7 assert.notEqual(at, -1, '没有得到独立定时器：心跳只剩轮询循环里那份');
 1 a40f672578d410b4 assert.deepEqual(map, { T1: 0, T2: 1, T3: 2, T4: 2 });
 1 a55defb0eceaf36b assert.ok(outs.some((s) => s.includes('ALERT 已写')));
 1 a581740d685654a1 assert.equal(plan.candidates, 2);
@@ -528,6 +535,7 @@
 1 b3d306859fb9e70a assert.equal(rec.reason, '临时修门禁');
 1 b5094c02067920df assert.equal(
 1 b525d8f589dc96bc assert.match(parseRepos(['not-a-repo']).errors[0], /owner\/name/);
+1 b65c951c4dd864a3 assert.equal(DISPATCH.includes('心跳：每轮把锁的时间刷成现在'), false, '旧的循环内心跳又回来了');
 1 b67dfd82baeee498 assert.deepEqual(missingLabels(existing), ['agent:blocked:manual']);
 1 b6c5c89a5e292dd6 assert.equal(costCny(u, 'deepseek-ai/DeepSeek-V4.1-Flash-1017', off), 0);
 1 b6d1afb179e2921a assert.equal(merged.findings.length, 2);
