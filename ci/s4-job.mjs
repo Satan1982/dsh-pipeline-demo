@@ -23,7 +23,7 @@ export const DEFAULT_JOB_DIR = path.join(WORKTREE_ROOT, '.s4', 'current');
 
 const STALE = ['done.json', 'headless.log', 'headless.err', 'task.txt', 'launcher.out', 'launcher.err'];
 
-export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR }) {
+export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '' }) {
   if (!task || !String(task).trim()) throw new Error('task 为空');
   if (!cwd) throw new Error('缺 cwd');
   const abs = path.resolve(cwd);
@@ -35,6 +35,8 @@ export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_
   mkdirSync(jobDir, { recursive: true });
   for (const f of STALE) rmSync(path.join(jobDir, f), { force: true });
   const job = { task: String(task), timeoutSec: Number(timeoutSec) || 2400, cwd: abs };
+  // 模型路由只经 job 文件传（不走继承环境变量）：低权侧自己决定要不要用别的 patch。
+  if (patch) job.patch = String(patch);
   writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(job, null, 2), 'utf8');
   return job;
 }
@@ -47,12 +49,21 @@ function readJson(file) {
   }
 }
 
-// 以 dsh-agent 身份跑一次任务。resolve 成 { ok, code, out, done, error }。
-export async function runAsAgent({
-  task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, launcher = path.join(HERE, 's4-as-agent.ps1'),
-  onSpawn = null,
+// 同一个 jobDir 只能有一份活：两个 run 同时写会让 runner 抢 headless.log（实测 exit 2）。
+// 调度器是单进程，进程内串行化就够；真要并发再按 worktree 分 jobDir。
+let queue = Promise.resolve();
+
+export function runAsAgent(opts) {
+  const next = queue.then(() => runAsAgentOnce(opts), () => runAsAgentOnce(opts));
+  queue = next.then(() => {}, () => {});
+  return next;
+}
+
+async function runAsAgentOnce({
+  task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '',
+  launcher = path.join(HERE, 's4-as-agent.ps1'), onSpawn = null,
 }) {
-  const job = prepareJob({ task, cwd, timeoutSec, jobDir });
+  const job = prepareJob({ task, cwd, timeoutSec, jobDir, patch });
   const doneFile = path.join(jobDir, 'done.json');
 
   const child = spawn(

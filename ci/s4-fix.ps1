@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
   s4-fix.ps1 - repair the ACL damage left by ci/s4-install.ps1 v1.
 

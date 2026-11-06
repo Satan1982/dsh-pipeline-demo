@@ -18,7 +18,7 @@ if not exist "%NODE%" (
 )
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$bad=0; foreach($f in @('ci\s4-install.ps1','ci\s4-run-headless.ps1','ci\s4-as-agent.ps1','ci\s4-fix.ps1','ci\s4-grant-logon.ps1')){ $e=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $f),[ref]$null,[ref]$e); if($e.Count){ $bad++; Write-Host ('FAIL parse ' + $f); $e | ForEach-Object { Write-Host ('  ' + $_.Message) } } else { Write-Host ('ok   parse ' + $f) } }; exit $bad"
+  "$bad=0; foreach($f in @('ci\s4-install.ps1','ci\s4-run-headless.ps1','ci\s4-as-agent.ps1','ci\s4-fix.ps1','ci\s4-grant-logon.ps1')){ $p=Join-Path $PWD $f; $e=$null; $null=[System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$null,[ref]$e); if($e.Count){ $bad++; Write-Host ('FAIL parse ' + $f); $e | ForEach-Object { Write-Host ('  ' + $_.Message) }; continue }; $b=[IO.File]::ReadAllBytes($p); $bom=($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191); $nonascii=$false; foreach($x in $b){ if($x -gt 127){ $nonascii=$true; break } }; if(-not $bom -and $nonascii){ $bad++; Write-Host ('FAIL bom missing (PS5.1 reads it as ANSI) ' + $f) } else { Write-Host ('ok   parse+bom ' + $f) } }; exit $bad"
 if errorlevel 1 ( echo == FAIL: powershell parse == & exit /b 1 )
 
 "%NODE%" --check ci\s4-job.mjs || ( echo FAIL s4-job.mjs syntax & exit /b 1 )

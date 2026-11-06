@@ -49,6 +49,7 @@ import { appendLedger, ledgerEntry } from './ledger.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
+import { runAsAgent } from './s4-job.mjs';
 
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
@@ -1881,7 +1882,20 @@ function scrubbedEnv() {
   return out;
 }
 
-async function runHeadless(cwd, prompt, env, timeout) {
+export async function runHeadless(cwd, prompt, env, timeout) {
+  // S4 低权通道（docs/77 §8）：默认先以 dsh-agent 身份跑（agent 不继承本进程的任何凭据）；DSH_S4_AGENT=0 显式关掉。
+  // 只有「通道本身不可用」（没写出 done.json：没有 dsh-agent 密码、launcher 起不来）才回退原来的 bash
+  // spawn —— 隔离装坏了不该让整条流水线停摆；任务自己失败（有 done.json、exit≠0）照常上报，不回退。
+  if (process.env.DSH_S4_AGENT !== '0') {
+    const r = await runAsAgent({ task: prompt, cwd, timeoutSec: Math.round(timeout / 1000), patch: env.DSH_HEADLESS_PATCH || '' });
+    if (r.done) {
+      const usage = sumUsage(r.out);
+      if (!r.ok) log(`[s4] 低权 run 失败 exit=${r.code}：${r.error || ''}`);
+      else log(`[s4] 低权 run 完成 user=${r.done.user || '?'} ${r.done.durationSec ?? '?'}s`);
+      return { code: r.code, out: finalText(r.out), raw: r.out, usage, s4: true };
+    }
+    log(`[s4] 低权通道不可用，回退 bash：${r.error || '没有 done.json'}`);
+  }
   let last = null;
   for (let i = 1; i <= 3; i += 1) {
     // --json：stdout 是事件流，里面带每一步的 usage（headless profile 没装 cost-meter，
