@@ -67,7 +67,7 @@ export function clearPaused(logDir) {
 // 未知旗标的黑名单：dispatch 只认下面这些。以前多写一个旗标，不是报错，而是静默起常驻进程
 // （`ci/dispatch.mjs:2156` 的 `if (ONCE || DRY) return;` 之后就是 `while (true)`），
 // 想看一眼状态反而把调度器点亮了——所以这里显式拒绝，宁可 exit 2。
-export const KNOWN_FLAGS = ['--once', '--ensure', '--serve', '--dry-run', '--probe-stale', '--pool-snapshot', '--repos', '--status', '--pause', '--resume', '--why', '--help', '-h', '-?'];
+export const KNOWN_FLAGS = ['--once', '--ensure', '--serve', '--dry-run', '--probe-stale', '--pool-snapshot', '--repos', '--unattended', '--status', '--pause', '--resume', '--why', '--help', '-h', '-?'];
 
 export function parseRuntime(argv) {
   const args = argv.slice(2);

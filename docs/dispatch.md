@@ -195,6 +195,9 @@ powershell -ExecutionPolicy Bypass -File ci\install-task.ps1 -Remove
 每轮只跑 `--once` 就退出，进程崩溃不影响下一次触发；`MultipleInstances IgnoreNew` 防止上一轮没跑完时叠加；单轮 40 分钟硬上限，卡死会被系统杀掉。token 由 `dispatch.mjs` 自己从
 `<secrets 目录>\github-token.txt` 读，不写进任务定义。
 
+> 计划任务的动作自带 `--unattended`（= `DSH_UNATTENDED=1`，见 `ci/dispatch.mjs:221`），
+> 无人值守语义在这种宿主里默认生效。手动 `--once` 不带该参数时仍是「有人值守」口径，便于本地调试。
+
 **B. 常驻进程（推荐，打开即用）**
 
 ```bash

@@ -9,6 +9,7 @@
   - 每次触发只跑一轮（--once），不常驻；进程崩溃不会影响下一次触发。
   - MultipleInstances IgnoreNew：上一轮还没跑完时不会叠加第二轮。
   - 每轮有 40 分钟硬上限，卡死会被系统杀掉。
+  - 动作带 --unattended：无人值守模式（拒单→needs-info、成本/门禁 fail-closed）。
   - 任务动作只依赖 node + 仓库路径，token 由 dispatch.mjs 自己从
     D:\code\.secrets\github-token.txt 读取，不写进任务定义。
 #>
@@ -41,7 +42,7 @@ foreach ($p in $required) {
 
 $action = New-ScheduledTaskAction `
     -Execute $node `
-    -Argument '--use-system-ca ci/dispatch.mjs --once' `
+    -Argument '--use-system-ca ci/dispatch.mjs --once --unattended' `
     -WorkingDirectory $repo
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `

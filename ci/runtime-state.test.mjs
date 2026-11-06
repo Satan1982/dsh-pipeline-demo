@@ -95,3 +95,9 @@ test('--status 输出含锁/暂停/花费三行，且暂停时写明原因', () 
   assert.equal(/pause: 是（人工/.test(text), true);
   assert.equal(/spend: 今日 ¥1\.2345/.test(text), true);
 }));
+
+test('--unattended 是合法旗标（计划任务动作里带它，不能被 exit 2 挡掉）', () => {
+  const r = parseRuntime(['node', 'ci/dispatch.mjs', '--once', '--unattended']);
+  assert.deepEqual(r.unknown, [], '--unattended 被当成未知旗标会让计划任务每轮 exit 2，无人值守永远不生效');
+  assert.equal(KNOWN_FLAGS.includes('--unattended'), true);
+});
