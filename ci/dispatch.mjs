@@ -951,9 +951,12 @@ async function verifyWorktree(wt) {
     return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}` };
   }
   const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
+  // 尾部为空时至少留下退出码：历史上出现过「门禁失败但日志只有冒号」的情况，无法判断是
+  // 门禁自己退非零还是脚本根本没产出任何东西（现在两边都写清楚）。
+  const body = tail || '（门禁没有任何输出）';
   return {
     ok: false,
-    detail: `独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：\n${tail}`,
+    detail: `独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：exit=${v.code}\n${body}`,
   };
 }
 
