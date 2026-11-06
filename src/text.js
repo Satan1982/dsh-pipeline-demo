@@ -93,3 +93,13 @@ export function capitalizeWords(text) {
     return word[0].toUpperCase() + word.slice(1).toLowerCase();
   }).join(' ');
 }
+
+export function slugify(text) {
+  if (typeof text !== 'string') {
+    throw new TypeError('slugify expects a string');
+  }
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}

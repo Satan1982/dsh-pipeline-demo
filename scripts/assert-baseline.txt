@@ -223,10 +223,12 @@
 1 4e8b40a6cd95c0f1 assert.equal(priceFor('deepseek-flash', idle).peak, true);
 1 4f37f4df93ae13ae assert.equal(shortHash('hello'), 'h9f2cab');
 1 4fb28671bfb55dd0 assert.throws(() => median([]), RangeError);
+1 501e6c1419720300 assert.equal(slugify.length, 1);
 1 50ccc966e510b569 assert.equal(envAt > 0 && poolAt > 0 && envAt < poolAt, true, '环境失败分支必须排在免费池判定之前');
 1 50fa9f3f514c95b4 assert.ok(entries[0].dir.replace(/\\/g, '/').endsWith('code/sub/x'));
 1 511a735bad766a3c assert.equal(excerpt('ab', 5), 'ab');
 1 515025dcbceb5829 assert.deepEqual(llmEntries({}), []);
+1 5180226fcfd4b97f assert.equal(slugify('---'), '');
 1 51d8c9656c598cf4 assert.match(md, /## 成本报表|# 成本报表/);
 1 5224eb9780a4b1c8 assert.equal(lockHeld({ alive: true, ageMs: STALE, mode: 'once', staleMs: STALE }), false);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
@@ -239,6 +241,7 @@
 1 5541417e849a6779 assert.deepEqual(REQUEUE_BACKOFF_MS, [5 * MIN, 10 * MIN, 20 * MIN, 40 * MIN, 60 * MIN]);
 1 556622ac128ad9e2 assert.equal(staleTargets(stats).length, DEFAULT_LIMIT);
 1 556706d6a1a93848 assert.match(body, /Satan1982\/dsh-pipeline-demo/);
+1 55b4b2d005b05838 assert.equal(slugify('Hello World'), 'hello-world');
 1 562aa085b7479028 assert.equal(capitalizeWords(''), '');
 1 56734436da90d0af assert.equal(cube(0), 0);
 1 56a80938cc4f9d46 assert.deepEqual(rec.files, ['ci/x.mjs']);
@@ -248,6 +251,7 @@
 5 579405978276dd0f assert.equal(d.ok, true);
 1 57accb9ee40cd460 assert.equal(partial.verdict, 'pass');
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
+1 57ec87221b4c6392 assert.equal(slugify('foo_bar'), 'foo-bar');
 1 58053018b14c8457 assert.equal(SCRIPT.includes('DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"'), true);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
 1 59390b7bca3b7e2d assert.equal(yml.includes('/api/v1'), true);
@@ -311,6 +315,7 @@
 1 7062b3aa3f965cb8 assert.deepEqual(parseVerdict('全部断言通过'), { verdict: 'unknown', reason: '' });
 1 707e5adb2f87ab50 assert.match(body, /没有给出具体原因/);
 1 70bb169c5f44c933 assert.equal(code, 0);
+1 70cfc5ea7ed5a39b assert.throws(() => slugify(123), TypeError);
 1 710410062593f6b3 assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', 'salary']), TypeError);
 1 714d0021ff0ecd11 assert.equal(merged.paidUsed, false);
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
@@ -416,6 +421,7 @@
 1 9472668b2d2aab95 assert.equal(yml.includes('127.0.0.1:13305/api/v1'), true);
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 94ea51d88857888f assert.equal(capitalizeWords('HELLO'), 'Hello');
+1 9532efb81defc9ff assert.equal(slugify('Hello, World!'), 'hello-world');
 1 95979712c9ceaf56 assert.equal(spend.cny, 0.05);
 1 95ad2d0798be005a assert.equal(DISPATCH.includes('if (!gate.env) recordFailure('), true, '环境失败不能进失败指纹库');
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
@@ -640,6 +646,7 @@
 1 d82a18c0dae17aaf assert.equal(partial.ok, true);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 d89c47ab8c174f62 assert.equal(recoveryDecision({ entry: null, now: T0 }).action, 'skip');
+1 d9fba3ccf2190da3 assert.equal(slugify(' A B '), 'a-b');
 1 da00f34046543dc7 assert.equal(d.entry.gaveUp, true);
 1 da0ccd20f18ed91b assert.ok(r.errors.some((e) => e.includes('写事件失败')));
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);
@@ -662,6 +669,7 @@
 1 e1cc585dd8f65913 assert.match(formatDrift(d), /worktree/);
 1 e243cecc44f7d973 assert.equal(excerpt('abc', 3), 'abc');
 1 e2a1a3d2e575b86c assert.deepEqual(summarize(entries, '2026-10'), { income: 0, expense: 10, balance: -10 });
+1 e2a6460ebe6bd7ae assert.equal(slugify(''), '');
 1 e38198cb4c0d5a9f assert.match(v.why, /单槽/);
 1 e39b845f66bb7fb8 assert.equal(classifyCause('verify: 断言基线不一致'), '基线');
 1 e3e90163bff67881 assert.ok(body.includes('A &amp; B &lt;c&gt;'));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords, shortHash, capitalizeWords } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords, shortHash, capitalizeWords, slugify } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -174,4 +174,27 @@ test('capitalizeWords handles empty string', () => {
 
 test('capitalizeWords rejects non-string input', () => {
   assert.throws(() => capitalizeWords(123), TypeError);
+});
+
+test('slugify lowercases words and joins them with hyphens', () => {
+  assert.equal(slugify('Hello World'), 'hello-world');
+});
+
+test('slugify collapses runs of non-alphanumeric characters and trims the edges', () => {
+  assert.equal(slugify('  A  B  '), 'a-b');
+  assert.equal(slugify('Hello, World!'), 'hello-world');
+  assert.equal(slugify('foo_bar'), 'foo-bar');
+});
+
+test('slugify returns an empty string when there is nothing to keep', () => {
+  assert.equal(slugify(''), '');
+  assert.equal(slugify('---'), '');
+});
+
+test('slugify rejects non-string input', () => {
+  assert.throws(() => slugify(123), TypeError);
+});
+
+test('slugify takes exactly one parameter', () => {
+  assert.equal(slugify.length, 1);
 });
