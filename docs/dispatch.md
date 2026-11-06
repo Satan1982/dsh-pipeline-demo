@@ -34,6 +34,26 @@ node ci/dispatch.mjs --dry-run
 | 人工 squash 合并 | sha `2aa9d8c` |
 | 全程 | ~72s |
 
+## 端到端实测（2026-11-06，调度器全链）
+
+> 前置坑：本机 Node 自带 CA 不含 Windows 根证书链，`api.github.com` 在 Node 里报
+> `UNABLE_TO_VERIFY_LEAF_SIGNATURE`；而 `curl` 报的是 `CRYPT_E_NO_REVOCATION_CHECK`、git 走 schannel。
+> 三种报错都**不是断网**。`ci/dispatch.mjs:51-57` 启动时自我重执行加 `--use-system-ca`，调度器因此能直连 API。
+
+| 步骤 | 结果 |
+|---|---|
+| 创建 Issue #89（docs 组件表补 `ci/runtime-state.mjs` 一行） | 17:41:35 |
+| 调度器领取 | 17:41:45 |
+| headless 完成 | 17:46:02（252s，20178 tokens：in 18206 / out 1972，本地 Lemonade ¥0） |
+| 验收命令（调度器自己跑） | 17:46:11 pass |
+| 自动开 PR #90 | 17:46:38（1 file +1 行） |
+| 门禁 + 评审 | `verify.sh` 通过；语义评审 1/1 有效（XingChenAGI/Xing4.0-29B pass） |
+| CI | success，`mergeable_state=clean` |
+| squash 合并 | `2aa62c0`，17:50:52 |
+| 全程 | 9m17s（issue → merge commit） |
+
+证据：`.logs/dispatch.log`（17:41:45–17:50:14）、`.logs/issue-89-attempt-1.log`、PR #90。
+
 ## 门禁（缺一个就不执行）
 
 1. **验收标准必须存在**：issue body 必须有 `### 目标` 和 `### 验收标准（可执行）`，否则直接 `agent:failed` 并评论原因。没有验收标准的任务会做出"自洽但错"的结果。
