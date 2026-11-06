@@ -1,4 +1,4 @@
-﻿# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
+# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
 #
 # 它不读任何凭据：账本/dsh-agent 自己的 home 里没有 .credentials.yaml，
 # 且下面会显式清掉可能从父进程漏下来的密钥变量（同 ci/dispatch.mjs:1850 的 SCRUB_ENV 口径）。
@@ -162,6 +162,14 @@ try {
   $done.verdict = $verdictLine
   $done.tail = $tail
   $done.ok = ($done.exit -eq 0)
+  # 入口用 ENV_FAIL: 标记「模型/环境没就绪，agent 根本没法跑」（见 ci/headless-task.sh 预热失败分支）。
+  # 这个标记走 stderr，而 done.error 是调度器判「环境失败 vs 任务写错」的唯一输入，
+  # 不搬过来调度器就只能看到 exit=78，把它当普通失败烧重试预算。
+  $envLine = @($err -split "`r?`n" | Where-Object { $_ -match '^\s*ENV_FAIL:' } | Select-Object -First 3)
+  if ($envLine.Count -gt 0) {
+    $done.envFail = $envLine[0].Trim()
+    if (-not $done.error) { $done.error = ($envLine -join ' ') } else { $done.error = ('{0}｜{1}' -f ($envLine -join ' '), $done.error) }
+  }
   if (-not $done.ok -and -not $done.error) { $done.error = ('headless exit=' + $done.exit) }
 } catch {
   $done.ok = $false

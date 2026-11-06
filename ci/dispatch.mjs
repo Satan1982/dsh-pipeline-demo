@@ -1979,7 +1979,7 @@ export async function runHeadless(cwd, prompt, env, timeout) {
       const usage = sumUsage(r.out);
       if (!r.ok) log(`[s4] 低权 run 失败 exit=${r.code}：${r.error || ''}`);
       else log(`[s4] 低权 run 完成 user=${r.done.user || '?'} ${r.done.durationSec ?? '?'}s`);
-      return { code: r.code, out: finalText(r.out), raw: r.out, usage, s4: true };
+      return { code: r.code, out: finalText(r.out), raw: r.out, usage, s4: true, err: r.error || '' };
     }
     log(`[s4] 低权通道不可用，回退 bash：${r.error || '没有 done.json'}`);
   }
