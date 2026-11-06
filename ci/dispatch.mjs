@@ -75,6 +75,9 @@ const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'deskto
 const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
 const REPO_DIR = REPO_DIR_RAW;
 const WT_ROOT = process.env.DSH_WORKTREES || path.join(path.dirname(REPO_DIR), '.worktrees');
+// 低权隔离开关：默认开（agent 以 dsh-agent 身份跑，见 docs/77 §8）；`DSH_S4_AGENT=0` 显式退回旧行为。
+// 隔离下 agent 拿不到 .secrets 里的任何 key，所以强模型/付费路由一律降级到仓内本地免费档。
+const S4_ON = process.env.DSH_S4_AGENT !== '0';
 // 默认强模型走免费池（modelscope 的 DeepSeek-V4.1-Flash-1017，账面 0 元）；
 // 付费路由只在工单明确打 model:paid 时才用，且日志里会说。
 let STRONG_PATCH = process.env.DSH_HEADLESS_STRONG_PATCH || path.join(SECRETS_DIR, 'headless-model-free-strong.yml');
@@ -1037,7 +1040,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     runEnv.DSH_SESSION_ID = resumeId || '';
     // 只有调度器在续跑同一个会话时才允许入口复用 session id；否则入口会拒绝被继承来的 id。
     runEnv.DSH_HEADLESS_RESUME = resumeId ? '1' : '';
-    if (useStrong) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
+    if (useStrong && !S4_ON) runEnv.DSH_HEADLESS_PATCH = STRONG_PATCH;
     // 付费是最后手段，但有一个例外：并发。modelscope 免费档必须串行（并发 6 只剩 7/37），
     // 已经有任务在跑时这个任务必然重叠，硬用免费档会互相挤、最后一齐超时。
     // 这种情况下改走 deepseek-flash（并发 2500，空闲 1/4 元每百万 tokens，一单约 ¥0.1）。
@@ -1047,7 +1050,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const quotaPaid = FORCE_PAID.has(n);
     forcePaid = forcePaidLabel;
     usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
-    if (usePaid) {
+    if (S4_ON && (useStrong || usePaid)) {
+      log(`${tag} ⚠ 低权隔离：${usePaid ? 'model:paid' : '强模型'} 路由要 .secrets 里的 key，本次改走本地免费档（Lemonade）`);
+    }
+    if (usePaid && !S4_ON) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
       if (forcePaid) log(`${tag} ⚠ 按 model:paid 使用付费模型（默认是免费池）`);
       if (quotaPaid) log(`${tag} ⚠ 免费档额度用尽，本单改用 deepseek-flash（付费）`);
@@ -1752,7 +1758,8 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
   const t0 = Date.now();
   // 解多文件源码冲突是这条流水线里最难的一步：29B 实测一次 41 秒成功、一次 522 秒失败，
   // 所以默认换强模型（可用 DSH_REBASE_MODEL=weak 退回旧行为）。
-  const rebasePatch = process.env.DSH_REBASE_MODEL === 'weak' ? '' : STRONG_PATCH;
+  const rebasePatch = (S4_ON || process.env.DSH_REBASE_MODEL === 'weak') ? '' : STRONG_PATCH;
+  if (S4_ON) log(`[issue #${issueN}][rebase] 低权隔离：不用 .secrets 强模型，走本地免费档`);
   const rebaseEnv = { PATH: CHILD_PATH };
   if (rebasePatch) {
     rebaseEnv.DSH_HEADLESS_PATCH = rebasePatch;
