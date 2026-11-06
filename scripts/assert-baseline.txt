@@ -223,6 +223,7 @@
 2 5472ab9d99af661c assert.equal(merged.verdict, 'block');
 1 5541417e849a6779 assert.deepEqual(REQUEUE_BACKOFF_MS, [5 * MIN, 10 * MIN, 20 * MIN, 40 * MIN, 60 * MIN]);
 1 556622ac128ad9e2 assert.equal(staleTargets(stats).length, DEFAULT_LIMIT);
+1 562aa085b7479028 assert.equal(capitalizeWords(''), '');
 1 56734436da90d0af assert.equal(cube(0), 0);
 1 56a80938cc4f9d46 assert.deepEqual(rec.files, ['ci/x.mjs']);
 1 56b2cd18e58903ae assert.match(merged.escalatedFrom, /凭证/);
@@ -336,6 +337,7 @@
 1 7fd188bb9a5e0383 assert.ok(allowed.has(model), `评审升级档用了规范外的模型：${model}`);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 8019b18031b32001 assert.deepEqual(entries.map((e) => e.repo), ['Satan1982/a', 'Satan1982/b']);
+1 808c3ba1206c0d2f assert.equal(capitalizeWords('hello world'), 'Hello World');
 1 80a959ec1f571450 assert.equal(e.attempt, 1);
 1 81232886f8687cf5 assert.deepEqual(byCause['写错'].issues, [2]);
 1 827b29edaca7e3d8 assert.ok(models.length > 0, '付费 patch 里没解析出模型');
@@ -370,6 +372,7 @@
 1 8da09694c70517a8 assert.equal(runCli(['--file', f2, '--json'], { ...io, now: new Date('2026-11-06T10:00:00.000Z') }), 0);
 1 8da4818dd41a4462 assert.equal(byCause['环境'].records, 2);
 1 8e00575670332508 assert.equal(cube(2), 8);
+1 8e61c69b1bb139ad assert.throws(() => capitalizeWords(123), TypeError);
 2 8f0694b9c090fb9d assert.equal(f.severity, 'block');
 1 8f5b9a4f96302de0 assert.equal(planProbe(stats).skippedKind, 0);
 1 8fc54f849508e5e5 assert.equal(excerpt('abcdef', -2), '');
@@ -384,6 +387,7 @@
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
 1 9472668b2d2aab95 assert.equal(yml.includes('127.0.0.1:13305/api/v1'), true);
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
+1 94ea51d88857888f assert.equal(capitalizeWords('HELLO'), 'Hello');
 1 95979712c9ceaf56 assert.equal(spend.cny, 0.05);
 1 95ad2d0798be005a assert.equal(DISPATCH.includes('if (!gate.env) recordFailure('), true, '环境失败不能进失败指纹库');
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
@@ -586,6 +590,7 @@
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
 1 d57182334dd2ed69 assert.equal(rec.kind, 'gate-override');
 1 d5796e4f055e04fd assert.throws(() => parseSumArgs(['--month', '2026-1']), TypeError);
+1 d6482f02e902d440 assert.equal(capitalizeWords(' a b '), 'A B');
 1 d6d14603fe07293c assert.equal(VERIFY.includes('DSH_VERIFY_TEST_EPERM'), true, '缺自测开关，这条分支无法被验证');
 2 d6ea1af78727f410 assert.equal(records.length, 2);
 1 d6ecf28a7e5607eb assert.notEqual(next, entries);
