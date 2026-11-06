@@ -9,6 +9,7 @@
  *   node ci/dispatch.mjs --ensure   确保后台有常驻调度器（没有就脱离父进程拉起一个）
  *   node ci/dispatch.mjs --serve    常驻轮询（--ensure 拉起时用它；不带参数默认也是它）
  *   node ci/dispatch.mjs --once     跑一轮就退出（适合本地验证与计划任务）
+ *   node ci/dispatch.mjs --unattended  无人值守语义（= DSH_UNATTENDED=1；计划任务的动作里带上）
  *   node ci/dispatch.mjs --dry-run  只列出待办 issue，不执行
  *   node ci/dispatch.mjs --probe-stale  只探活免费池里 stale/unknown 的模型，不领任务
  *   node ci/dispatch.mjs --repos repos.json  按多库清单各起一个常驻（每库独立日志/锁/worktree）
@@ -38,6 +39,7 @@ import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
+import { laneState, laneVerdict, DEFAULT_LOCAL_MODEL } from './local-lane.mjs';
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
@@ -218,8 +220,9 @@ const ONCE      = process.argv.includes('--once');
 const ENSURE    = process.argv.includes('--ensure');
 const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const DRY       = process.argv.includes('--dry-run');
-// 无人值守 = 人不在，只能 fail-closed。默认关：不设 DSH_UNATTENDED=1 时行为与以前完全一致。
-const UNATTENDED = (process.env.DSH_UNATTENDED ?? '') === '1';
+// 无人值守 = 人不在，只能 fail-closed。默认关：不设 DSH_UNATTENDED=1（或 --unattended）时行为与以前完全一致。
+// --unattended 是给计划任务用的：Windows 计划任务的动作里不方便设环境变量，直接带上参数即可。
+const UNATTENDED = (process.env.DSH_UNATTENDED ?? '') === '1' || process.argv.includes('--unattended');
 const PROBE_STALE = process.argv.includes('--probe-stale');
 const POOL_SNAPSHOT = process.argv.includes('--pool-snapshot');
 // 运行态三件（--status / --pause / --resume）：纯本地读写，不进轮询。
@@ -889,6 +892,42 @@ function poolHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
   return value;
 }
 
+// 本地免费档的槽位探活（Lemonade /health）。理由见 ci/local-lane.mjs 顶部：
+// 云端池「有 ok 模型」不代表这张单真能跑——低权隔离把密钥挡掉后，任务实际落到本地
+// Lemonade，而它的 LLM 槽位只有 1 个，Hindsight 的 Qwen3.5-9B 会周期性把槽位占了。
+// 只看云端就重投，等于让工单必然再挂一次（0 token），一晚上的重投预算（3 次）很快烧完。
+const LOCAL_API = String(process.env.LEMONADE_BASE || 'http://127.0.0.1:13305/api/v1').replace(/\/+$/, '');
+const LOCAL_MODEL = process.env.DSH_LOCAL_MODEL || DEFAULT_LOCAL_MODEL;
+let LANE_PROBE = { at: 0, value: null };
+
+async function localLaneHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
+  if (LANE_PROBE.value && now - LANE_PROBE.at < ttl) return LANE_PROBE.value;
+  let value;
+  try {
+    const res = await fetch(`${LOCAL_API}/health`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    value = laneVerdict(laneState(await res.json(), LOCAL_MODEL));
+  } catch (e) {
+    value = { ok: false, why: `本地档探活失败：${e.message}` };
+  }
+  LANE_PROBE = { at: Date.now(), value };
+  return value;
+}
+
+// 这张单重投出去能不能真的跑？两条通道各自独立：
+//   model:paid 走云端付费档 —— 云端池有 ok 模型就行；
+//   其余（含 model:strong）在低权通道里落到本地 Lemonade —— 本地槽位可用才行。
+// 任一条可用就重投；都不可用就继续等下一档退避（等待是免费的，白跑一次不是）。
+async function requeueLane(issue, { now = Date.now() } = {}) {
+  const cloud = poolHealth({ now });
+  const labels = (Array.isArray(issue?.labels) ? issue.labels : []).map((l) => String(l?.name ?? l));
+  const paid = labels.includes('model:paid');
+  if (paid && cloud.ok) return { ok: true, why: `付费档可用（${cloud.why}）` };
+  const local = await localLaneHealth({ now });
+  if (local.ok) return { ok: true, why: paid ? `本地槽位可用（${local.why}）` : local.why };
+  return { ok: false, why: `云端：${cloud.why}；本地：${local.why}` };
+}
+
 async function recoverBlocked() {
   const now = Date.now();
   const state = pruneState(readBlockedState(), { now });
@@ -918,11 +957,12 @@ async function recoverBlocked() {
     writeBlockedState(state);
     return 0;
   }
-  const pool = poolHealth({ now });
   let requeued = 0;
   for (const issue of due) {
     const n = issue.number;
-    const d = recoveryDecision({ entry: state[n], now, pool, maxRequeue: MAX_REQUEUE, backoff: REQUEUE_BACKOFF });
+    // 每张单按自己的路由判一次（paid 看云端，其余看本地槽位）；探活结果有 60s 缓存，不会每张单都打网络。
+    const lane = await requeueLane(issue, { now });
+    const d = recoveryDecision({ entry: state[n], now, pool: lane, maxRequeue: MAX_REQUEUE, backoff: REQUEUE_BACKOFF });
     if (d.action === 'skip') continue;
     if (DRY) {
       log(`[dry-run] [blocked] #${n} would ${d.action}：${d.reason}`);
@@ -938,7 +978,7 @@ async function recoverBlocked() {
       await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:ready'] }).catch(() => {});
       await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
         body: [
-          `▶ 免费池恢复了（${pool.why}），调度器自动把这张单放回 \`agent:ready\` 重跑。`,
+          `▶ 通道恢复了（${lane.why}），调度器自动把这张单放回 \`agent:ready\` 重跑。`,
           '',
           `自动重投 ${d.entry.requeues}/${MAX_REQUEUE} 次。再挂起会继续按退避探活；次数用完会打 \`agent:blocked:manual\` 停下等人。`,
         ].join(NL),
@@ -2364,7 +2404,7 @@ async function main() {
     return;
   }
   if (RUNTIME.unknown.length) {
-    console.error(`未知旗标：${RUNTIME.unknown.join(' ')}\n可用：--once --ensure --serve --dry-run --probe-stale --pool-snapshot --repos <file> --status --pause --resume --help`);
+    console.error(`未知旗标：${RUNTIME.unknown.join(' ')}\n可用：--once --ensure --serve --dry-run --unattended --probe-stale --pool-snapshot --repos <file> --status --pause --resume --help`);
     process.exitCode = 2;
     return;
   }
