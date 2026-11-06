@@ -11,6 +11,7 @@ import path from 'node:path';
 
 export const EVENT_KINDS = {
   failed: '任务失败',
+  'needs-info': '等待补充验收/信息',
   'blocked-manual': '需要人工接手',
   daycap: '今日花费到顶',
   'review-missing': '语义评审缺失',

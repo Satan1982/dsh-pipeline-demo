@@ -112,6 +112,7 @@ Stop-Process -Id <pid>
 | `agent:failed` | 调度器 | 重试耗尽；修完去掉它重新打 `agent:ready` |
 | `agent:blocked` | 调度器 | 环境问题挂起（免费池不可用）。**通常不用管，会自动重投** |
 | `agent:blocked:manual` | 调度器 | 自动重投 3 次用完，需要人接手 |
+| `needs-info` | 调度器 | 缺验收命令/信息，没开工；补进 issue 正文后去掉它、重打 `agent:ready`（不发邮件以外的告警，不耗重试预算） |
 | `model:strong` | 人 | 直接用强模型（跳过弱模型试跑） |
 | `model:paid` | 人 | 允许这张单花钱（`deepseek-flash`） |
 | `merge:auto` | 人 | CI 绿就自动 squash 合并关单 |
@@ -126,7 +127,7 @@ Stop-Process -Id <pid>
 > 为什么要有这一步：GitHub 打不存在的标签不会报错，而是静默丢弃（2026-10-28 实测：`agent:blocked:manual` 当时没建，自动恢复的「交给人」分支就少了这个标记）。`dep-on:<任务号>` 不在自动补齐范围（名字随任务号变），需要时自己加。
 >
 > ```bash
-> for L in agent:ready agent:working agent:done agent:failed agent:blocked agent:blocked:manual \
+> for L in agent:ready agent:working agent:done agent:failed agent:blocked agent:blocked:manual needs-info \
 >          model:strong model:paid merge:auto allow:gate readonly:ok acceptance:optional verdict:strict; do
 >   curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Accept: application/vnd.github+json' \
 >     https://api.github.com/repos/<owner>/<repo>/labels -d "{\"name\":\"$L\",\"color\":\"ededed\"}" > /dev/null

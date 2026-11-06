@@ -56,7 +56,7 @@ node ci/dispatch.mjs --dry-run
 
 ## 门禁（缺一个就不执行）
 
-1. **验收标准必须存在**：issue body 必须有 `### 目标` 和 `### 验收标准（可执行）`，否则直接 `agent:failed` 并评论原因。没有验收标准的任务会做出"自洽但错"的结果。
+1. **验收标准必须存在**：issue body 必须有 `### 目标` 和 `### 验收标准（可执行）`，否则直接 `agent:failed` 并评论原因。没有验收标准的任务会做出"自洽但错"的结果。**无人值守下改挂 `needs-info`**（不冒充「跑过但失败」，见下）。
 2. **agent 不得触碰 origin/main**：跑前跑后对比 `origin/main` SHA，变了就中止并报错。
 3. **无改动 = 失败**：worktree 里既没 dirty 也没新 commit → `agent:failed`。
 4. **隔离 worktree**：任务在 `<工作盘>/.worktrees/issue-<N>` 执行，主工作区不受影响。
@@ -76,10 +76,22 @@ node ci/dispatch.mjs --dry-run
 | `agent:working` | 正在执行（防止重复领取） |
 | `agent:done` | 已产出 PR |
 | `agent:failed` | 执行失败，需人工处理后重新打 `agent:ready` 重试（先去掉 `agent:failed`） |
+| `needs-info` | 没开工（缺验收命令/目标/信息），等人补齐；去掉它重打 `agent:ready` 复位 |
 
 Issue 模板：`.github/ISSUE_TEMPLATE/agent-task.yml`，新建 issue 时选「自动化任务」自动带上 `agent:ready`。
 
-**标签自动补齐（2026-10-28）**：GitHub 打一个不存在的标签是静默丢弃的（不报错、issue 上也不多东西），所以调度器拿锁后在轮询前跑一次 `ensureLabels()`（清单在 `ci/labels.mjs`，14 个），缺的用 `POST /repos/:o/:r/labels` 建上，日志 `[labels] 补齐 N 个缺失标签：agent:blocked:manual 等 N 个`；已齐时不写日志。读不到/建不了只记一行 `[labels] …` 并继续跑（标签管理要 `issues:write`，权限不足不该让任务停摆）。`--dry-run` 只打印 `[dry-run] [labels] 缺 N 个标签…` 不发请求；`dep-on:<任务号>` 由人随手加，不纳入自动补齐。
+**标签自动补齐（2026-10-28）**：GitHub 打一个不存在的标签是静默丢弃的（不报错、issue 上也不多东西），所以调度器拿锁后在轮询前跑一次 `ensureLabels()`（清单在 `ci/labels.mjs`，15 个），缺的用 `POST /repos/:o/:r/labels` 建上，日志 `[labels] 补齐 N 个缺失标签：agent:blocked:manual 等 N 个`；已齐时不写日志。读不到/建不了只记一行 `[labels] …` 并继续跑（标签管理要 `issues:write`，权限不足不该让任务停摆）。`--dry-run` 只打印 `[dry-run] [labels] 缺 N 个标签…` 不发请求；`dep-on:<任务号>` 由人随手加，不纳入自动补齐。
+
+## needs-info：拒单后的异步问答（2026-11-06）
+
+无人值守没人能当场补信息，所以「缺东西、没开工」不再打 `agent:failed`（那条语义是**跑过了但失败**，混在一起人会分不清是代码坏还是单没写全）。`ci/dispatch.mjs` 的两条前置门（缺 `### 目标`/`### 验收标准`、intake 不过）在 `UNATTENDED` 时改走 `askInfo()`：
+
+1. 摘 `agent:working`/`agent:ready`，打 `needs-info`（清单与颜色在 `ci/labels.mjs`）；
+2. 发中文评论（`ci/needs-info.mjs` 的 `buildNeedsInfoComment`）：写清「不是执行失败」、原因、要补的 `### 验收命令` 模板、复活步骤；
+3. 发邮件（默认 `D:/dsh/default-workspace/tools/notify-mail.py`，`DSH_NOTIFY_MAIL` 可改、`DSH_NEEDS_INFO_MAIL=0` 可关）；邮件失败只记日志，不影响挂起；
+4. `notifyEvent({kind:'needs-info'})` 落 `events.jsonl`，次日 digest 可见。
+
+**不耗重试预算、不自动重投、超时也不自动判死**。复活路径与 `agent:failed` 一致：人改 issue 正文补齐，去掉 `needs-info`、重加 `agent:ready`。回归测试 `ci/needs-info.test.mjs`（6 条）。
 
 ## 失败重试（已实现）
 
@@ -533,6 +545,7 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 | 事件 | 什么时候 | 记录 |
 |---|---|---|
 | `failed` | 任务重试用完被标 `agent:failed` | issue 评论 + 日志 + 事件 |
+| `needs-info` | 缺验收命令/信息，挂 `needs-info` 等人补（没开工） | issue 评论 + 邮件 + 日志 + 事件 |
 | `blocked-manual` | 重投次数用完，打了 `agent:blocked:manual`，真的需要人 | issue 评论 + 日志 + 事件 |
 | `daycap` | 当日估算花费到 `DSH_DAY_MAX_CNY`，今天不再领新任务 | 日志 + 事件（一天只弹一次） |
 | `review-missing` | 语义评审整层没跑成（默认 fail-closed） | 日志 + 事件 + PR body 标注 |

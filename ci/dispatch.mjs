@@ -45,6 +45,7 @@ import { formatDrift, localDrift } from './drift.mjs';
 import { parseRuntime, readState, setPaused, clearPaused, formatStatus } from './runtime-state.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
 import { checkUnattendedIntake } from './intake-check.mjs';
+import { NEEDS_INFO_LABEL, buildNeedsInfoComment, buildNeedsInfoMail } from './needs-info.mjs';
 import { appendLedger, defaultLedgerFile, ledgerEntry } from './ledger.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
@@ -738,6 +739,39 @@ async function failTask(issue, reason) {
   notifyEvent({ kind: 'failed', issue: n, why: r.split('\n')[0].slice(0, 120) });
 }
 
+// 缺东西、没法开工 → 挂起为 needs-info，等人补（2026-11-06 P1）。
+// 与 failTask 的区别：不耗重试预算、不发「任务失败」告警、会发邮件；
+// 复活方式与 failTask 一致（改完 issue 去掉 needs-info、重加 agent:ready）。
+const NOTIFY_MAIL = process.env.DSH_NOTIFY_MAIL || 'D:/dsh/default-workspace/tools/notify-mail.py';
+
+async function sendInfoMail(issue, reason) {
+  if (process.env.DSH_NEEDS_INFO_MAIL === '0') return;
+  const { subject, body } = buildNeedsInfoMail({ number: issue.number, title: issue.title, reason, repo: REPO });
+  try {
+    const r = await run('python', [NOTIFY_MAIL, '--subject', subject, '--body', body], { timeout: 30000 });
+    if (r.code === 0) log(`[issue #${issue.number}] needs-info 邮件已发（${subject}）`);
+    else log(`⚠ needs-info 邮件未发（exit ${r.code}）：${(r.out + r.err).trim().slice(-300)}`);
+  } catch (e) {
+    // 邮件是 best-effort：配置缺失/网络不通都不该把工单判死，评论与标签已经落地。
+    log(`⚠ needs-info 邮件异常（不影响挂起）：${e.message}`);
+  }
+}
+
+async function askInfo(issue, reason) {
+  const n = issue.number;
+  const r = String(reason).slice(0, 2000);
+  log(`[issue #${n}] NEEDS-INFO: ${r.split('\n')[0].slice(0, 200)}`);
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+  // 必须摘掉 agent:ready：否则下一轮轮询会原地重领、每分钟重复提问一次。
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
+  await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: [NEEDS_INFO_LABEL] }).catch(() => {});
+  await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+    body: buildNeedsInfoComment({ number: n, title: issue.title, reason: r }),
+  }).catch(() => {});
+  await sendInfoMail(issue, r);
+  notifyEvent({ kind: 'needs-info', issue: n, why: r.split('\n')[0].slice(0, 120) });
+}
+
 // 环境/机器问题导致的人工挂起：与 blockTask 的区别是**不自动恢复**。
 // blockTask 是「免费池暂时不可用」，recoverBlocked 会在池子探活恢复后把单子放回 ready；
 // 环境失败（沙箱不让 spawn）恢复与否取决于人，自动重投只会每 5/10/20 分钟空转一轮。
@@ -982,15 +1016,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
   // 验收标准门禁：没有可执行验收标准就不启动
   if (!goal || !acceptance) {
-    return failTask(issue, '缺少「目标」或「验收标准（可执行）」章节，拒绝执行。请按 Issue 模板补充后重新打 agent:ready。');
+    const why = '缺少「目标」或「验收标准（可执行）」章节，拒绝执行。请按 Issue 模板补充后重新打 agent:ready。';
+    // 无人值守没人能当场补：挂 needs-info 发邮件，而不是打 agent:failed 冒充「跑过但失败」。
+    if (UNATTENDED) return askInfo(issue, why);
+    return failTask(issue, why);
   }
 
   // 无人值守拒单：必须在打 agent:working 之前，也不能等到跑完才判——验收命令是唯一裁判，
-  // `echo ok` 这种「永远绿」的命令等于没有验收。放在这里逐单 failTask，不影响同轮其他任务。
+  // `echo ok` 这种「永远绿」的命令等于没有验收。放在这里逐单处理，不影响同轮其他任务。
   if (UNATTENDED) {
     const intake = checkUnattendedIntake({ acceptanceCmds: stripFence(acceptanceCmdsRaw), labels });
     if (!intake.ok) {
-      return failTask(issue, `无人值守拒单：${intake.reason}`);
+      return askInfo(issue, `无人值守拒单：${intake.reason}`);
     }
   }
 

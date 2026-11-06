@@ -68,8 +68,9 @@ test('appendEvent：建目录 + 追加而不是覆盖', () => {
 
 test('EVENT_KINDS 覆盖所有需要人知道的事件', () => {
   // 2026-10-28 架构评审后扩了四类：评审缺失/降级、状态不一致、门禁被放行修改。
+  // 2026-11-06 P1 加 needs-info：缺验收命令/信息时等回答，不混进「任务失败」。
   assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
-    'blocked-manual', 'daycap', 'failed', 'gate-override', 'review-degraded', 'review-missing', 'state-drift',
+    'blocked-manual', 'daycap', 'failed', 'gate-override', 'needs-info', 'review-degraded', 'review-missing', 'state-drift',
   ]);
 });
 
