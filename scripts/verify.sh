@@ -67,6 +67,16 @@ if [ -z "${CUR_TESTS:-}" ]; then
   exit 1
 fi
 
+# 等价性守卫：`npm test` 用的是 `node --test` 隐式发现，这里必须证明它和上面的
+# 显式清单收集到同样多的测试。否则某天 ci/*.test.mjs 不再匹配发现规则时，
+# npm test 会静默少跑一批而仍然全绿——门禁看不见的绿等于没跑。
+IMPLICIT_TESTS=$(node --test 2>&1 | sed -n -e 's/^# tests \([0-9][0-9]*\)$/\1/p' -e 's/^ℹ tests \([0-9][0-9]*\)$/\1/p' | tail -1)
+if [ "${IMPLICIT_TESTS:-}" != "$CUR_TESTS" ]; then
+  echo "拒绝：隐式发现 ${IMPLICIT_TESTS:-无法解析} 不等于显式清单 $CUR_TESTS（npm test 会漏跑）" >&2
+  exit 1
+fi
+echo "发现等价：隐式=显式=$CUR_TESTS"
+
 CUR_ASSERTS=$(grep -ho 'assert\.' src/*.test.js ci/*.test.mjs | wc -l | tr -d ' ')
 
 echo "== test guard =="

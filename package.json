@@ -7,7 +7,7 @@
   "main": "src/index.js",
   "scripts": {
     "lint": "bash scripts/lint.sh",
-    "test": "node --test src/index.test.js src/stats.test.js ci/*.test.mjs",
+    "test": "node --test",
     "build": "node scripts/build.js",
     "verify": "bash scripts/verify.sh",
     "distill": "node ci/distill-failures.mjs"
