@@ -8,7 +8,10 @@
  *
  * 存储格式（追加写，不重写）：每行一个 JSON
  *   {"fp":"a1b2c3d4e5f60718","sig":"首行...","issue":25,"attempt":1,
- *    "reason":"...","fix":"...","at":"2026-10-25T01:00:00.000Z"}
+ *    "reason":"...","fix":"...","cause":"写错","at":"2026-10-25T01:00:00.000Z"}
+ *
+ * `cause` 是 2026-11-06 加的失败归因（环境/基线/写错/未知），旧记录没有这个字段，
+ * 读取时按 reason 现场归类，所以不必重写历史。
  *
  * 用 append-only 是为了可审计：改了判定逻辑也不会丢掉历史。
  */
@@ -66,6 +69,27 @@ export function fingerprint(text) {
   return createHash('sha256').update(signature(text)).digest('hex').slice(0, 16);
 }
 
+// 失败归因：一条「门禁未过」到底是 agent 写错、基线没同步、还是环境抽风？
+// 分不开这三类，统计就只能说「这周失败 37 次」，说不清该修代码还是该修机器。
+//
+// 只看文本（reason 优先），优先级 环境 > 基线 > 写错：
+// 环境与基线都属于「不是这次改动的问题」，必须先判掉；剩下的默认算写错——
+// 门禁本来就是在审 agent 的改动，排除前两类后，失败就是改动本身没达标。
+export const CAUSES = ['环境', '基线', '写错', '未知'];
+
+const CAUSE_RULES = [
+  ['环境', /rate.?limit|限流|429|overloaded|timeout|timed out|超时|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|socket hang up|git fetch 失败|fetch 失败|Permission denied \(publickey\)|Could not read from remote|Unauthorized|凭据|credential|ENOSPC|ENOENT/i],
+  ['基线', /baseline-unsynced|基线|bless/i],
+];
+
+export function classifyCause(text) {
+  const s = String(text ?? '').trim();
+  // 空原因、或只有「exit code 1」这种没有信息量的壳子：归不了类就别硬凑成写错。
+  if (s.length < 8 || /^(?:exit(?:=|\s*code\s*)?\s*\d+|error|failed|失败)$/i.test(s)) return '未知';
+  for (const [cause, re] of CAUSE_RULES) if (re.test(s)) return cause;
+  return '写错';
+}
+
 function readLines(file) {
   if (!existsSync(file)) return [];
   return readFileSync(file, 'utf8')
@@ -84,7 +108,7 @@ export function loadStore(file = DEFAULT_STORE) {
   for (const rec of readLines(file)) {
     const cur = byFp.get(rec.fp);
     if (!cur) {
-      byFp.set(rec.fp, { ...rec, count: 1, issues: [rec.issue] });
+      byFp.set(rec.fp, { ...rec, cause: rec.cause ?? classifyCause(rec.reason ?? rec.sig ?? ''), count: 1, issues: [rec.issue] });
       continue;
     }
     cur.count += 1;
@@ -92,6 +116,7 @@ export function loadStore(file = DEFAULT_STORE) {
     cur.lastAt = rec.at;
     if (rec.fix) cur.fix = rec.fix;       // 后写的修法覆盖先写的
     if (rec.reason) cur.reason = rec.reason;
+    if (rec.cause) cur.cause = rec.cause; // 新记录自带归因时覆盖旧推断
   }
   return byFp;
 }
@@ -99,6 +124,23 @@ export function loadStore(file = DEFAULT_STORE) {
 export function lookup(textOrFp, file = DEFAULT_STORE) {
   const fp = /^[0-9a-f]{16}$/.test(textOrFp) ? textOrFp : fingerprint(textOrFp);
   return loadStore(file).get(fp) ?? null;
+}
+
+// 按归因汇总：给「失败统计」用。计数以记录条数为准（同一根因失败两次算两次），
+// 同时给出根因数，避免「1 个根因重复 30 次」被读成「30 个问题」。
+export function statsByCause(file = DEFAULT_STORE) {
+  const rows = [...loadStore(file).values()];
+  return CAUSES
+    .map((cause) => {
+      const hits = rows.filter((r) => r.cause === cause);
+      return {
+        cause,
+        fps: hits.length,
+        records: hits.reduce((n, r) => n + r.count, 0),
+        issues: [...new Set(hits.flatMap((r) => r.issues))].sort((a, b) => a - b),
+      };
+    })
+    .filter((x) => x.fps > 0);
 }
 
 export function recordFailure({ text, issue, attempt = 1, reason, fix }, file = DEFAULT_STORE) {
@@ -109,6 +151,7 @@ export function recordFailure({ text, issue, attempt = 1, reason, fix }, file = 
     attempt,
     reason: String(reason ?? text ?? '').slice(0, 2000),
     fix: fix ? String(fix).slice(0, 2000) : null,
+    cause: classifyCause(reason ?? text ?? ''),
     at: new Date().toISOString(),
   };
   const dir = path.dirname(file);
@@ -178,6 +221,13 @@ if (isMain) {
   const [cmd = 'show', file = DEFAULT_STORE] = process.argv.slice(2);
   if (cmd === 'repair') {
     console.log(JSON.stringify(repairStore(file)));
+  } else if (cmd === 'stats') {
+    const rows = statsByCause(file);
+    const total = rows.reduce((n, r) => n + r.records, 0);
+    console.log(`records=${total}`);
+    for (const r of rows) {
+      console.log(`  ${r.cause}  ${r.records} 条 / ${r.fps} 个根因  issues=${r.issues.join(',')}`);
+    }
   } else {
     const store = loadStore(file);
     const rows = [...store.values()].sort((a, b) => b.count - a.count);

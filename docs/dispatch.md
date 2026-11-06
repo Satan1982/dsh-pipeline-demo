@@ -364,7 +364,15 @@ test -f dist/x.tgz
 
 ## 失败指纹库（`docs/failures.jsonl`）
 
-每次失败都记一条 JSONL：`{fp, sig, issue, attempt, reason, fix, at}`。
+每次失败都记一条 JSONL：`{fp, sig, issue, attempt, reason, fix, cause, at}`。
+
+`cause` 是失败归因（`环境` / `基线` / `写错` / `未知`），由 `ci/failures.mjs` 的 `classifyCause()`
+按 reason 文本判定，优先级 环境 > 基线 > 写错：限流、超时、凭据、网络这类算环境，基线未同步算基线，
+剩下的一律算写错（门禁本来就在审 agent 的改动）。旧记录没有这个字段，读取时现场归类，不重写历史。
+
+```
+node ci/failures.mjs stats    # 按归因汇总：records=53 / 环境 5 / 基线 12 / 写错 36
+```
 
 - `signature()` 先规范化（抹掉时间戳、耗时、绝对路径、`issue #N`、`exit=<n>`、`Error:` 前缀），
   再取第一行「真症状」——首行是 `exit code 1` 这种空壳子时往下找第一行有信息量的，

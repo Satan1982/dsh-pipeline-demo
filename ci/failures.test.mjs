@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   normalize, signature, fingerprint, recordFailure, lookup, formatPriorFailures, loadStore, repairStore, trimStore,
+  classifyCause, statsByCause, CAUSES,
 } from './failures.mjs';
 
 test('normalize 抹掉每次都会变的部分', () => {
@@ -141,6 +142,68 @@ test('trimStore 把记忆库剪到上限并保留最新的记录', () => {
     const left = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.equal(left.length, 2);
     assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('classifyCause 把真实失败文本归到三类', () => {
+  const cases = [
+    ['Error: [headless] llm-rate-limit｜agent 未产生任何改动（exit=1）', '环境'],
+    ['Error: git fetch 失败（退避重试 6 次 + SSH 端点）: Could not read from remote repository.', '环境'],
+    ['spawn ENOENT', '环境'],
+    ['Error: 评审层拒绝（改动未推送）：\n✗ 阻断 [baseline-unsynced] 忘了 bless', '基线'],
+    ['基线快照未同步，先跑 refresh-baseline', '基线'],
+    ['ReferenceError: path is not defined', '写错'],
+    ['拒绝：测试数量从 17 降到 16（禁止删测试凑绿）', '写错'],
+    ['Error: 独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：', '写错'],
+    ['exit code 1', '未知'],
+    ['', '未知'],
+  ];
+  for (const [text, want] of cases) {
+    assert.equal(classifyCause(text), want, `归错类：${JSON.stringify(text.slice(0, 40))}`);
+  }
+});
+
+test('环境优先于基线（限流时基线比对本身也不可信）', () => {
+  assert.equal(classifyCause('llm-rate-limit 后 [baseline-unsynced] 未同步'), '环境');
+  assert.ok(CAUSES.includes('未知'), '未知也是合法归因，不能当空串处理');
+});
+
+test('recordFailure 写入 cause，旧记录读取时现场归类', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'failcause-'));
+  const file = path.join(dir, 'docs/failures.jsonl');
+  try {
+    const envText = 'Error: [headless] llm-rate-limit｜agent 未产生任何改动（exit=1）';
+    const bugText = 'ReferenceError: path is not defined';
+    const badText = '✗ 阻断 [baseline-unsynced] 忘了 bless';
+    const a = recordFailure({ text: envText, issue: 1, attempt: 1, reason: envText }, file);
+    const b = recordFailure({ text: bugText, issue: 2, attempt: 1, reason: bugText }, file);
+    const c = recordFailure({ text: badText, issue: 3, attempt: 1, reason: badText }, file);
+    assert.equal(a.cause, '环境');
+    assert.equal(b.cause, '写错');
+    assert.equal(c.cause, '基线');
+
+    // 模拟加字段之前写下的老记录：没有 cause，靠 reason 现算
+    appendFileSync(file, `${JSON.stringify({ fp: 'deadbeefdeadbeef', sig: 'x', issue: 4, attempt: 1, reason: 'ECONNRESET 后重试仍失败', at: '2026-10-25T00:00:00.000Z' })}\n`);
+    const store = loadStore(file);
+    assert.equal(store.get('deadbeefdeadbeef').cause, '环境');
+
+    const stats = statsByCause(file);
+    const byCause = Object.fromEntries(stats.map((s) => [s.cause, s]));
+    assert.deepEqual(stats.map((s) => s.cause), ['环境', '基线', '写错']);
+    assert.equal(byCause['环境'].records, 2);
+    assert.equal(byCause['环境'].fps, 2);
+    assert.deepEqual(byCause['写错'].issues, [2]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('statsByCause 空库返回空数组', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'failcause-empty-'));
+  try {
+    assert.deepEqual(statsByCause(path.join(dir, 'nope.jsonl')), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

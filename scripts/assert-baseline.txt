@@ -92,6 +92,7 @@
 1 2f121b96683ee14d assert.ok(r.findings.some((f) => f.rule === 'dependency-added'));
 1 2f871cef9defb25b assert.equal(isFreePoolDown('dsh: QUOTA: 429: {"message":"insufficient balance"}'), true);
 1 2f87fa8c7da5b573 assert.equal(spend.unmetered, 2);
+1 2f8c67b3dbef8eb4 assert.ok(CAUSES.includes('未知'), '未知也是合法归因，不能当空串处理');
 1 2fa052c9e2f94fc1 assert.deepEqual(staleTargets(stats), ['s1', 's2', 'u1']);
 1 3010d3c18cbd90b4 assert.equal(miss.length, REQUIRED_LABELS.length);
 1 30af490d6752d4aa assert.equal(lines.length, 2);
@@ -135,6 +136,7 @@
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
 1 404c7a6ed3ba27fd assert.equal(isPeak(off), false);
+1 40a4830f8d6f8300 assert.deepEqual(stats.map((s) => s.cause), ['环境', '基线', '写错']);
 1 40e8795221375421 assert.match(formatSemantic(single), /单模型免费档/);
 1 40f4a1ccbd5dbb75 assert.equal(seen[0].init.method, 'POST');
 1 411b04110872e33a assert.equal(sumUsage('').steps, 0);
@@ -157,6 +159,7 @@
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
+1 493ae59437c4bfa9 assert.equal(b.cause, '写错');
 1 4999988d975c90e1 assert.match(formatAudit(stale)[0], /不自动删/);
 1 4a0af7bc7a29be85 assert.throws(() => chunk('abc', 1.5), RangeError);
 1 4b08ffb7e2c45ebc assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', '100', '--note', 'a', '--note', 'b']), TypeError);
@@ -211,6 +214,7 @@
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 625217da077dd8d8 assert.equal(lockHeld({ alive: false, ageMs: 0, mode: 'serve', staleMs: STALE }), false);
 1 635e242b3db47cfe assert.equal(isFreePoolDown('assert.equal(divide(6, 3), 2) failed'), false);
+1 63e6020f43f33448 assert.equal(classifyCause('llm-rate-limit 后 [baseline-unsynced] 未同步'), '环境');
 1 640ce43c1bb58db1 assert.deepEqual(poolCounts(null), { ok: 0, stale: 0, suspect: 0, unknown: 0, down: 0, other: 0, total: 0 });
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64ccd5cbe6962aaf assert.deepEqual(stale.map((s) => s.n), [1, 3]);
@@ -231,6 +235,7 @@
 1 6b563b2afb220424 assert.equal(d.entry.lastRequeueAt, '2026-10-28T00:05:00.000Z');
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
 1 6cb4c0e4995411a1 assert.equal(typeof mod, 'object');
+1 6d0df013d9b189db assert.deepEqual(statsByCause(path.join(dir, 'nope.jsonl')), []);
 1 6d388e6bd2288a5f assert.deepEqual(d.orphanLabels, [12]);
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
 1 6d5ea4b4b9445147 assert.match(dup.errors[0], /重复/);
@@ -277,6 +282,7 @@
 1 7fd188bb9a5e0383 assert.ok(allowed.has(model), `评审升级档用了规范外的模型：${model}`);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
 1 8019b18031b32001 assert.deepEqual(entries.map((e) => e.repo), ['Satan1982/a', 'Satan1982/b']);
+1 81232886f8687cf5 assert.deepEqual(byCause['写错'].issues, [2]);
 1 827b29edaca7e3d8 assert.ok(models.length > 0, '付费 patch 里没解析出模型');
 1 82f6d14266dc3dd6 assert.throws(() => summarize([], '2026-1'), TypeError);
 1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
@@ -300,6 +306,7 @@
 1 8b9dfa73681bb1e0 assert.deepEqual(missingLabels(existing), []);
 1 8bc4119f27703423 assert.throws(() => parseSumArgs(['--month', '2026-10', '--date', '2026-10-01']), TypeError);
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
+1 8da4818dd41a4462 assert.equal(byCause['环境'].records, 2);
 1 8e00575670332508 assert.equal(cube(2), 8);
 2 8f0694b9c090fb9d assert.equal(f.severity, 'block');
 1 8f5b9a4f96302de0 assert.equal(planProbe(stats).skippedKind, 0);
@@ -352,6 +359,7 @@
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
 1 a393a54ee4ff6f78 assert.equal(partial.needsHuman, true);
 1 a3a3b209ba289fb6 assert.equal(average([-2, 2]), 0);
+1 a3edf76b5b38b1b8 assert.equal(byCause['环境'].fps, 2);
 1 a40f672578d410b4 assert.deepEqual(map, { T1: 0, T2: 1, T3: 2, T4: 2 });
 1 a581740d685654a1 assert.equal(plan.candidates, 2);
 1 a596f1d7945025cf assert.equal(classifyConflicts(['', ' ']).kind, 'none');
@@ -367,6 +375,7 @@
 1 aa160ae73218725c assert.match(d.error, /DSH_ALLOW_GATE_REASON/);
 1 aa607341125d5cfd assert.equal(lockHeld({ alive: true, ageMs: 2 * MIN, mode: 'serve', staleMs: STALE }), true);
 1 aa779cdd83ddfe05 assert.match(missing.skipped, /超时/);
+1 aa8c2b9b352253f6 assert.equal(c.cause, '基线');
 1 ab00b6a4ecb9702f assert.match(d.detail, /exit=1/);
 1 ab2711af8e30a76f assert.match(text, /第 1 层（起点）：T1/);
 1 ab677777f17a2c3b assert.match(body.text, /验收命令 exit 1/);
@@ -474,6 +483,7 @@
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 1 d3996b5ca688d037 assert.deepEqual(tasks.map((t) => t.id), ['T1', 'T2', 'T3', 'T4']);
 1 d3e6eccab5c1f8cb assert.deepEqual(plan.picked, ['chat/a']);
+1 d4c44f96b689cef2 assert.equal(a.cause, '环境');
 1 d4e0ef3b94cd0001 assert.equal(lines.length, 1);
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
@@ -482,6 +492,7 @@
 1 d6ecf28a7e5607eb assert.notEqual(next, entries);
 1 d766ffcb1c4c1967 assert.ok(env.DSH_LOG_DIR.endsWith('a/.logs') || env.DSH_LOG_DIR.endsWith('a\\.logs'));
 1 d7bc202eb0eff083 assert.equal(summarizeProbe(out, { maxLines: 1 }).length, 1);
+1 d810f59ef80ae817 assert.equal(classifyCause(text), want, `归错类：${JSON.stringify(text.slice(0, 40))}`);
 1 d828c0390e2f6ca5 assert.deepEqual(tasks[0].deps, []);
 1 d82a18c0dae17aaf assert.equal(partial.ok, true);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
@@ -518,6 +529,7 @@
 1 e89fd1a1003aae39 assert.deepEqual(probeArgv(['a', 'b']), ['--only', 'a,b', '--quiet']);
 1 e93dba2a8778516b assert.equal(rec.kind, 'failed');
 1 ea4d4e985c585f4d assert.equal(readCredential(path.join(dir, 'missing.yaml')), '');
+1 eae768bd4a305274 assert.equal(store.get('deadbeefdeadbeef').cause, '环境');
 1 eb18ca6519584e14 assert.deepEqual(poolCounts({}), { ok: 0, stale: 0, suspect: 0, unknown: 0, down: 0, other: 0, total: 0 });
 1 eb385586462ab0fd assert.equal(headlessKind('boom', '', 137), 'agent-exit-137');
 1 eb80d76d1aae398d assert.equal(divide(10, 2), 5);

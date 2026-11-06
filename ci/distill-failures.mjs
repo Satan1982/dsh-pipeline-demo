@@ -14,6 +14,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { classifyCause } from './failures.mjs';
+
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const STORE = process.env.DSH_FAILURES_STORE || path.join(ROOT, 'docs/failures.jsonl');
 const CLIENT = process.env.DSH_HINDSIGHT_CLIENT || path.join(homedir(), '.hindsight/coding-agent.json');
@@ -43,7 +45,7 @@ export function group(records) {
   const byFp = new Map();
   for (const r of records) {
     const fp = r.fp || 'unknown';
-    const cur = byFp.get(fp) || { fp, count: 0, reason: '', issues: new Set(), fix: '', last: '' };
+    const cur = byFp.get(fp) || { fp, count: 0, reason: '', issues: new Set(), fix: '', last: '', cause: classifyCause(r.reason || r.sig || '') };
     cur.count += 1;
     if (r.reason) cur.reason = r.reason;
     if (r.fix) cur.fix = r.fix;
@@ -74,6 +76,15 @@ export function render(groups) {
     `共 ${groups.length} 个根因，取出现次数最多的 ${Math.min(TOP, groups.length)} 条：`,
     '',
   ];
+  // 先说清「栽在哪」：环境/基线类失败改机器就能消掉，不归因到它，代码再怎么修都白修。
+  // 归因取每个根因「第一次」的判定（原发失败），不用最后一次的尾巴——尾巴常被后续输出带偏。
+  const byCause = new Map();
+  for (const g of groups) {
+    const c = g.cause ?? classifyCause(g.reason);
+    byCause.set(c, (byCause.get(c) ?? 0) + g.count);
+  }
+  const causeLine = [...byCause.entries()].map(([c, n]) => `${c} ${n}`).join(' / ');
+  if (causeLine) lines.push(`按归因（记录条数）：${causeLine}`, '');
   for (const g of groups.slice(0, TOP)) {
     lines.push(`## ${g.count} 次 · 指纹 ${g.fp}`);
     lines.push(`- 现象：${clean(g.reason) || '（未记录原因）'}`);
