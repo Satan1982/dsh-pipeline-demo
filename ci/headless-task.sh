@@ -88,6 +88,33 @@ if [ ! -f "$PATCH" ]; then
   exit 1
 fi
 
+# 本地 Lemonade 空闲会卸载模型，而后续请求不会替它加载：表现为
+# `No model loaded: <id>`（PI_AI_ERROR、0 token），调度器重试也一样 —— 2026-11-06 实测两次。
+# 跑之前显式预热并等 health 报告模型就绪，别再把「模型没加载」记成 agent 失败。
+if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
+  LOCAL_MODEL="${DSH_LOCAL_MODEL:-Qwen3-Coder-30B-A3B-Instruct-GGUF}"
+  LOCAL_API="${LEMONADE_BASE:-http://127.0.0.1:13305/api/v1}"
+  curl -s -m 180 -X POST "$LOCAL_API/load" -H 'Content-Type: application/json' \
+    -d "{\"model_name\":\"$LOCAL_MODEL\"}" >/dev/null 2>&1 || true
+  _ready=0
+  # 冷启动 30B Q4 从磁盘加载实测能到两分多钟，给足 240 秒。
+  for _i in $(seq 1 120); do
+    if curl -s -m 2 "$LOCAL_API/health" 2>/dev/null | tr ',' '\n' | grep -q "$LOCAL_MODEL"; then
+      _ready=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$_ready" = "1" ]; then
+    echo "预热本地模型 $LOCAL_MODEL：ok" >&2
+  else
+    # max_models.llm=1：别的客户端先要了另一个模型，我们就被挤掉。把挤占者名字打出来，别只说超时。
+    _other=$(curl -s -m 2 "$LOCAL_API/health" 2>/dev/null | grep -o '"model_loaded":"[^"]*"' | head -1)
+    echo "⚠ 预热本地模型 $LOCAL_MODEL 超时（${_other:-model_loaded 未知}；LLM 槽位只有 1 个，可能被别的客户端占着）" >&2
+    unset _other
+  fi
+  unset _i _ready
+fi
 # DSH_HEADLESS_JSON=1 时输出 newline-delimited 事件流（调度器据此统计 token 用量）。
 JSON_ARGS=()
 if [ "${DSH_HEADLESS_JSON:-}" = "1" ]; then
