@@ -79,6 +79,12 @@ echo "发现等价：隐式=显式=$CUR_TESTS"
 
 CUR_ASSERTS=$(grep -ho 'assert\.' src/*.test.js ci/*.test.mjs | wc -l | tr -d ' ')
 
+# 文件集合指纹：计数相同不代表是同一批文件。删掉一个测试文件、再改名补一个，
+# 总数不动、断言数不动，只比计数就会被静默换血。指纹一变就必须显式 --bless，
+# 而 bless 是出现在 diff 里的动作，评审能看见。
+CUR_LIST=$(ls src/*.test.js ci/*.test.mjs | sort | tr '\n' ' ')
+CUR_FP=$(printf '%s' "$CUR_LIST" | sha256sum | cut -c1-16)
+
 echo "== test guard =="
 if [ ! -f "$BASE_FILE" ]; then
   echo "缺少 $BASE_FILE；首次建立基线请跑 bash scripts/verify.sh --bless" >&2
@@ -86,11 +92,16 @@ if [ ! -f "$BASE_FILE" ]; then
 fi
 BASE_TESTS=$(cut -d' ' -f1 "$BASE_FILE" | tr -d ' \r\n')
 BASE_ASSERTS=$(cut -d' ' -f2 "$BASE_FILE" | tr -d ' \r\n')
+BASE_FP=$(cut -d' ' -f3 "$BASE_FILE" | tr -d ' \r\n')
 
 if [ "$BLESS" = "1" ]; then
-  echo "$CUR_TESTS $CUR_ASSERTS" > "$BASE_FILE"
-  echo "基线已更新：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
+  echo "$CUR_TESTS $CUR_ASSERTS $CUR_FP" > "$BASE_FILE"
+  echo "基线已更新：tests=$CUR_TESTS asserts=$CUR_ASSERTS files=$CUR_FP"
 else
+  if [ -z "${BASE_FP:-}" ]; then
+    echo "基线缺第三列（测试文件集合指纹）；跑 bash scripts/verify.sh --bless 建立" >&2
+    exit 1
+  fi
   if [ "$CUR_TESTS" -lt "$BASE_TESTS" ]; then
     echo "拒绝：测试数量从 $BASE_TESTS 降到 $CUR_TESTS（禁止删测试凑绿）" >&2
     exit 1
@@ -104,7 +115,12 @@ else
     echo "新增是好事，但必须同 PR 跑 bash scripts/verify.sh --bless 提交基线，否则新断言不在指纹保护范围内。" >&2
     exit 1
   fi
-  echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS"
+  if [ "$CUR_FP" != "$BASE_FP" ]; then
+    echo "拒绝：测试文件集合变了（指纹 $BASE_FP → $CUR_FP），自增自减都不许静默通过" >&2
+    echo "确属有意：同 PR 跑 bash scripts/verify.sh --bless 更新基线。" >&2
+    exit 1
+  fi
+  echo "基线持平：tests=$CUR_TESTS asserts=$CUR_ASSERTS files=$CUR_FP"
 fi
 
 echo "== assert guard =="
