@@ -80,3 +80,16 @@ export function initials(fullName) {
   }
   return words.map((word) => word[0].toUpperCase()).join('');
 }
+
+export function capitalizeWords(text) {
+  if (typeof text !== 'string') {
+    throw new TypeError('capitalizeWords expects a string');
+  }
+  if (text === '') {
+    return '';
+  }
+  return text.split(/\s+/).filter(Boolean).map(word => {
+    if (word.length === 0) return '';
+    return word[0].toUpperCase() + word.slice(1).toLowerCase();
+  }).join(' ');
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords, shortHash } from './text.js';
+import { words, wordCount, initials, excerpt, chunk, reverseEachWord, shout, truncateWords, shortHash, capitalizeWords } from './text.js';
 
 test('words splits text on whitespace and drops empty strings', () => {
   assert.deepEqual(words('a b  c'), ['a', 'b', 'c']);
@@ -154,4 +154,24 @@ test('shortHash pins the FNV-1a 32-bit value of a known input', () => {
 
 test('shortHash rejects non-string input', () => {
   assert.throws(() => shortHash(123), TypeError);
+});
+
+test('capitalizeWords capitalizes each word', () => {
+  assert.equal(capitalizeWords('hello world'), 'Hello World');
+});
+
+test('capitalizeWords capitalizes single word', () => {
+  assert.equal(capitalizeWords('HELLO'), 'Hello');
+});
+
+test('capitalizeWords handles multiple spaces', () => {
+  assert.equal(capitalizeWords('  a   b  '), 'A B');
+});
+
+test('capitalizeWords handles empty string', () => {
+  assert.equal(capitalizeWords(''), '');
+});
+
+test('capitalizeWords rejects non-string input', () => {
+  assert.throws(() => capitalizeWords(123), TypeError);
 });
