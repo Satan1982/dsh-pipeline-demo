@@ -116,6 +116,7 @@
 1 2aaf6d38990e34d1 assert.equal(plan.skippedPaid, 2);
 1 2ac3e2b59fcb62c0 assert.equal(raw.trim().endsWith('}'), true);
 2 2bae680979f5f4ad assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt']);
+1 2bb08e3e0e043227 assert.match(DISPATCH, /env: \{ \.\.\.winEnv\(\), \.\.\.scrubbedEnv\(\)/u, 'headless 的 clean env 没带上 winEnv');
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
 1 2c1007c2f797ae76 assert.equal(res.after, 3);
 1 2ca29d9c5184cb7b assert.equal(body.includes('x'.repeat(3000)), false);
@@ -455,6 +456,7 @@
 1 9a92c28dd8e7ffb6 assert.match(md, /共 3 个模型，ok 1 个/);
 1 9bc58da116f89a0a assert.ok(!normalize(a).includes('a1b2c3d4e5f6'));
 1 9bc94504f41bb5ca assert.ok(md.includes('#5'));
+1 9c16f48a8579d3f1 assert.match(DISPATCH, /WIN_KEEP = \[[^\]]*'SystemRoot'/u, 'winEnv 必须带 SystemRoot');
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
 1 9c82e88ed3e7be75 assert.equal(errors.length, 1);
 1 9c8620494969b525 assert.match(body.color, /^[0-9a-f]{6}$/);
@@ -654,7 +656,11 @@
 1 d82a18c0dae17aaf assert.equal(partial.ok, true);
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 d89c47ab8c174f62 assert.equal(recoveryDecision({ entry: null, now: T0 }).action, 'skip');
+<<<<<<< HEAD
 1 d9fba3ccf2190da3 assert.equal(slugify(' A B '), 'a-b');
+=======
+1 d8aa09c79dc94680 assert.equal(DISPATCH.includes('function winEnv()'), true, '缺少 winEnv()');
+>>>>>>> 2006c1e (fix(dispatch): keep Windows survival vars in the clean headless env)
 1 da00f34046543dc7 assert.equal(d.entry.gaveUp, true);
 1 da0ccd20f18ed91b assert.ok(r.errors.some((e) => e.includes('写事件失败')));
 1 db92ba39c0750391 assert.equal(minOf(5, 5), 5);

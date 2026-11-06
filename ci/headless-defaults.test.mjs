@@ -70,3 +70,11 @@ test('继承来的 DSH_SESSION_ID 不被当成续跑会话', () => {
   assert.equal(SCRIPT.includes('[ -n "${DSH_HEADLESS_RESUME:-}" ] && [ -n "${DSH_SESSION_ID:-}" ]'), true);
   assert.equal(DISPATCH.includes("runEnv.DSH_HEADLESS_RESUME = resumeId ? '1' : '';"), true);
 });
+
+test('clean 环境带上 Windows 生存变量（否则 bash.exe 0xC0000142）', () => {
+  // 2026-11-07 00:42 实测：clean env 里没有 SystemRoot，bash.exe 起不来，日志只剩
+  // 「子进程启动失败 exit=3221225794」；重试 3 次后被记成环境失败，单子一直空转。
+  assert.equal(DISPATCH.includes('function winEnv()'), true, '缺少 winEnv()');
+  assert.match(DISPATCH, /WIN_KEEP = \[[^\]]*'SystemRoot'/u, 'winEnv 必须带 SystemRoot');
+  assert.match(DISPATCH, /env: \{ \.\.\.winEnv\(\), \.\.\.scrubbedEnv\(\)/u, 'headless 的 clean env 没带上 winEnv');
+});

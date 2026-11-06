@@ -1973,6 +1973,16 @@ function scrubbedEnv() {
   return out;
 }
 
+// clean=true 的子进程只拿到显式给的环境。Windows 的 bash.exe 少了 SystemRoot 会在加载 DLL 时
+// 直接 0xC0000142（初始化失败），日志里只剩「子进程启动失败 exit=3221225794」再重试三次。
+// 这些不是凭据，是进程能起来的生存变量，显式带上。
+const WIN_KEEP = ['SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'COMSPEC', 'PATHEXT'];
+function winEnv() {
+  const out = {};
+  for (const k of WIN_KEEP) if (process.env[k]) out[k] = process.env[k];
+  return out;
+}
+
 export async function runHeadless(cwd, prompt, env, timeout) {
   // S4 低权通道（docs/77 §8）：默认先以 dsh-agent 身份跑（agent 不继承本进程的任何凭据）；DSH_S4_AGENT=0 显式关掉。
   // 只有「通道本身不可用」（没写出 done.json：没有 dsh-agent 密码、launcher 起不来）才回退原来的 bash
@@ -1993,7 +2003,7 @@ export async function runHeadless(cwd, prompt, env, timeout) {
     // 账本里看不到这些 run，只能自己从事件流里累加）。
     // 显式给空串：防止调度器进程自己环境里的 DSH_HEADLESS_PATCH / DSH_HEADLESS_ALLOW_CREDS 漏给 agent
     // （否则「默认无凭据」会被继承来的环境变量悄悄破坏，那是条看不见的凭据泄漏路径）。
-    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), DSH_INSTALL: INSTALL_DIR, ...env, DSH_HEADLESS_JSON: '1', DSH_HEADLESS_PATCH: env.DSH_HEADLESS_PATCH || '', DSH_HEADLESS_ALLOW_CREDS: env.DSH_HEADLESS_ALLOW_CREDS || '' }, clean: true });
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...winEnv(), ...scrubbedEnv(), DSH_INSTALL: INSTALL_DIR, ...env, DSH_HEADLESS_JSON: '1', DSH_HEADLESS_PATCH: env.DSH_HEADLESS_PATCH || '', DSH_HEADLESS_ALLOW_CREDS: env.DSH_HEADLESS_ALLOW_CREDS || '' }, clean: true });
     if (Number(last.code) < 0xC0000000) {
       const usage = sumUsage(last.out);
       return { ...last, raw: last.out, usage, out: finalText(last.out) };
