@@ -165,3 +165,8 @@ echo "== pack =="
 pack
 
 echo "== verify: OK =="
+
+# 验收裁决行：verdict:strict 的工单要求 `### 验收命令` 打印 `VERDICT: PASS`，
+# 而本脚本就是标准验收命令（prompts/templates/issue.md）。改动后这一行缺失会让
+# 所有「bash scripts/verify.sh + verdict:strict」的单子在验收阶段被判 unknown。
+echo "VERDICT: PASS"

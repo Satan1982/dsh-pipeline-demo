@@ -100,6 +100,7 @@
 1 2388e6885a9c08c4 assert.equal(r.status, 204);
 1 23cfe7070eb0d72b assert.equal(flat['deepseek-ai/DeepSeek-V4.1-Flash-1017'].status, 'ok');
 1 23e218dea2e87a7e assert.equal(UNMETERED_UNIT_CNY, Number(process.env.DSH_UNMETERED_CNY ?? 0.1));
+1 248323ef7aa516e9 assert.equal(checkUnattendedIntake({ acceptanceCmds: 'bash scripts/verify.sh', labels: ['verdict:strict'] }).ok, true);
 1 249bb06e435f9fe4 assert.equal(isPeak(idle), true);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
 1 25a285076db9631e assert.equal(/pause: 是（人工/.test(text), true);
@@ -300,6 +301,7 @@
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
 1 692679e3f8c9affb assert.equal(finalText(''), '');
 1 692a5820dd520fa2 assert.ok(Math.abs(spend.cny - 1.3) < 1e-9);
+1 698af44bab3510e1 assert.equal(bad.ok, false);
 1 69f48a76140f793c assert.deepEqual(splitCommands(' npm test\r\n\r\n# 说明\necho ok '), ['npm test', 'echo ok']);
 1 6a7ee59b19c28f88 assert.equal(laneVerdict(undefined).ok, false);
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
@@ -324,6 +326,7 @@
 1 710410062593f6b3 assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', 'salary']), TypeError);
 1 714d0021ff0ecd11 assert.equal(merged.paidUsed, false);
 1 716e3acfaa8cd986 assert.equal(normalize(a), normalize(b));
+1 71b049c020182a75 assert.equal(checkUnattendedIntake({ acceptanceCmds: 'node --test && echo "VERDICT: PASS"', labels: ['verdict:strict'] }).ok, true);
 2 72189045e216ba6a assert.equal(bad, 1);
 1 721cae634788c77a assert.deepEqual(missingLabels(REQUIRED_LABELS), []);
 1 728838f5254a3209 assert.equal(subject.includes('\n'), false);
@@ -612,6 +615,7 @@
 1 c9a72f1c29fe1e70 assert.equal(d.action, 'skip');
 1 c9b2461dc554a1df assert.equal(multiply(0, 9), 0);
 1 caa385432c4ff894 assert.equal(lockHeld({ alive: true, ageMs: NaN, mode: 'serve', staleMs: STALE }), false);
+1 cb8f073db3038afd assert.equal(checkUnattendedIntake({ acceptanceCmds: 'node --test' }).ok, true);
 1 cc17d77254ce0af9 assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 1 cc74d0353fa1f507 assert.equal(existsSync(stateFile(d)), false);
@@ -631,6 +635,7 @@
 1 cffe7f8108d3f9c8 assert.equal(probe.error ?? null, null, '本机应能正常 spawn：环境预检不应在正常机器上误报');
 1 d0759d0cb0e8b221 assert.equal(r.findings[0].file, 'src/x.js');
 1 d0889e57292259b8 assert.match(lines[0], /\.logs/);
+1 d11d47ba8cee3707 assert.match(bad.reason, /VERDICT/u);
 1 d12a1bdee8e2ddd9 assert.equal(VERIFY.includes('spawnSync(process.execPath'), true, '缺子进程管道探针');
 1 d2281e00ff667739 assert.equal(v.ok, false);
 1 d2fd8c92b9f744f3 assert.match(formatSemantic(merged), /\[付费\]/);

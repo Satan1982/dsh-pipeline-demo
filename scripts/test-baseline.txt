@@ -1,5 +1,1 @@
-<<<<<<< HEAD
 340 836 c0c8a8ec119cc38a
-=======
-339 839 9847d0808949d28c
->>>>>>> 2006c1e (fix(dispatch): keep Windows survival vars in the clean headless env)

@@ -32,3 +32,14 @@ test('无人值守：没验收命令 / 豁免标签 / 只 echo，一律拒单', 
   assert.equal(ok.ok, true);
   assert.equal(ok.commands, 2);
 });
+
+test('verdict:strict：不打印 VERDICT 的验收命令拒单（#98 实测坑）', () => {
+  const bad = checkUnattendedIntake({ acceptanceCmds: 'node -e "process.exit(0)"', labels: ['verdict:strict'] });
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /VERDICT/u);
+  // 补了裁决行就放行；非 strict 单子不受这条影响
+  assert.equal(checkUnattendedIntake({ acceptanceCmds: 'node --test && echo "VERDICT: PASS"', labels: ['verdict:strict'] }).ok, true);
+  assert.equal(checkUnattendedIntake({ acceptanceCmds: 'node --test' }).ok, true);
+  // 门禁脚本自己打印裁决行，不要求命令里出现 VERDICT 字样
+  assert.equal(checkUnattendedIntake({ acceptanceCmds: 'bash scripts/verify.sh', labels: ['verdict:strict'] }).ok, true);
+});

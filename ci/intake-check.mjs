@@ -56,5 +56,20 @@ export function checkUnattendedIntake({ acceptanceCmds, labels = [] } = {}) {
       return { ok: false, reason: `验收命令不可判负（${why}）：\n${cmd}` };
     }
   }
+  // verdict:strict 的下游裁决（ci/verdict.mjs:47）要求输出里有 `VERDICT:` 行，否则 exit=0 也算
+  // unknown → 判失败。这条只有跑到验收阶段才暴露（实测 2026-11-07 issue #98 连挂 2 次）。
+  // 例外：直接跑仓内门禁脚本时，脚本自己打印裁决行（scripts/verify.sh 末尾就有）。
+  const strictVerdict = (labels ?? []).includes('verdict:strict');
+  if (strictVerdict) {
+    const printsVerdict = /VERDICT/i.test(String(acceptanceCmds ?? ''));
+    const gateScript = cmds.every((c) => /^(?:bash|sh|node)\s+scripts\//.test(c));
+    if (!printsVerdict && !gateScript) {
+      return {
+        ok: false,
+        reason: '`verdict:strict` 要求验收命令打印 `VERDICT: PASS`（否则 exit=0 也判 unknown）：'
+          + '给命令补 `&& echo "VERDICT: PASS"`，或直接跑 `bash scripts/verify.sh`（门禁脚本自己打印裁决行）',
+      };
+    }
+  }
   return { ok: true, commands: cmds.length };
 }
