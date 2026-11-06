@@ -94,8 +94,11 @@ fi
 if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
   LOCAL_MODEL="${DSH_LOCAL_MODEL:-Qwen3-Coder-30B-A3B-Instruct-GGUF}"
   LOCAL_API="${LEMONADE_BASE:-http://127.0.0.1:13305/api/v1}"
-  curl -s -m 180 -X POST "$LOCAL_API/load" -H 'Content-Type: application/json' \
-    -d "{\"model_name\":\"$LOCAL_MODEL\"}" >/dev/null 2>&1 || true
+  _preload() {
+    curl -s -m 20 -X POST "$LOCAL_API/load" -H 'Content-Type: application/json' \
+      -d "{\"model_name\":\"$LOCAL_MODEL\"}" >/dev/null 2>&1 || true
+  }
+  _preload
   _ready=0
   # 冷启动 30B Q4 从磁盘加载实测能到两分多钟，给足 240 秒。
   for _i in $(seq 1 120); do
@@ -103,6 +106,10 @@ if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
       _ready=1
       break
     fi
+    # max_models.llm=1 + auto_evict=false：槽位被别的模型占着时第一次 /load 直接被拒，
+    # 只试一次就会空等到超时（2026-11-06 实测：Hindsight 的 9B 占槽 → 我们 240s 拿到空）。
+    # 每 20 秒补一次：Lemonade 是「谁后加载谁赢」，槽位一空就能抢到。
+    if [ $((_i % 10)) -eq 0 ]; then _preload; fi
     sleep 2
   done
   if [ "$_ready" = "1" ]; then
@@ -112,8 +119,12 @@ if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
     _other=$(curl -s -m 2 "$LOCAL_API/health" 2>/dev/null | grep -o '"model_loaded":"[^"]*"' | head -1)
     echo "⚠ 预热本地模型 $LOCAL_MODEL 超时（${_other:-model_loaded 未知}；LLM 槽位只有 1 个，可能被别的客户端占着）" >&2
     unset _other
+    # 模型没就绪就开跑，必然是 0 token 的 `No model loaded`——那不是任务写错，是环境问题。
+    # 打 ENV_FAIL 并 exit 78：调度器按环境失败重试、不占工单的重试预算（见 dispatch.mjs 环境失败分支）。
+    echo "ENV_FAIL: 本地模型 $LOCAL_MODEL 未就绪（Lemonade 单 LLM 槽位被占），本次不起 agent" >&2
+    exit 78
   fi
-  unset _i _ready
+  unset _i _ready _preload
 fi
 # DSH_HEADLESS_JSON=1 时输出 newline-delimited 事件流（调度器据此统计 token 用量）。
 JSON_ARGS=()
