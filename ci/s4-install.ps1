@@ -228,6 +228,19 @@ if (-not $WhatIf) {
   if (Test-AceAllow $Install $sid 'Read') { Ok '回读：agent 对安装目录可读' } else { Fail '回读：agent 仍读不到安装目录' }
 }
 
+# 4a2 node 解析安装目录要 realpath 穿过 AppData：只给 X 不够，lstat 要 READ_ATTRIBUTES。
+#     缺这一步低权进程会报 `EPERM: operation not permitted, lstat 'C:\Users\Administrator\AppData'`。
+Doing ('授予 ' + $AgentUser + ' 穿越 AppData 链（RX）')
+if (-not $WhatIf) {
+  $appData = Join-Path $AdminHome 'AppData'
+  foreach ($p in @($appData, (Join-Path $appData 'Local'), (Join-Path $appData 'Local\Programs'))) {
+    if (Test-Path -LiteralPath $p) {
+      [void](Run-Icacls @($p, '/grant', ($AgentUser + ':(RX)')))
+    }
+  }
+  if (Test-AceAllow (Join-Path $appData 'Local\Programs') $sid 'Read') { Ok '回读：agent 可穿过 AppData\Local\Programs' } else { Fail '回读：agent 穿不过 AppData\Local\Programs' }
+}
+
 # 4b 仓库：D:\ 根给 Authenticated Users 的 Modify 会继承到 D:\code，
 #     低权进程就能改 ci/*.mjs / src/* —— 而管理员侧调度器会执行 ci/*.mjs（提权面）。
 $aclBackup = Join-Path $SecretsDir ('acl-D-code-' + (Get-Date).ToString('yyyyMMdd-HHmmss') + '.txt')

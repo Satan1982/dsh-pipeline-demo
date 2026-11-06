@@ -4,7 +4,8 @@
 # 且下面会显式清掉可能从父进程漏下来的密钥变量（同 ci/dispatch.mjs:1850 的 SCRUB_ENV 口径）。
 #
 # 契约（job 目录）:
-#   输入  <JobDir>\job.json    { "task": "任务文本", "timeoutSec": 2400 }
+#   输入  <JobDir>\job.json    { "task": "任务文本", "timeoutSec": 2400, "cwd": "D:\\code\\.worktrees\\issue-7" }
+#         cwd 可选，缺省为 -Repo；只接受 D:\code\.worktrees 下的目录（防越权）。
 #   输出  <JobDir>\headless.log   事件流（--json）
 #         <JobDir>\headless.err   stderr
 #         <JobDir>\done.json     { ok, exit, user, startedAt, endedAt, durationSec, verdict, tail }
@@ -43,6 +44,19 @@ try {
   $timeoutSec = 2400
   if ($job.timeoutSec) { $timeoutSec = [int]$job.timeoutSec }
 
+  # 工作目录：调度器传的是某个 worktree；只允许 .worktrees 下面（agent 本来也只有那里的写权）
+  $work = $Repo
+  if ($job.cwd) {
+    $cand = [string]$job.cwd
+    $root = 'D:\code\.worktrees\'
+    if (-not $cand.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw ('job.cwd 不在 ' + $root + ' 下: ' + $cand)
+    }
+    if (-not (Test-Path -LiteralPath $cand)) { throw ('job.cwd 不存在: ' + $cand) }
+    $work = $cand
+  }
+  $done.cwd = $work
+
   $bash = 'C:\Program Files\Git\bin\bash.exe'
   if (-not (Test-Path -LiteralPath $bash)) { throw ('没有 bash: ' + $bash) }
   $script = Join-Path $Repo 'ci\headless-task.sh'
@@ -75,11 +89,14 @@ try {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $bash
   $psi.Arguments = ('"{0}" -' -f $script)
-  $psi.WorkingDirectory = $Repo
+  $psi.WorkingDirectory = $work
   $psi.UseShellExecute = $false
   $psi.RedirectStandardInput = $true
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
+  # PS 5.1 的 ProcessStartInfo 没有 StandardInputEncoding（.NET Core 才有），StandardInput 的
+  # StreamWriter 用的是 [Console]::InputEncoding —— 本机默认 gb2312，中文任务会变成乱码字节。
+  [Console]::InputEncoding = $Utf8NoBom
   $psi.StandardOutputEncoding = $Utf8NoBom
   $psi.StandardErrorEncoding = $Utf8NoBom
   $psi.EnvironmentVariables['DSH_INSTALL'] = $Install
