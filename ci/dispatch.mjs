@@ -44,6 +44,8 @@ import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit
 import { formatDrift, localDrift } from './drift.mjs';
 import { parseRuntime, readState, setPaused, clearPaused, formatStatus } from './runtime-state.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
+import { checkUnattendedIntake } from './intake-check.mjs';
+import { appendLedger, ledgerEntry } from './ledger.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
@@ -211,6 +213,8 @@ const ONCE      = process.argv.includes('--once');
 const ENSURE    = process.argv.includes('--ensure');
 const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const DRY       = process.argv.includes('--dry-run');
+// 无人值守 = 人不在，只能 fail-closed。默认关：不设 DSH_UNATTENDED=1 时行为与以前完全一致。
+const UNATTENDED = (process.env.DSH_UNATTENDED ?? '') === '1';
 const PROBE_STALE = process.argv.includes('--probe-stale');
 const POOL_SNAPSHOT = process.argv.includes('--pool-snapshot');
 // 运行态三件（--status / --pause / --resume）：纯本地读写，不进轮询。
@@ -974,6 +978,15 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     return failTask(issue, '缺少「目标」或「验收标准（可执行）」章节，拒绝执行。请按 Issue 模板补充后重新打 agent:ready。');
   }
 
+  // 无人值守拒单：必须在打 agent:working 之前，也不能等到跑完才判——验收命令是唯一裁判，
+  // `echo ok` 这种「永远绿」的命令等于没有验收。放在这里逐单 failTask，不影响同轮其他任务。
+  if (UNATTENDED) {
+    const intake = checkUnattendedIntake({ acceptanceCmds: stripFence(acceptanceCmdsRaw), labels });
+    if (!intake.ok) {
+      return failTask(issue, `无人值守拒单：${intake.reason}`);
+    }
+  }
+
   await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:working'] });
 
   const branch = `agent/issue-${n}`;
@@ -1263,6 +1276,20 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       const detail = `语义评审拒绝（改动未推送）：\n${formatSemantic(semantic)}`;
       recordFailure({ text: detail, issue: n, attempt, reason: detail.slice(0, 1500) }, FAIL_STORE);
       throw new Error(detail);
+    }
+
+    // 台账只追加、失败不影响任务：它回答的是「这单怎么判的」，不是交付物本身。
+    try {
+      appendLedger(defaultLedgerFile(), ledgerEntry({
+        issue: n, attempt,
+        acceptance: acceptanceCmds ? 'yes' : 'none',
+        acceptanceVerdict,
+        semantic: semantic.verdict,
+        files: (diff.files ?? []).length,
+        cny: taskCny,
+      }));
+    } catch (e) {
+      log(`${tag} ⚠ 台账写入失败（不影响任务）：${e.message}`);
     }
 
     await pushWithRetry(wt, `${branch}:${branch}`);
