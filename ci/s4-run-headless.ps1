@@ -63,6 +63,19 @@ try {
   if (-not (Test-Path -LiteralPath $script)) { throw ('缺入口脚本: ' + $script) }
   if (-not (Test-Path -LiteralPath $Install)) { throw ('缺安装目录: ' + $Install) }
 
+  # 低权进程的 PATH 里没有随包 node/pnpm（计划任务和登录外壳都不带），而
+  # scripts/verify.sh -> scripts/lint.sh 直接调 node、打包走 pnpm。这里做一次兜底：
+  # 前置安装目录里的 node，并指定随包 pnpm（与 ci/headless-task.sh 的 PATH 兜底同口径）。
+  $bundle = Join-Path $Install 'resources\runtime\primary-runtime\dependencies'
+  $nodeBin = Join-Path $bundle 'node\bin'
+  if (Test-Path -LiteralPath (Join-Path $nodeBin 'node.exe')) {
+    if (($env:PATH -split ';') -notcontains $nodeBin) { $env:PATH = $nodeBin + ';' + $env:PATH }
+  }
+  if ([string]::IsNullOrWhiteSpace($env:PNPM_CLI)) {
+    $pnpmCjs = Join-Path $bundle 'pnpm\bin\pnpm.cjs'
+    if (Test-Path -LiteralPath $pnpmCjs) { $env:PNPM_CLI = $pnpmCjs }
+  }
+
   # 环境：只给入口需要的东西。清掉一切可能的凭据来源。
   foreach ($k in @('GIT_TOKEN','GIT_ASKPASS','GIT_SSH_COMMAND','GIT_SSH_VARIANT','GH_TOKEN','GITHUB_TOKEN',
                    'SILICONFLOW_API_KEY','ZHIPU_API_KEY','LEMONADE_HOME_API_KEY','HINDSIGHT_API_TOKEN','DEEPSEEK_API_KEY',
@@ -106,6 +119,7 @@ try {
   $psi.EnvironmentVariables['DSH_HOME'] = $env:DSH_HOME
   $psi.EnvironmentVariables['DSH_HEADLESS_JSON'] = '1'
   if ($env:DSH_HEADLESS_PATCH) { $psi.EnvironmentVariables['DSH_HEADLESS_PATCH'] = $env:DSH_HEADLESS_PATCH }
+  if ($env:PNPM_CLI) { $psi.EnvironmentVariables['PNPM_CLI'] = $env:PNPM_CLI }
   $psi.EnvironmentVariables['PATH'] = $env:PATH
 
   $p = New-Object System.Diagnostics.Process
