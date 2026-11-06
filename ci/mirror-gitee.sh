@@ -4,6 +4,9 @@
 set -uo pipefail
 GIT="${DSH_GIT:-C:/Program Files/Git/cmd/git.exe}"
 SECRETS="${DSH_SECRETS_DIR:-$(cd "$(dirname "$0")/.." && pwd)/../.secrets}"
+# 归一化：带 ".." 的路径交给 GIT_ASKPASS 会让 git 报 "cannot spawn ...: No such file or directory"
+# （实测 2026-11-06 19:33，同一文件用 /d/code/.secrets 就正常）。
+if [ -d "$SECRETS" ]; then SECRETS="$(cd "$SECRETS" && pwd)"; fi
 REMOTE="${DSH_GITEE_REMOTE:-gitee}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
