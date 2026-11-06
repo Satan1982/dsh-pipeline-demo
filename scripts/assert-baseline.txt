@@ -28,6 +28,7 @@
 1 0f98f04241274434 assert.equal(square(-3), 9);
 1 103a0d7c0d21268f assert.ok(r.findings.some((f) => f.severity === 'warn' && f.rule === 'diff-large'));
 1 10fd0bd14556bb89 assert.equal(d.on, false);
+1 11e5614554e9cccd assert.equal(r.cmd, 'help', `${flag} 应打印用法而不是 exit 2`);
 1 123f79242d1c560d assert.equal(reverseWords('hello world'), 'world hello');
 1 1259e84d5e917c45 assert.equal(d.verdict, 'fail');
 1 1284f405b4f9d167 assert.equal(lockHeld({ alive: true, ageMs: 30 * MIN, mode: 'once', staleMs: STALE }), true);
@@ -63,6 +64,7 @@
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
 1 1c2336b118a9d8da assert.equal(backoffMs(0), 5 * MIN);
 1 1ca47aba72628748 assert.deepEqual(plan.picked, ['free/a']);
+1 1ca9185190194023 assert.equal(raw.includes('tmp-'), false);
 1 1cfce6d124d865d5 assert.throws(() => chunk('abc', -1), RangeError);
 1 1d2b649bfa2bfa6b assert.throws(() => addEntry([], { date: '2026-1-1', amount: 100, note: '工资' }), TypeError);
 1 1d35387570a3399e assert.match(rec.at, /^\d{4}-\d{2}-\d{2}T/);
@@ -82,7 +84,6 @@
 1 2388e6885a9c08c4 assert.equal(r.status, 204);
 1 23cfe7070eb0d72b assert.equal(flat['deepseek-ai/DeepSeek-V4.1-Flash-1017'].status, 'ok');
 1 23e218dea2e87a7e assert.equal(UNMETERED_UNIT_CNY, Number(process.env.DSH_UNMETERED_CNY ?? 0.1));
-1 2450a17b02f430e8 assert.equal(readState(dir).paused, false);
 1 249bb06e435f9fe4 assert.equal(isPeak(idle), true);
 1 252a753500049c51 assert.throws(() => divide(1, 0), RangeError);
 1 25a285076db9631e assert.equal(/pause: 是（人工/.test(text), true);
@@ -92,6 +93,7 @@
 1 26c2fa96ce1ed671 assert.equal(modeOf('once'), 'once');
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
+1 297875285b0ccd7f assert.equal(r.cmd, null, '--serve 是模式旗标，不是子命令');
 1 2a5a4fb935f6b515 assert.ok(env.DSH_WORKTREES.includes('.worktrees'));
 1 2a7805b7b22d3570 assert.equal(isPositive(-2), false);
 1 2aaf6d38990e34d1 assert.equal(plan.skippedPaid, 2);
@@ -99,6 +101,8 @@
 2 2bae680979f5f4ad assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt']);
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
 1 2c1007c2f797ae76 assert.equal(res.after, 3);
+1 2cfb393bd3e97f25 assert.equal(r.cmd, null);
+1 2db669f611786b68 assert.equal(r.conflict, 'pause,status');
 1 2dbfc654170dd52d assert.match(text, /第 3 层（集成）：T3 .*T4/);
 1 2e348edad02c362d assert.equal(isDue(e, T0 + 4 * MIN), false);
 1 2f121b96683ee14d assert.ok(r.findings.some((f) => f.rule === 'dependency-added'));
@@ -117,6 +121,7 @@
 1 3314f433b2755958 assert.equal(reverseEachWord('a bc'), 'a cb');
 1 33181ccf91367e49 assert.equal(body.name, 'agent:blocked:manual');
 1 3328c11029285c35 assert.equal(u.outputTokens, 25);
+1 334ab7a621e13ca2 assert.equal(SCRIPT.includes('[ -n "${DSH_HEADLESS_RESUME:-}" ] && [ -n "${DSH_SESSION_ID:-}" ]'), true);
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
 1 337af19339b590d9 assert.deepEqual(pickFreeModels(stats, FREE_STRONG_MODELS, 2), ['ZhipuAI/GLM-5.2', 'Qwen/Qwen3.8-27B']);
@@ -235,6 +240,7 @@
 1 615c91b68d5d6b95 assert.equal(isFreePoolDown('no available model for this route'), true);
 1 61a099abd63aec29 assert.equal(SCRIPT.includes('PATCH="${DSH_HEADLESS_PATCH:-$ROOT/ci/headless-local.yml}"'), true);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
+1 622e7f5bea9624a2 assert.equal(DISPATCH.includes('timedOut = true'), true, '超时要单独标记，不能混进环境失败');
 1 625217da077dd8d8 assert.equal(lockHeld({ alive: false, ageMs: 0, mode: 'serve', staleMs: STALE }), false);
 1 635e242b3db47cfe assert.equal(isFreePoolDown('assert.equal(divide(6, 3), 2) failed'), false);
 1 63e6020f43f33448 assert.equal(classifyCause('llm-rate-limit 后 [baseline-unsynced] 未同步'), '环境');
@@ -278,6 +284,8 @@
 1 744c68c6e1c57c2b assert.equal(body.at, '2026-10-28T00:00:00.000Z');
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
+1 75a12177806c7982 assert.equal(DISPATCH.includes('Number(v.code) === 78 || v.spawnError === true'), true, 'spawn 失败与超时必须按不同字段区分');
+1 7623cff3f773697a assert.equal(DISPATCH.includes("runEnv.DSH_HEADLESS_RESUME = resumeId ? '1' : '';"), true);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
 1 772eecf1080adccf assert.equal(REQUIRED_LABELS.some((n) => n.startsWith('dep-on:')), false);
 1 775ec55f59b56eb0 assert.doesNotMatch(webhookBody({ kind: 'daycap', why: '到顶' }).text, /#/);
@@ -316,11 +324,9 @@
 1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
 1 83963b1ea41ebf2a assert.equal(single.degraded, 'free-single');
 1 8399e594a1599c7e assert.equal(env.DSH_REPO, 'o/a');
-1 839cafea5a1e9ba3 assert.equal(raw.includes('tmp-') , false);
 1 83c4686bdba40e64 assert.equal(fib(1), 1);
 1 85025ff8016492fa assert.ok(rec.why.endsWith('…'));
 1 852eee1aac5af5ff assert.deepEqual(got, [{ n: 12, dir: 'issue-12' }]);
-1 85830a0fb50c7031 assert.equal(DISPATCH.includes('Number(v.code) === 78 || Number(v.code) === -1'), true, 'bash 没起来（code -1）也该算环境');
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
 1 8615e2692d5fd84a assert.equal(ok.cmd, null);
 1 867048f9519d5217 assert.deepEqual(listModels(null), []);
@@ -365,6 +371,7 @@
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
 1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
+1 975ea2c125aa5fca assert.deepEqual(r.unknown, [], '--serve 被当成未知旗标会让 startResident() 拉起的进程 exit 2，常驻永远起不来');
 1 97dac011e31a8d24 assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
 1 98bfb0e2c7ceca59 assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
 1 991e105bb36067c2 assert.ok(!out.includes('runTask'));
@@ -381,6 +388,7 @@
 1 9c82e88ed3e7be75 assert.equal(errors.length, 1);
 1 9c8620494969b525 assert.match(body.color, /^[0-9a-f]{6}$/);
 1 9cf510795804b6b4 assert.equal(toastText({ kind: 'daycap', why: '今日已花 ¥5' }).title, '流水线 今日花费到顶');
+1 9d123203909acabc assert.equal(readFileSync(stateFile(d), 'utf8').includes('"paused": true'), true);
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 9f271104d3828c3e assert.equal(parseRepos(['not-a-repo']).entries.length, 0);
@@ -460,6 +468,7 @@
 1 b8b8dcd40a0af879 assert.equal(formatCny(0.00234), '¥0.0023');
 1 b8e849102b9a8b5c assert.equal(rec.issue, 88);
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
+1 b9e18d9858dbb718 assert.deepEqual(r.unknown, []);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
 1 ba0091d5449410b6 assert.deepEqual(toastText({ kind: 'failed', issue: 88, why: 'boom' }), { title: '流水线 #88 任务失败', message: 'boom' });
 1 ba342f3fe10539a8 assert.equal(plan.candidates, 0);
@@ -476,6 +485,7 @@
 1 be583b44c3249f3e assert.match(tasks[0].cmd, /VERDICT: PASS/);
 1 bead3790b8ad00ab assert.equal(loadStore(file).size, 1);
 1 bf76e5ba6adfebc6 assert.match(d.detail, /RangeError/);
+1 bf8f08d708b8a7d1 assert.equal(DISPATCH.includes('spawnError: true'), true, 'run() 要在 spawn 失败时打标记');
 1 c0048270b8c3b4e0 assert.equal(freePoolDecision({ text: '独立门禁未通过：tests 193 < 194', zeroTries: 0, usePaid: false, enabled: true }), 'none');
 1 c0a5820bf520e919 assert.equal(freePoolDecision({ text: 'agent-exit-1', zeroTries: 2, zeroLimit: 2, usePaid: false, enabled: true }), 'block');
 1 c12c2eff1c5d4c78 assert.equal(d.entry.probes, 1);
@@ -495,6 +505,7 @@
 1 c5dbf498091e5ef5 assert.equal(clamp(-3, 0, 10), 0);
 1 c608d1ad03d089ad assert.match(shortHash('中文'), /^h[0-9a-f]{6}$/);
 1 c6112286c699e818 assert.equal(formatLabelList([]), '（无）');
+1 c625c63895fa483a assert.equal(SCRIPT.includes('dsh-desktop-host/lib/cli.js'), true, '入口没指向 node CLI');
 1 c64ff5763723aa3a assert.deepEqual(summarizeProbe('没有有用信息'), []);
 1 c66e3a30f721ceb7 assert.match(d.reason, /免费池恢复/);
 1 c72bab1588f71090 assert.equal(headlessKind('', '', 3221225794), 'headless-crash');
@@ -521,6 +532,7 @@
 1 cecbebfb0b31dee7 assert.deepEqual(parseBackoff('1,2.5'), [1 * MIN, 2.5 * MIN]);
 1 cee0f91e4a418492 assert.equal(DISPATCH.includes("DSH_HEADLESS_ALLOW_CREDS: env.DSH_HEADLESS_ALLOW_CREDS || ''"), true);
 1 cef734f3d2e9b7cc assert.equal(isDue({ ...e, gaveUp: true }, T0 + 60 * MIN), false);
+1 cf0a8fe0e94bc215 assert.equal(r.why, '熔断', '冲突时也要能取到 --why，报错信息才有用');
 1 cff988c7528a46ef assert.deepEqual(parseVerdict(''), { verdict: 'unknown', reason: '' });
 1 cffe7f8108d3f9c8 assert.equal(probe.error ?? null, null, '本机应能正常 spawn：环境预检不应在正常机器上误报');
 1 d0759d0cb0e8b221 assert.equal(r.findings[0].file, 'src/x.js');
@@ -557,7 +569,6 @@
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 df65a98d82c912d9 assert.ok(body.includes('it&apos;s &quot;ok&quot;'));
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
-1 e00fac3d15bf3e62 assert.equal(readFileSync(stateFile(dir), 'utf8').includes('"paused": true'), true);
 1 e01f40e0654d641d assert.deepEqual(Object.keys(rec), ['at', 'kind', 'issue', 'why']);
 1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');
 1 e185c10eb4c74d49 assert.equal(backoffMs(99), 60 * MIN);
@@ -570,6 +581,7 @@
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
 1 e5b8b8b440a96625 assert.equal(dup.entries.length, 1);
+1 e68e4086bb454530 assert.equal(SCRIPT.includes('ELECTRON_RUN_AS_NODE=1 exec'), true, '入口没绕过 cmd.exe');
 1 e6a44db3d90fe843 assert.deepEqual(d.orphanWorktrees, [31, 32]);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
@@ -617,7 +629,7 @@
 1 f6a69174d4915857 assert.equal(headlessKind(out, '', 0), 'llm-rate-limit');
 1 f6c19a480e67a77f assert.deepEqual(plan.picked, ['free/a', 'free/b']);
 1 f6f7efafadedcbed assert.match(formatSemantic(r), /跳过/);
-1 f72726de8ce841a5 assert.equal(readState(d).paused, false);
+2 f72726de8ce841a5 assert.equal(readState(d).paused, false);
 1 f79333dd3788daf7 assert.deepEqual(words(''), []);
 1 f84004ba8d945187 assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'src/strings.js']);
 1 f843a67ea1e7bc19 assert.equal(fingerprint('agent 未产生任何改动（exit=0）'), fingerprint('agent 未产生任何改动（exit=1）'));

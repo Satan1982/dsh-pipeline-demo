@@ -56,3 +56,17 @@ test('干跑输出仍是 5 行契约（探活只走 stderr）', () => {
   assert.equal(stdoutEchoes.length, 5, `干跑 stdout 行数应恒为 5，实际 ${stdoutEchoes.length}`);
   assert.equal(body.includes('-o /dev/null -w'), true, '探活被删了？');
 });
+
+test('入口不经 dsh.cmd 传任务（cmd.exe 会把任务里的 < > 当重定向）', () => {
+  // 2026-11-06 实测：任务文本里带 <!-- ... --> 时，dsh.cmd 报「系统找不到指定的文件。」，
+  // 任务根本没跑。改成直接起 Electron 的 node 入口后正常。
+  assert.equal(SCRIPT.includes('ELECTRON_RUN_AS_NODE=1 exec'), true, '入口没绕过 cmd.exe');
+  assert.equal(SCRIPT.includes('dsh-desktop-host/lib/cli.js'), true, '入口没指向 node CLI');
+});
+
+test('继承来的 DSH_SESSION_ID 不被当成续跑会话', () => {
+  // 从某个 DSH 会话的 shell 里手工调入口时，环境里带着那个会话的 id；
+  // 直接 --session-id 会被 headless runner 拒绝（"runs under an agent preset ... does not compose"）。
+  assert.equal(SCRIPT.includes('[ -n "${DSH_HEADLESS_RESUME:-}" ] && [ -n "${DSH_SESSION_ID:-}" ]'), true);
+  assert.equal(DISPATCH.includes("runEnv.DSH_HEADLESS_RESUME = resumeId ? '1' : '';"), true);
+});

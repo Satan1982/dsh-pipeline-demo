@@ -49,7 +49,11 @@ test('failures.mjs 把 spawn EPERM / ENV_FAIL / 沙箱 归到「环境」', () =
 });
 
 test('dispatch 对 exit 78 / bash 没起来 都判为环境失败（带标记）', () => {
-  assert.equal(DISPATCH.includes('Number(v.code) === 78 || Number(v.code) === -1'), true, 'bash 没起来（code -1）也该算环境');
+  // bash 没起来（spawn error）是环境；被 SIGKILL 的超时（同样是 code -1）不是——两者必须分开，
+  // 否则一个真卡死的门禁会被当成环境失败重试两次再挂起，真问题被藏起来。
+  assert.equal(DISPATCH.includes('Number(v.code) === 78 || v.spawnError === true'), true, 'spawn 失败与超时必须按不同字段区分');
+  assert.equal(DISPATCH.includes('spawnError: true'), true, 'run() 要在 spawn 失败时打标记');
+  assert.equal(DISPATCH.includes('timedOut = true'), true, '超时要单独标记，不能混进环境失败');
   assert.equal(DISPATCH.includes('return { ok: false, env: true'), true, 'verifyWorktree 必须返回结构化 env 标记');
   // 结构化标记要在 catch 里被优先使用，而不是只靠堆栈里的子串。
   assert.equal(DISPATCH.includes('const envFailure = e?.env === true'), true, 'catch 必须先看 e.env');

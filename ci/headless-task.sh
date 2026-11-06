@@ -96,12 +96,32 @@ fi
 
 # DSH_SESSION_ID 只用来「接着上一次没跑完的会话跑」：限流/进程启动失败这类环境噪声时，
 # 复用同一个 session 比每次重新开一个更省上下文，也不会在 ~/.dsh/sessions 里再堆一个目录。
+#
+# 但它是**宿主进程自己也会设**的变量：从某个 DSH 会话的 shell 里手工调用这个脚本时，
+# 环境里已经带着那个会话的 id，一旦拿去 --session-id 就会被 headless runner 拒绝
+# （"runs under an agent preset the one-shot runner does not compose"）。
+# 所以只认显式开关：调度器续跑时同时设 DSH_HEADLESS_RESUME=1（ci/dispatch.mjs 的 runEnv）。
 SESSION_ARGS=()
-if [ -n "${DSH_SESSION_ID:-}" ]; then
+if [ -n "${DSH_HEADLESS_RESUME:-}" ] && [ -n "${DSH_SESSION_ID:-}" ]; then
   SESSION_ARGS=(--session-id "$DSH_SESSION_ID")
+elif [ -n "${DSH_SESSION_ID:-}" ]; then
+  echo "⚠ 忽略继承来的 DSH_SESSION_ID（不是本入口要续的会话；需要续跑请同时设 DSH_HEADLESS_RESUME=1）" >&2
 fi
 
+# 别用 dsh.cmd 传任务：它是 .cmd 批处理，任务文本里的 `<` `>`（比如要写 HTML 注释）
+# 会被 cmd.exe 当成重定向，报「系统找不到指定的文件」而不是跑任务（2026-11-06 实测）。
+# 直接起 Electron 的 node 入口，参数不经过 cmd.exe 解析。
+DSH_EXE="$INSTALL/DeepSeek Harness.exe"
+DSH_CLI="$INSTALL/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js"
+run_headless() {
+  # 只查 exe：cli.js 在 app.asar 里，bash 的 -f 看不到它。
+  if [ -x "$DSH_EXE" ]; then
+    ELECTRON_RUN_AS_NODE=1 exec "$DSH_EXE" --expose-internals "$DSH_CLI"       --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" "$@"
+  fi
+  exec "$DSH_BIN" --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" "$@"
+}
+
 if [ "$1" = "-" ]; then
-  exec "$DSH_BIN" --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" -
+  run_headless -
 fi
-exec "$DSH_BIN" --profile headless --patch "$PATCH" "${SESSION_ARGS[@]}" "${JSON_ARGS[@]}" "$@"
+run_headless "$@"
