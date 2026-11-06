@@ -266,6 +266,19 @@ if ($haveBackup -or $WhatIf) {
     if ($broad2.Count -eq 0) { Ok 'D:\code 不再对其它本机用户开放' } else { Fail ('D:\code 仍对 ' + ($broad2 -join ', ') + ' 开放') }
     if (Test-AceAllow 'D:\code' $sid 'Read') { Ok 'agent 对 D:\code 可读（多目录读写靠 worktree）' } else { Fail 'agent 对 D:\code 不可读' }
     if (Test-AceAllow 'D:\code\.worktrees' $sid 'Modify|Write|FullControl') { Ok 'agent 可写 .worktrees' } else { Fail 'agent 不可写 .worktrees' }
+    # 继承变更要传播到子目录才算真收紧：抽查四个关键子目录，有残留就地 /T 修一次再复核。
+    $children = @('D:\code\dsh-pipeline-demo', 'D:\code\dsh-pipeline-demo\ci', 'D:\code\vc', 'D:\code\.worktrees')
+    $stale = @()
+    foreach ($c in $children) { if ((Test-Path -LiteralPath $c) -and (Get-BroadAces $c).Count -gt 0) { $stale += $c } }
+    if ($stale.Count -gt 0) {
+      Warn ('子目录仍有宽 ACE，跑一次 /T 修正：' + ($stale -join ', '))
+      [void](Run-Icacls @('D:\code', '/remove:g', 'NT AUTHORITY\Authenticated Users', 'Everyone', 'BUILTIN\Users', '/T', '/C', '/Q'))
+      [void](Run-Icacls @('D:\code', '/grant', ($AgentUser + ':(OI)(CI)RX'), '/T', '/C', '/Q'))
+      [void](Run-Icacls @('D:\code\.worktrees', '/grant', ($AgentUser + ':(OI)(CI)M'), '/T', '/C', '/Q'))
+      $stale = @()
+      foreach ($c in $children) { if ((Test-Path -LiteralPath $c) -and (Get-BroadAces $c).Count -gt 0) { $stale += $c } }
+    }
+    if ($stale.Count -eq 0) { Ok '子目录抽查：没有残留的宽 ACE' } else { Fail ('子目录仍开放：' + ($stale -join ', ')) }
     $sec2 = Get-BroadAces $SecretsDir
     if ($sec2.Count -eq 0) { Ok '.secrets 仍然只给管理员/SYSTEM（改动没有波及）' } else { Fail ('.secrets 被波及：对 ' + ($sec2 -join ', ') + ' 开放') }
   }

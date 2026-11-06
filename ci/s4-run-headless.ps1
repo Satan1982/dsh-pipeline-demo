@@ -56,7 +56,10 @@ try {
     Remove-Item -LiteralPath ('Env:' + $k) -ErrorAction SilentlyContinue
   }
   $env:DSH_INSTALL = $Install
-  $env:DSH_HOME = Join-Path $env:USERPROFILE '.dsh'
+  # 计划任务环境里 USERPROFILE 正常存在；没有就按 USERNAME 兜底（DSH_HOME 指错会重装 profile）
+  $userHome = $env:USERPROFILE
+  if ([string]::IsNullOrWhiteSpace($userHome)) { $userHome = Join-Path 'C:\Users' $env:USERNAME }
+  $env:DSH_HOME = Join-Path $userHome '.dsh'
   $env:DSH_HEADLESS_JSON = '1'
   $env:DSH_HEADLESS_ALLOW_CREDS = ''
   $env:DSH_HEADLESS_PATCH = ''
