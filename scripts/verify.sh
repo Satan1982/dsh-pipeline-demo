@@ -25,6 +25,30 @@ if [ "${1:-}" = "--bless" ]; then
   BLESS=1
 fi
 
+# 受限环境预检（2026-11-06）：Windows 沙箱（workspace-write 档）禁止子进程开命名管道，
+# 而 `node --test` 每个测试文件都要 spawn 一个子进程 → 30/30 全报 spawn EPERM。
+# 看上去像「所有测试都坏了」，其实是环境不让 spawn。这种失败一旦被当成写错，
+# 会白白烧掉重试预算、还会让 agent 去改根本没坏的测试。
+# 所以这里先探一次管道能力：受限就退 78（EX_CONFIG）并说清楚，让上层按环境失败处理。
+if [ "${DSH_VERIFY_TEST_EPERM:-}" = "1" ]; then
+  echo "ENV_FAIL: 受限环境无法启动子进程（spawn EPERM）——这是沙箱/管道限制，不是代码或测试的问题。" >&2
+  exit 78
+fi
+if command -v node >/dev/null 2>&1; then
+  # 探针只回答「能不能起子进程」：OK / ERR:<错误码> / NODE_FAIL（node 自己都没跑起来）。
+  # 三种都算环境问题，但原因要分开写——「所有测试都 EPERM」和「node 坏了」修法完全不同。
+  PROBE=$(node -e "const r=require('child_process').spawnSync(process.execPath,['-e',''],{stdio:'pipe'});process.stdout.write(r.error?('ERR:'+(r.error.code||'unknown')):'OK')" 2>/dev/null) || PROBE="NODE_FAIL"
+  if [ "$PROBE" != "OK" ]; then
+    echo "ENV_FAIL: 本机现在跑不了门禁（探针=${PROBE}）——这是环境问题，不是代码或测试的问题。" >&2
+    if [ "$PROBE" = "ERR:EPERM" ]; then
+      echo "        受限沙箱禁止子进程开命名管道（spawn EPERM）；在 workspace-write 沙箱里请由调度器/宿主跑门禁，不要为此改测试。" >&2
+    else
+      echo "        子进程起不来（${PROBE}）；先修好运行时/PATH，别改测试绕过去。" >&2
+    fi
+    exit 78
+  fi
+fi
+
 BASE_FILE="scripts/test-baseline.txt"
 
 pack() {

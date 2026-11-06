@@ -12,6 +12,10 @@
  *   node ci/dispatch.mjs --dry-run  只列出待办 issue，不执行
  *   node ci/dispatch.mjs --probe-stale  只探活免费池里 stale/unknown 的模型，不领任务
  *   node ci/dispatch.mjs --repos repos.json  按多库清单各起一个常驻（每库独立日志/锁/worktree）
+ *   node ci/dispatch.mjs --status   只读体检：锁、暂停态、今日花费（绝不领单、绝不常驻）
+ *   node ci/dispatch.mjs --pause --why "原因"  持久暂停（落 .logs/state.json，重启不清零）
+ *   node ci/dispatch.mjs --resume   解除暂停
+ *   未知旗标会被拒绝（exit 2）：以前它不报错，而是静默掉进常驻轮询。
  *
  * 环境变量:
  *   DSH_REPO               owner/repo，默认 Satan1982/dsh-pipeline-demo
@@ -38,6 +42,7 @@ import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
 import { formatDrift, localDrift } from './drift.mjs';
+import { parseRuntime, readState, setPaused, clearPaused, formatStatus } from './runtime-state.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
@@ -127,8 +132,23 @@ const TASK_MAX_CNY = Number(process.env.DSH_TASK_MAX_CNY ?? 0.5);
 const DAY_MAX_CNY = Number(process.env.DSH_DAY_MAX_CNY ?? 5);
 const NOTIFY_CNY = Number(process.env.DSH_NOTIFY_CNY ?? 0.05);
 // 限流不是逻辑失败：单独计数、单独上限，不占 MAX_ATTEMPTS 的预算。
-const RATE_LIMIT_MAX = Number(process.env.DSH_RATE_LIMIT_MAX ?? 4);
 const RATE_LIMIT_RETRIES = new Map();
+// 环境失败（沙箱不让 spawn / exit 78）同样不该占 MAX_ATTEMPTS：单独记账，重试用尽就挂起。
+// 环境变量可能被写成 "abc"/负数：NaN 或 <1 会让重试次数变 0 或 NaN 比较恒真，这里统一消毒。
+const envLimit = (raw, dflt) => {
+  const v = Math.floor(Number(raw));
+  return Number.isFinite(v) && v >= 1 ? v : dflt;
+};
+const ENV_RETRY_MAX = envLimit(process.env.DSH_ENV_RETRY_MAX, 2);
+const ENV_RETRIES = new Map();
+const RATE_LIMIT_MAX = envLimit(process.env.DSH_RATE_LIMIT_MAX, 4);
+// 等待时长同样消毒：NaN 会让 setTimeout 立即返回，退化成「一秒内连撞上限」。
+const waitMs = (raw, dflt) => {
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 ? v : dflt;
+};
+const rateLimitWaitMs = () => waitMs(process.env.DSH_RATE_LIMIT_WAIT_MS, 120000);
+const envRetryWaitMs = () => waitMs(process.env.DSH_ENV_RETRY_WAIT_MS, 60000);
 // dsh 每个 headless 运行都会在 <home>/.dsh/sessions/<cwd 转义>/session-<uuid>/ 下留一份会话。
 // worktree 用完就删了，这些会话会一直堆着（2026-10-26 实测 2 天堆了 95 个）。开机时把「工作区已不存在」
 // 的那些整体移进 sessions-archived/pipeline-old（只搬不删），并清掉空的转义壳。
@@ -193,6 +213,8 @@ const SELF      = new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$
 const DRY       = process.argv.includes('--dry-run');
 const PROBE_STALE = process.argv.includes('--probe-stale');
 const POOL_SNAPSHOT = process.argv.includes('--pool-snapshot');
+// 运行态三件（--status / --pause / --resume）：纯本地读写，不进轮询。
+const RUNTIME = parseRuntime(process.argv);
 const REPOS_FILE = (() => {
   const i = process.argv.indexOf('--repos');
   return i > 0 ? process.argv[i + 1] ?? null : null;
@@ -472,6 +494,29 @@ function ownsLock() {
   try { return JSON.parse(readFileSync(LOCK_FILE, 'utf8')).pid === process.pid; } catch { return false; }
 }
 
+// `--status` 用的只读视角：锁文件里写了什么、那个 pid 现在死没死、心跳是否还算新鲜。
+// 故意不复用 lockHolder()：它只回答「能不能接管」，这里还要回答「心跳是不是早停了」。
+function statusLock() {
+  let cur = null;
+  try { cur = JSON.parse(readFileSync(LOCK_FILE, 'utf8')); } catch { return null; }
+  if (!cur?.pid) return null;
+  let alive = false;
+  try { process.kill(cur.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
+  const age = cur.at ? Date.now() - Date.parse(cur.at) : Infinity;
+  const held = lockHeld({ alive, ageMs: age, mode: cur.mode, beatStaleMs: LOCK_BEAT_STALE_MS, staleMs: LOCK_STALE_MS });
+  return { pid: cur.pid, mode: cur.mode, at: cur.at, alive, beatFresh: held, ageMs: age };
+}
+
+// 最近 n 条事件的 kind，只给 --status 看趋势；事件文件破损时静默为空（体检不该因它报错）。
+function recentKinds(n) {
+  try {
+    const rows = readFileSync(EVENTS_FILE, 'utf8').split(NL).filter(Boolean).slice(-n);
+    return rows.map((line) => {
+      try { const e = JSON.parse(line); const t = String(e.at ?? e.ts ?? ''); return `${e.kind ?? '?'}@${t.slice(5, 16).replace('T', ' ')}`; } catch { return '坏行'; }
+    });
+  } catch { return []; }
+}
+
 function acquireLock() {
   if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
   const me = lockPayload({ pid: process.pid, at: new Date().toISOString(), mode: LOCK_MODE });
@@ -670,6 +715,37 @@ async function failTask(issue, reason) {
   notifyEvent({ kind: 'failed', issue: n, why: r.split('\n')[0].slice(0, 120) });
 }
 
+// 环境/机器问题导致的人工挂起：与 blockTask 的区别是**不自动恢复**。
+// blockTask 是「免费池暂时不可用」，recoverBlocked 会在池子探活恢复后把单子放回 ready；
+// 环境失败（沙箱不让 spawn）恢复与否取决于人，自动重投只会每 5/10/20 分钟空转一轮。
+// 所以这里写 gaveUp:true 的本地记录 + agent:blocked:manual，等人处理。
+async function blockManual(issue, why, detail) {
+  const n = issue.number;
+  const d = String(detail || '').slice(0, 1500);
+  log(`[issue #${n}] ${why}，工单挂起为 agent:blocked:manual（不自动重投）`);
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:working')}`).catch(() => {});
+  await api('DELETE', `/repos/${REPO}/issues/${n}/labels/${encodeURIComponent('agent:ready')}`).catch(() => {});
+  await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: ['agent:blocked', 'agent:blocked:manual'] }).catch(() => {});
+  try {
+    const state = readBlockedState();
+    state[n] = { ...initialEntry({ now: Date.now(), why, requeues: state[n]?.requeues ?? 0, backoff: REQUEUE_BACKOFF }), gaveUp: true, gaveUpAt: new Date().toISOString() };
+    writeBlockedState(state);
+  } catch (e) { log(`⚠ 记 blocked-state 失败（不影响挂起）：${e.message}`); }
+  const fenced = d ? ['```', d, '```'].join(NL) : '';
+  await api('POST', `/repos/${REPO}/issues/${n}/comments`, {
+    body: [
+      `⛔ ${why}：这不是这张单写错了，调度器没有替你重试到底（环境问题重试不消耗重试预算）。`,
+      '',
+      fenced,
+      '**怎么继续**：',
+      '- 先把机器弄能跑：在**宿主进程**（不是受限沙箱）里跑一遍 `bash scripts/verify.sh`，绿了再继续；',
+      '- 去掉 `agent:blocked` 与 `agent:blocked:manual`、重新打 `agent:ready`（本地挂起记录会一并重置）；',
+      '- 环境限制不该靠改测试绕过去：`scripts/verify.sh` 在跑不了子进程时会 `exit 78` 并说明原因。',
+    ].filter(Boolean).join(NL),
+  }).catch(() => {});
+  notifyEvent({ kind: 'blocked-manual', issue: n, why: String(why).slice(0, 120) });
+}
+
 async function blockTask(issue, why, detail) {
   const n = issue.number;
   const d = String(detail || '').slice(0, 1500);
@@ -843,6 +919,14 @@ async function verifyWorktree(wt) {
     env: { PATH: CHILD_PATH, PNPM_CLI },
   });
   if (v.code === 0) return { ok: true };
+  // 78 = EX_CONFIG：门禁自己判定「这台机器现在跑不了子进程」，不是代码问题。
+  // code -1 / 带 error：连 bash 都没起来（PATH 错、WSL 抢了 bash.exe），同样是环境不是代码。
+  // 记成普通失败会让同一张工单白烧三次重试预算（红线：环境失败不消耗重试预算）。
+  if (Number(v.code) === 78 || Number(v.code) === -1) {
+    const tail78 = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-5).join('\n');
+    const why = Number(v.code) === 78 ? '门禁在受限环境里无法启动子进程（exit 78）' : '门禁进程根本没起来（bash 不可用）';
+    return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}` };
+  }
   const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
   return {
     ok: false,
@@ -970,7 +1054,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       if (unmetered) log(`${tag} ⚠ 本次没有 token 统计（cost-meter 没吐 usage）：记为未计量，日闸按 ${formatCny(UNMETERED_UNIT_CNY)}/次保守计入`);
       if (cny !== null && cny > TASK_MAX_CNY) {
         log(`${tag} ⚠ 单任务估算 ${formatCny(cny)} 超过上限 ${formatCny(TASK_MAX_CNY)}：本批次暂停领取新任务（DSH_TASK_MAX_CNY 可调）`);
-        PAUSE_CLAIM = true;
+        pauseClaim(`单任务估算 ${formatCny(cny)} 超过上限 ${formatCny(TASK_MAX_CNY)}`);
       }
       appendFileSync(
         path.join(LOG_DIR, 'usage.jsonl'),
@@ -1037,8 +1121,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 1) 独立门禁：不接受作者自评
     const gate = await verifyWorktree(wt);
     if (!gate.ok) {
-      recordFailure({ text: gate.detail, issue: n, attempt, reason: gate.detail }, FAIL_STORE);
-      throw new Error(gate.detail);
+      // 环境失败不进失败指纹库：那不是「这单写错了」，记进去会污染「同类失败根因」，
+      // 还会在下一轮被当成先验灌回 agent（让它去改根本没坏的测试）。
+      if (!gate.env) recordFailure({ text: gate.detail, issue: n, attempt, reason: gate.detail }, FAIL_STORE);
+      const err = new Error(gate.detail);
+      if (gate.env) err.env = true;
+      throw err;
     }
 
     // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
@@ -1206,11 +1294,37 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       body: `✅ 已生成 PR：${prUrl ?? '（PR 已存在但查询失败）'}\n\n耗时 ${secs}s。`,
     }).catch(() => {});
     log(`${tag} done → ${prUrl}`);
+    // 这张单跑成了：清掉与它绑定的重试计数，避免「上一轮攒满 2 次环境失败、人工解挂后
+    // 再遇一次偶发失败就立刻挂起」——计数要跟着这一轮，而不是跟着工单号永久累积。
+    ENV_RETRIES.delete(n);
+    RATE_LIMIT_RETRIES.delete(n);
+    ZERO_TOKEN_FAILS.delete(n);
   } catch (e) {
     const reason = String(e?.stack || e);
+    // 环境失败走结构化标记优先，文本匹配只作兜底：门禁 exit 78 时 verifyWorktree 会把
+    // Err.err = true 挂在错误对象上，比在堆栈里找子串可靠（测试输出里也可能出现同名字面量）。
+    const envFailure = e?.env === true || /(^|\n)ENV_FAIL:|\bspawn EPERM\b/.test(reason);
     // 记下这一轮是不是环境噪声：下一轮据此决定要不要接着同一个会话跑。
     const kindHit = /\[headless\]\s*([a-z0-9-]+)/.exec(reason);
     if (kindHit && prevSession && prevSession.id) ISSUE_SESSION.set(n, { id: prevSession.id, kind: kindHit[1] });
+
+    // 环境失败（沙箱不允许 spawn / 门禁自己判 exit 78）不是「这单写错了」：
+    // 按红线单独计数、不推高 attempt；重试用尽就挂起交给人，这样一张好工单不会因为
+    // 机器限制被三次重试判死。这一段必须排在免费池判定之前——环境失败的文本可能
+    // 撞上池子的关键词，被误送去「挂起等池子恢复」就再也回不来了。
+    if (envFailure) {
+      const tries = ENV_RETRIES.get(n) ?? 0;
+      if (tries < ENV_RETRY_MAX) {
+        ENV_RETRIES.set(n, tries + 1);
+        const waited = envRetryWaitMs();
+        log(`${tag} 环境失败（不是写错），等 ${Math.round(waited / 1000)}s 后重试（第 ${tries + 1}/${ENV_RETRY_MAX} 次，不占重试预算）`);
+        await new Promise((r) => setTimeout(r, waited));
+        return runTask(issue, attempt, reason);
+      }
+      log(`${tag} 环境失败重试 ${ENV_RETRY_MAX} 次仍失败：挂起交给人，不判为写错`);
+      await blockManual(issue, `环境失败（重试 ${ENV_RETRY_MAX} 次仍不可用）`, `门禁无法在受限环境里启动子进程。\n\n${reason.slice(-1200)}`);
+      return;
+    }
   // 限流（429 / TPM limit reached）是环境噪声，不是这次改动的问题：等一会儿再来，
   // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
   // 免费档额度用尽（modelscope 返回 insufficient balance）不是「这单写错了」，
@@ -1241,7 +1355,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const tries = RATE_LIMIT_RETRIES.get(n) ?? 0;
     if (tries < RATE_LIMIT_MAX) {
       RATE_LIMIT_RETRIES.set(n, tries + 1);
-      const waited = Number(process.env.DSH_RATE_LIMIT_WAIT_MS ?? 120000);
+      const waited = rateLimitWaitMs();
       log(`${tag} 撞到限流，等 ${Math.round(waited / 1000)}s 后重试（第 ${tries + 1}/${RATE_LIMIT_MAX} 次，不计重试次数）`);
       await new Promise((r) => setTimeout(r, waited));
       return runTask(issue, attempt, reason);
@@ -1287,9 +1401,18 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
 }
 
 // 本批次是否因为超预算而暂停领取新任务（软熔断：已完成的活不丢，只是不再开新的）。
-let PAUSE_CLAIM = false;
+// 持久化：启动时从 .logs/state.json 读回来。以前它只是内存变量，日闸熔断后计划任务把进程
+// 重拉一次就满血复活，等于日闸在重启面前不设防（2026-11-06 终稿裁决）。
+let PAUSE_CLAIM = readState(LOG_DIR).paused;
 // 日闸通知的「最后一次通知是哪一天」（北京时间日期）。进程重启会重置，重启后再提示一次也合理。
 let DAYCAP_NOTIFIED = '';
+
+// 统一的暂停入口：内存 + 落盘一起改，避免出现「日志说暂停了、重启又开跑」。
+function pauseClaim(why) {
+  if (PAUSE_CLAIM) return;
+  PAUSE_CLAIM = true;
+  try { setPaused(LOG_DIR, why); } catch (e) { log(`[state] 暂停态落盘失败（仍按内存暂停）：${e.message}`); }
+}
 
 function todaySpendCny() {
   try {
@@ -1349,7 +1472,7 @@ async function pollOnce() {
         cny: spent,
       });
     }
-    PAUSE_CLAIM = true;
+    pauseClaim(`今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}`);
     return 0;
   }
   const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`);
@@ -1453,7 +1576,12 @@ ${logText.slice(-8000)}
     if (!status) throw new Error('CI 修复未产生任何改动');
 
     const gate = await verifyWorktree(wt);
-    if (!gate.ok) throw new Error(gate.detail);
+    if (!gate.ok) {
+      // CI 修复轮也走同一条规矩：环境失败不打回「重写」，直接带标记抛上去让外层暂停/挂起。
+      const err = new Error(`CI 修复后门禁未通过：${gate.detail.slice(0, 800)}`);
+      if (gate.env) err.env = true;
+      throw err;
+    }
 
     await run(GIT, ['add', '-A'], { cwd: wt });
     const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
@@ -1643,7 +1771,11 @@ async function rebaseAgentBranch(pr, issueN) {
     }
 
     const gate = await verifyWorktree(wt);
-    if (!gate.ok) throw new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}`);
+    if (!gate.ok) {
+      const err = new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}`);
+      if (gate.env) err.env = true; // 环境问题不该被记成「这个 PR 坏了」，外层据此挂起而不是判红
+      throw err;
+    }
 
     await pushWithRetry(wt, `${tmpBranch}:${branch}`, ['--force-with-lease']);
 
@@ -2087,6 +2219,45 @@ function ensureRepos() {
 }
 
 async function main() {
+  // 运行态三件放在最前面：`--status` 必须只读（不拿锁、不补标签、不调 API、绝不进轮询）；
+  // 未知旗标直接拒绝。以前多打一个旗标不报错，会静默掉进 `while (true)` 起一个常驻调度器。
+  if (RUNTIME.unknown.length) {
+    console.error(`未知旗标：${RUNTIME.unknown.join(' ')}\n可用：--once --ensure --serve --dry-run --probe-stale --pool-snapshot --repos <file> --status --pause --resume --help`);
+    process.exitCode = 2;
+    return;
+  }
+  if (RUNTIME.cmd === 'status') {
+    const st = readState(LOG_DIR);
+    for (const line of formatStatus({
+      mode: PAUSE_CLAIM ? 'paused' : 'ready',
+      lock: statusLock(),
+      st,
+      spendCny: todaySpendCny(),
+      dayMaxCny: DAY_MAX_CNY,
+      taskMaxCny: TASK_MAX_CNY,
+      events: recentKinds(3),
+    })) console.log(line);
+    return;
+  }
+  if (RUNTIME.cmd === 'pause') {
+    const why = RUNTIME.why || '人工暂停（--pause 未给 --why）';
+    setPaused(LOG_DIR, why);
+    console.log(`已暂停：${why}（写入 .logs/state.json；常驻进程下一轮起不再领新单，已跑的活不中断）`);
+    return;
+  }
+  if (RUNTIME.cmd === 'resume') {
+    const st = readState(LOG_DIR);
+    clearPaused(LOG_DIR);
+    console.log(st.paused ? `已恢复（原暂停原因：${st.pausedWhy || '未写'}）` : '本来就没暂停（状态文件已重置）');
+    return;
+  }
+  if (RUNTIME.cmd === 'help') {
+    console.log('用法：node ci/dispatch.mjs [--once|--ensure|--serve|--dry-run|--probe-stale|--pool-snapshot|--repos <file>|--status|--pause|--resume]');
+    console.log('  --status  只读体检：锁、暂停态、今日花费；不领单、不常驻');
+    console.log('  --pause   持久暂停（.logs/state.json），重启后仍然停着；--why 记原因');
+    console.log('  --resume  解除暂停');
+    return;
+  }
   if (POOL_SNAPSHOT) {
     process.exitCode = await poolSnapshot();
     return;

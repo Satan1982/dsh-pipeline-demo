@@ -75,10 +75,14 @@ export function fingerprint(text) {
 // 只看文本（reason 优先），优先级 环境 > 基线 > 写错：
 // 环境与基线都属于「不是这次改动的问题」，必须先判掉；剩下的默认算写错——
 // 门禁本来就是在审 agent 的改动，排除前两类后，失败就是改动本身没达标。
+// 「环境」这一条刻意很宽（含 EPERM / ENV_FAIL / 沙箱 / 管道）：这些词只会在
+// 「机器跑不动」的上下文里出现；把它们漏进「写错」的代价是 agent 被派去改没坏的测试。
+// 所以这里宁可把判据写宽，也不追求「写错」这一类的纯净度。
 export const CAUSES = ['环境', '基线', '写错', '未知'];
 
 const CAUSE_RULES = [
-  ['环境', /rate.?limit|限流|429|overloaded|timeout|timed out|超时|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|socket hang up|git fetch 失败|fetch 失败|Permission denied \(publickey\)|Could not read from remote|Unauthorized|凭据|credential|ENOSPC|ENOENT/i],
+  ['环境', /rate.?limit|限流|429|overloaded|timeout|timed out|超时|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|socket hang up|git fetch 失败|fetch 失败|Permission denied \(publickey\)|Could not read from remote|Unauthorized|凭据|credential|ENOSPC|ENOENT|EPERM|ENV_FAIL|spawn 失败|沙箱|sandbox|管道/i],
+
   ['基线', /baseline-unsynced|基线|bless/i],
 ];
 
