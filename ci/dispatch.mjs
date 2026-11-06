@@ -45,7 +45,7 @@ import { formatDrift, localDrift } from './drift.mjs';
 import { parseRuntime, readState, setPaused, clearPaused, formatStatus } from './runtime-state.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
 import { checkUnattendedIntake } from './intake-check.mjs';
-import { appendLedger, ledgerEntry } from './ledger.mjs';
+import { appendLedger, defaultLedgerFile, ledgerEntry } from './ledger.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
 import { homedir } from 'node:os';
