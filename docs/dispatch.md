@@ -93,6 +93,26 @@ Issue 模板：`.github/ISSUE_TEMPLATE/agent-task.yml`，新建 issue 时选「�
 
 **不耗重试预算、不自动重投、超时也不自动判死**。复活路径与 `agent:failed` 一致：人改 issue 正文补齐，去掉 `needs-info`、重加 `agent:ready`。回归测试 `ci/needs-info.test.mjs`（6 条）。
 
+### 端到端实测（2026-11-06，#95）
+
+用一张故意缺 `### 验收命令` 的单（#95）跑完整条链，全程没有代码改动：
+
+| 时间（本地） | 环节 | 证据 |
+|---|---|---|
+| 23:05:59 | 启动时补齐缺失标签 | `dispatch.log`：`[labels] 补齐 1 个缺失标签：needs-info` |
+| 23:06:05 | 无人值守拒单（正文缺验收命令） | `[issue #95] NEEDS-INFO: 无人值守拒单：…不接受空验收）` |
+| 23:06:08 | 打 `needs-info`，并摘 `agent:ready` | timeline：`labeled needs-info 15:06:08Z` |
+| 23:06:10 | 发解释性评论（不是失败 + 要补什么 + 复活步骤） | comment `6688011450` |
+| 23:06:12 | 发邮件、落事件 | `needs-info 邮件已发（[needs-info] #95 …）`；`events.jsonl`：`{"kind":"needs-info","issue":95}` |
+| 23:06:13 | 系统通知 | `[notify] 已发系统通知：流水线 #95 等待补充验收/信息` |
+| 23:12:29 | 重加 `agent:ready`（正文已补 `### 验收命令`） | timeline；23:16 领取未再拒单 |
+| 23:12:31 | 摘 `needs-info` | timeline：`unlabeled needs-info 15:12:31Z` |
+| 23:16:33 | 复活后正常领取，23:16:39 起 headless | `[issue #95] 领取：…` → `启动 headless（cwd=…\issue-95）` |
+
+补齐的验收命令（`REQUIRED_LABELS` 含 `needs-info`）本地跑出 `VERDICT: PASS`。复活后的领取日志没有 `(第 N 次)`，说明 needs-info 没耗重试预算；这次走的是正常 `runTask`，没有再进 `askInfo`。随后 headless 因本机模型未加载 `exit=1`（`No model loaded: …`）属环境问题，与 needs-info 链路无关。
+
+证据源：GitHub API 的 issue timeline / comments、`.logs/dispatch.log`、`~/.dsh/coord/log/events.jsonl`。
+
 ## 失败重试（已实现）
 
 执行期失败（headless 非 0 退出、无改动、碰了 origin/main）会自动重试，上限 3 次（`DSH_MAX_ATTEMPTS`）：
