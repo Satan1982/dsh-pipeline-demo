@@ -90,6 +90,11 @@ try {
   $env:DSH_HEADLESS_JSON = '1'
   $env:DSH_HEADLESS_ALLOW_CREDS = ''
   $env:DSH_HEADLESS_PATCH = ''
+  # 沙箱档位：隔离由 OS 账户承担（dsh-agent 只能写 .worktrees，读不到 .secrets 与管理员 home），
+  # 但 DSH 自己的 workspace-write 沙箱在 Windows 上会禁掉子进程命名管道 → `node --test` 全部
+  # spawn EPERM，而 agent 必须能自己跑 `bash scripts/verify.sh --bless` 交基线（门禁不采信自述）。
+  # 所以这里显式关掉进程内沙箱；边界仍由账户 ACL 决定，不是靠这层。
+  $env:DSH_PERMISSION_MODE = 'danger-full-access'
   # 低权通道默认走 ci/headless-local.yml；调度器要换模型路由（paid/strong）时经 job.patch 传，
   # 不靠继承环境变量——凭据类的环境变量在这条路径上必须一律由这里显式决定。
   if ($job.patch) { $env:DSH_HEADLESS_PATCH = [string]$job.patch }
@@ -120,6 +125,7 @@ try {
   $psi.EnvironmentVariables['DSH_HEADLESS_JSON'] = '1'
   if ($env:DSH_HEADLESS_PATCH) { $psi.EnvironmentVariables['DSH_HEADLESS_PATCH'] = $env:DSH_HEADLESS_PATCH }
   if ($env:PNPM_CLI) { $psi.EnvironmentVariables['PNPM_CLI'] = $env:PNPM_CLI }
+  $psi.EnvironmentVariables['DSH_PERMISSION_MODE'] = $env:DSH_PERMISSION_MODE
   $psi.EnvironmentVariables['PATH'] = $env:PATH
 
   $p = New-Object System.Diagnostics.Process
