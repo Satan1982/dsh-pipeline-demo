@@ -241,6 +241,10 @@ if (-not $WhatIf) {
 
 $adminSid = Get-SidOf 'BUILTIN\Administrators'
 $sysSid = Get-SidOf 'NT AUTHORITY\SYSTEM'
+# 交互账户。非提权进程的令牌里 BUILTIN\Administrators 是 deny-only SID：
+# 只给它授权等于没授权，本会话与调度器都会立刻失去 D:\code 的访问（v1 真实事故）。
+$me = "$env:USERDOMAIN\$env:USERNAME"
+if ($me -notmatch '\\') { $me = "$env:COMPUTERNAME\$env:USERNAME" }
 
 if ($haveBackup -or $WhatIf) {
   # 顺序很重要：先把管理员/SYSTEM 显式写进去，再 /inheritance:r，
@@ -248,6 +252,7 @@ if ($haveBackup -or $WhatIf) {
   Doing 'D:\code: Administrators/SYSTEM 全控 + agent 只读；去掉 Authenticated Users 的 Modify'
   if (-not $WhatIf) {
     [void](Run-Icacls @('D:\code', '/grant', 'BUILTIN\Administrators:(OI)(CI)F'))
+    [void](Run-Icacls @('D:\code', '/grant', ($me + ':(OI)(CI)F')))
     [void](Run-Icacls @('D:\code', '/grant', 'NT AUTHORITY\SYSTEM:(OI)(CI)F'))
     [void](Run-Icacls @('D:\code', '/inheritance:r'))
     [void](Run-Icacls @('D:\code', '/remove:g', 'NT AUTHORITY\Authenticated Users', 'Everyone', 'BUILTIN\Users'))
@@ -273,15 +278,55 @@ if ($haveBackup -or $WhatIf) {
     if ($stale.Count -gt 0) {
       Warn ('子目录仍有宽 ACE，跑一次 /T 修正：' + ($stale -join ', '))
       [void](Run-Icacls @('D:\code', '/remove:g', 'NT AUTHORITY\Authenticated Users', 'Everyone', 'BUILTIN\Users', '/T', '/C', '/Q'))
-      [void](Run-Icacls @('D:\code', '/grant', ($AgentUser + ':(OI)(CI)RX'), '/T', '/C', '/Q'))
+      # 不对 D:\code 根做 /T grant：那会把 agent 的 RX 带进 .secrets（v1 的真实事故）。
+      foreach ($sub in @('D:\code\dsh-pipeline-demo', 'D:\code\vc', 'D:\code\docs', 'D:\code\.worktrees')) {
+        if (Test-Path -LiteralPath $sub) { [void](Run-Icacls @($sub, '/grant', ($AgentUser + ':(OI)(CI)RX'), '/T', '/C', '/Q')) }
+      }
       [void](Run-Icacls @('D:\code\.worktrees', '/grant', ($AgentUser + ':(OI)(CI)M'), '/T', '/C', '/Q'))
       $stale = @()
       foreach ($c in $children) { if ((Test-Path -LiteralPath $c) -and (Get-BroadAces $c).Count -gt 0) { $stale += $c } }
     }
     if ($stale.Count -eq 0) { Ok '子目录抽查：没有残留的宽 ACE' } else { Fail ('子目录仍开放：' + ($stale -join ', ')) }
+
+    # 交互账户：每条需要非提权访问的路径都显式给一遍；icacls 被拒时先 takeown 再给。
+    foreach ($p in @('D:\code\.worktrees', 'D:\code\.worktrees\.s4', 'D:\code\dsh-pipeline-demo', 'D:\code\dsh-pipeline-demo\.logs', 'D:\code\vc', 'D:\code\docs')) {
+      if (-not (Test-Path -LiteralPath $p)) { continue }
+      $rc = Run-Icacls @($p, '/grant', ($me + ':(OI)(CI)F'), '/T', '/C', '/Q')
+      if ($rc -ne 0) {
+        [void](& takeown.exe /F $p /R /D Y 2>&1 | Out-Null)
+        [void](Run-Icacls @($p, '/grant', ($me + ':(OI)(CI)F'), '/T', '/C', '/Q'))
+      }
+    }
+    # .secrets 兜底：任何 /T 带进来的 agent ACE 都收回，回到 Administrator/SYSTEM/Administrators。
+    [void](Run-Icacls @($SecretsDir, '/remove:g', $AgentUser, '/T', '/C', '/Q'))
+    [void](Run-Icacls @($SecretsDir, '/inheritance:r'))
+    [void](Run-Icacls @($SecretsDir, '/grant', ($me + ':(OI)(CI)F')))
+    [void](Run-Icacls @($SecretsDir, '/grant', 'NT AUTHORITY\SYSTEM:(OI)(CI)F'))
+    [void](Run-Icacls @($SecretsDir, '/grant', 'BUILTIN\Administrators:(OI)(CI)F'))
+    $secAcl = (& icacls.exe $SecretsDir 2>&1) -join "`n"
+    if ($secAcl -match [regex]::Escape($AgentUser)) { Fail '.secrets 仍含 agent ACE' } else { Ok '.secrets 未给 agent 任何权限' }
     $sec2 = Get-BroadAces $SecretsDir
     if ($sec2.Count -eq 0) { Ok '.secrets 仍然只给管理员/SYSTEM（改动没有波及）' } else { Fail ('.secrets 被波及：对 ' + ($sec2 -join ', ') + ' 开放') }
   }
+}
+
+# 4c 管理员自己的 DSH home：C:\Users\Administrator\.dsh 是指向 D:\harness-home 的 junction，
+#    D:\ 根给 Authenticated Users 的 Modify 会继承进去 —— 低权 agent 能写管理员的 DSH home
+#    （.credentials.yaml、sessions、hindsight 全在里面）。探针 write-admin-dsh 抓的就是这个。
+$adminDsh = Join-Path $AdminHome '.dsh'
+$adminDshTarget = $null
+try { $adminDshTarget = (Get-Item -LiteralPath $adminDsh -Force).Target | Select-Object -First 1 } catch { }
+if (-not $adminDshTarget) { $adminDshTarget = $adminDsh }
+Doing ('收紧管理员 DSH home：' + $adminDshTarget + '（Administrators/SYSTEM 全控，去掉 Authenticated Users/Users）')
+if (-not $WhatIf) {
+  [void](Run-Icacls @($adminDshTarget, '/grant', ($me + ':(OI)(CI)F')))
+  [void](Run-Icacls @($adminDshTarget, '/grant', 'NT AUTHORITY\SYSTEM:(OI)(CI)F'))
+  [void](Run-Icacls @($adminDshTarget, '/grant', 'BUILTIN\Administrators:(OI)(CI)F'))
+  [void](Run-Icacls @($adminDshTarget, '/inheritance:r'))
+  $c = Run-Icacls @($adminDshTarget, '/remove:g', 'NT AUTHORITY\Authenticated Users', 'BUILTIN\Users', '/T', '/C', '/Q')
+  if ($c -eq 0) { Ok '已收紧（递归）' } else { Warn ('递归收回有失败 exit=' + $c + '：父目录已挡住穿越，个别文件残留不致命') }
+  $aclDsh = (& icacls.exe $adminDshTarget 2>&1) -join "`n"
+  if ($aclDsh -match 'Authenticated Users' -or $aclDsh -match 'BUILTIN\\Users:') { Fail 'DSH home 仍对其它本机用户开放' } else { Ok 'DSH home 已只给管理员/SYSTEM' }
 }
 
 # ── 5 注册低权任务 ─────────────────────────────────────────────────────────
