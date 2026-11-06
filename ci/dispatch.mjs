@@ -938,6 +938,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       if (quotaPaid) log(`${tag} ⚠ 免费档额度用尽，本单改用 deepseek-flash（付费）`);
       else log(`${tag} ⇄ 有其它任务在跑（免费档不能并发），本单改用 deepseek-flash（付费，约 ¥0.1/单）`);
     }
+    // 只有显式升级（model:strong / model:paid 导致的 .secrets 路由）才允许入口注入真实凭据。
+    // 默认档走仓内 ci/headless-local.yml（本地 Lemonade，无 key）：agent 手里没有可外传的东西。
+    if (runEnv.DSH_HEADLESS_PATCH) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
@@ -1549,8 +1552,12 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
   // 所以默认换强模型（可用 DSH_REBASE_MODEL=weak 退回旧行为）。
   const rebasePatch = process.env.DSH_REBASE_MODEL === 'weak' ? '' : STRONG_PATCH;
   const rebaseEnv = { PATH: CHILD_PATH };
-  if (rebasePatch) rebaseEnv.DSH_HEADLESS_PATCH = rebasePatch;
-  const r = await runHeadless(wt, prompt, rebaseEnv, REBASE_AGENT_TIMEOUT_MS);
+  if (rebasePatch) {
+    rebaseEnv.DSH_HEADLESS_PATCH = rebasePatch;
+    // 解冲突这一步显式用强模型，因此显式 opt-in 允许入口注入该路由需要的 key；
+    // 这是全流程里唯一默认就会碰凭据的路径（见 docs/headless.md）。
+    rebaseEnv.DSH_HEADLESS_ALLOW_CREDS = '1';
+  }  const r = await runHeadless(wt, prompt, rebaseEnv, REBASE_AGENT_TIMEOUT_MS);
   const secs = Math.round((Date.now() - t0) / 1000);
   // 解冲突是最容易「跑很久还没结论」的一步，输出必须留档，否则事后只剩一行 exit=1。
   const outPath = path.join(LOG_DIR, `issue-${issueN}-rebase.log`);
@@ -1671,7 +1678,9 @@ async function runHeadless(cwd, prompt, env, timeout) {
   for (let i = 1; i <= 3; i += 1) {
     // --json：stdout 是事件流，里面带每一步的 usage（headless profile 没装 cost-meter，
     // 账本里看不到这些 run，只能自己从事件流里累加）。
-    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), DSH_INSTALL: INSTALL_DIR, ...env, DSH_HEADLESS_JSON: '1' }, clean: true });
+    // 显式给空串：防止调度器进程自己环境里的 DSH_HEADLESS_PATCH / DSH_HEADLESS_ALLOW_CREDS 漏给 agent
+    // （否则「默认无凭据」会被继承来的环境变量悄悄破坏，那是条看不见的凭据泄漏路径）。
+    last = await run(BASH, [path.join(REPO_DIR, 'ci/headless-task.sh'), '-'], { cwd, input: prompt, timeout, env: { ...scrubbedEnv(), DSH_INSTALL: INSTALL_DIR, ...env, DSH_HEADLESS_JSON: '1', DSH_HEADLESS_PATCH: env.DSH_HEADLESS_PATCH || '', DSH_HEADLESS_ALLOW_CREDS: env.DSH_HEADLESS_ALLOW_CREDS || '' }, clean: true });
     if (Number(last.code) < 0xC0000000) {
       const usage = sumUsage(last.out);
       return { ...last, raw: last.out, usage, out: finalText(last.out) };

@@ -189,7 +189,7 @@ tail -20 ~/.dsh/coord/log/events.jsonl          # 需要人知道的事（失败
 
 | 档 | 文件（默认路径，env 可覆盖） | 谁在用 |
 |---|---|---|
-| 弱档（省） | `D:\code\.secrets\headless-model.yml`（`ci/headless-task.sh:22` 默认值；env `DSH_HEADLESS_PATCH`） | 默认试跑：headless 编码、单文件小改 |
+| 弱档（省） | `ci/headless-local.yml`（仓内，**默认值**，`ci/headless-task.sh:61`；本地 Lemonade `127.0.0.1:13305/api/v1`，无真 key）。旧的 `D:\code\.secrets\headless-model.yml` 现在只在 `DSH_HEADLESS_ALLOW_CREDS=1` 时才是默认（env `DSH_HEADLESS_PATCH` 始终可覆盖） | 默认试跑：headless 编码、单文件小改 |
 | 强档 | `.secrets/headless-model-free-strong.yml`，或每轮按免费池健康生成的 `.logs/headless-model-free-strong.generated.yml`（env `DSH_HEADLESS_STRONG_PATCH` 一设就不再生成） | 工单带 `model:strong`、失败重试升级、冲突解决 |
 | 付费档 | `.secrets/headless-model-paid.yml`（env `DSH_HEADLESS_PAID_PATCH`） | 免费池不可用且人明确打了 `model:paid` |
 

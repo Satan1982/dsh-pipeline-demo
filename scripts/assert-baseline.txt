@@ -21,6 +21,7 @@
 1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f0f914bb5c7f41d assert.equal(eventRecord({ kind: 'x' }).issue, undefined);
+1 0f1dd8493d7b5f10 assert.equal(/sk-[A-Za-z0-9]{10,}/.test(yml), false, '本地路由文件里出现了疑似密钥字面量');
 1 0f98f04241274434 assert.equal(square(-3), 9);
 1 103a0d7c0d21268f assert.ok(r.findings.some((f) => f.severity === 'warn' && f.rule === 'diff-large'));
 1 10fd0bd14556bb89 assert.equal(d.on, false);
@@ -132,6 +133,7 @@
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
 1 3d1af4b9cf45e472 assert.equal(merged.reviewers[0].tier, 'free');
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
+1 3f0c5d719e089bd7 assert.equal(SCRIPT.includes('DSH_PERMISSION_MODE:-danger-full-access'), false);
 1 3f49e5b30932c405 assert.deepEqual(labelPayload('dep-on:T1'), { name: 'dep-on:T1' });
 2 3f5d9c0292efc64c assert.equal(d.verdict, 'unknown');
 1 3fda5c7da6d2c935 assert.ok(!sig.includes('at a'));
@@ -162,6 +164,7 @@
 1 493ae59437c4bfa9 assert.equal(b.cause, '写错');
 1 4999988d975c90e1 assert.match(formatAudit(stale)[0], /不自动删/);
 1 4a0af7bc7a29be85 assert.throws(() => chunk('abc', 1.5), RangeError);
+1 4a3a815c41fe1bd8 assert.notEqual(at, -1, `${key} 的注入逻辑被删了？`);
 1 4b08ffb7e2c45ebc assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', '100', '--note', 'a', '--note', 'b']), TypeError);
 1 4b1e80e81e72758e assert.equal(isOdd(3), true);
 1 4bbfd0dba9a3e225 assert.equal(lockHeld({ alive: true, ageMs: 20 * MIN, mode: undefined, staleMs: STALE }), true);
@@ -196,7 +199,9 @@
 5 579405978276dd0f assert.equal(d.ok, true);
 1 57accb9ee40cd460 assert.equal(partial.verdict, 'pass');
 1 57dafa5a87d23abc assert.equal(divide(6, 3), 2);
+1 58053018b14c8457 assert.equal(SCRIPT.includes('DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"'), true);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
+1 59390b7bca3b7e2d assert.equal(yml.includes('/api/v1'), true);
 1 5a4d2ef6d4bb8955 assert.equal(formatLabelList(['a', 'b', 'c', 'd', 'e', 'f', 'g']), 'a、b、c、d、e、f 等 7 个');
 1 5aaa31426238ae1c assert.throws(() => parseSumArgs(['--month', '2026-13']), TypeError);
 1 5b0dd0eae15a8bd8 assert.equal(entries[1].amount, 100);
@@ -211,6 +216,7 @@
 1 60b6c6b3c613cdd7 assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
 1 6107689f9c33d685 assert.throws(() => topoLevels(parseTasks(cyclic)), /依赖成环/);
 1 615c91b68d5d6b95 assert.equal(isFreePoolDown('no available model for this route'), true);
+1 61a099abd63aec29 assert.equal(SCRIPT.includes('PATCH="${DSH_HEADLESS_PATCH:-$ROOT/ci/headless-local.yml}"'), true);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 625217da077dd8d8 assert.equal(lockHeld({ alive: false, ageMs: 0, mode: 'serve', staleMs: STALE }), false);
 1 635e242b3db47cfe assert.equal(isFreePoolDown('assert.equal(divide(6, 3), 2) failed'), false);
@@ -249,6 +255,7 @@
 1 721cae634788c77a assert.deepEqual(missingLabels(REQUIRED_LABELS), []);
 1 72b3c6e04d06289b assert.equal(roundTo(3.14159, 2), 3.14);
 2 733fa19245e2866c assert.equal(f.severity, 'warn');
+1 7367d7aea5c52788 assert.equal(body.includes('-o /dev/null -w'), true, '探活被删了？');
 1 73ca62e269115cea assert.throws(() => summarize([], '2026-13'), TypeError);
 1 744c68c6e1c57c2b assert.equal(body.at, '2026-10-28T00:00:00.000Z');
 1 74c3214719308fdd assert.ok(rec);
@@ -271,6 +278,7 @@
 1 7aa8ecae03f50247 assert.ok(r.findings.some((f) => f.rule === 'assert-removed'));
 1 7b2eeead88eebc59 assert.deepEqual(parseVerdict(text), { verdict: 'pass', reason: '第二次' });
 1 7b3c49ae0e6a0b49 assert.equal(reverseWords(''), '');
+1 7b4e36c677f8bb3b assert.equal(DISPATCH.includes("if (runEnv.DSH_HEADLESS_PATCH) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';"), true);
 1 7b57bbc4cf4a2ddd assert.equal(isPalindrome(''), true);
 1 7bf08c527e3baaa8 assert.ok(m, 'semantic-review.mjs 里找不到 PAID_REVIEW_MODELS 默认值');
 1 7d4da2570f24aea9 assert.deepEqual([...a.issues].sort(), [27, 44]);
@@ -294,6 +302,7 @@
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
 1 867048f9519d5217 assert.deepEqual(listModels(null), []);
 1 8729d286f96ceed0 assert.equal(backoffMs(2), 20 * MIN);
+1 882912600c4bab4a assert.equal(DISPATCH.includes("DSH_HEADLESS_PATCH: env.DSH_HEADLESS_PATCH || ''"), true);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
 1 8968b1fb9790feed assert.ok(r.findings.some((f) => f.rule === 'forbidden-path'));
 1 89be954b7641ce0f assert.deepEqual(words(' a\tb\n '), ['a', 'b']);
@@ -319,6 +328,7 @@
 1 94689f14ae303042 assert.match(formatUsage(u), /统计不到/);
 1 946c15de2dc9b8f6 assert.equal(entries.length, 1);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
+1 9472668b2d2aab95 assert.equal(yml.includes('127.0.0.1:13305/api/v1'), true);
 1 94ce74ce8a63476b assert.match(p, /- M {2}src\/index\.js/);
 1 95979712c9ceaf56 assert.equal(spend.cny, 0.05);
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
@@ -326,6 +336,7 @@
 1 9630f46e92ca7034 assert.equal(result.stdout.trim(), 'income=0 expense=0 balance=0');
 1 96310ce4e40b8165 assert.deepEqual(staleTargets(stats, { limit: 0 }), []);
 1 967ab5ab1d569aac assert.equal(d.on, true);
+1 968dd987b0576778 assert.equal(stdoutEchoes.length, 5, `干跑 stdout 行数应恒为 5，实际 ${stdoutEchoes.length}`);
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
 1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
@@ -348,6 +359,7 @@
 1 9e0dde25b658379a assert.equal(wordCount(''), 0);
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 9f271104d3828c3e assert.equal(parseRepos(['not-a-repo']).entries.length, 0);
+1 a0dce9432bcd6da9 assert.equal(SCRIPT.includes('DSH_HEADLESS_ALLOW_CREDS'), true);
 1 a0ee8212f12eff57 assert.deepEqual(listModels([{ id: 'c', status: 'down' }]), [{ id: 'c', status: 'down' }]);
 1 a0f1d2bd56df4400 assert.equal(classifyConflicts(['scripts/baseline.txt']).kind, 'manual');
 1 a1065aed767ce161 assert.throws(() => truncateWords(123, 2), TypeError);
@@ -355,6 +367,7 @@
 2 a17636d41cc17dfc assert.notEqual(result.status, 0);
 1 a18ca483e9b6b2a2 assert.equal(absValue(3), 3);
 1 a196f516d59ab5d5 assert.equal(merged.tier, 'free');
+1 a1aa57eb3bc14742 assert.equal(existsSync(local), true, 'ci/headless-local.yml 不存在，默认档会 fail-closed');
 1 a25fc61ee273c269 assert.equal(r.skipped, 'no-webhook');
 1 a30a3e7e53e0e5de assert.deepEqual(parseVerdict('some log\nVERDICT: PASS\n'), { verdict: 'pass', reason: '' });
 1 a393a54ee4ff6f78 assert.equal(partial.needsHuman, true);
@@ -474,6 +487,7 @@
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
 1 ce5e07a4a9754be6 assert.equal(merged.tier, 'paid');
 1 cecbebfb0b31dee7 assert.deepEqual(parseBackoff('1,2.5'), [1 * MIN, 2.5 * MIN]);
+1 cee0f91e4a418492 assert.equal(DISPATCH.includes("DSH_HEADLESS_ALLOW_CREDS: env.DSH_HEADLESS_ALLOW_CREDS || ''"), true);
 1 cef734f3d2e9b7cc assert.equal(isDue({ ...e, gaveUp: true }, T0 + 60 * MIN), false);
 1 cff988c7528a46ef assert.deepEqual(parseVerdict(''), { verdict: 'unknown', reason: '' });
 1 d0759d0cb0e8b221 assert.equal(r.findings[0].file, 'src/x.js');
@@ -574,10 +588,12 @@
 1 fa5a58382b44e9c9 assert.equal(r.findings[0].rule, 'semantic-unparseable');
 1 fa9cd155eb0e3eb9 assert.equal(a.count, 2);
 1 fb201fb82fec0771 assert.equal(toFahrenheit(100), 212);
+1 fc21e9367b9c99f3 assert.ok(at > gateAt, `${key} 出现在开关之前，等于默认注入`);
 1 fc7f0404c19aea36 assert.equal(clamp(5, 0, 10), 5);
 1 fcb5ac6f00a8954e assert.equal(powOf(2, -1), 0.5);
 1 fcd3450f4ac5a706 assert.equal(env.DSH_REPOS_CHILD, '1');
 1 fce750e10a350608 assert.equal(d.entry.nextProbeAt, '2026-10-28T00:15:00.000Z');
+1 fd4de8ea702fbe78 assert.notEqual(gateAt, -1, '缺少 ALLOW_CREDS 开关分支');
 1 fdb4593fc43053c5 assert.equal(d.reason, '修 CI 脚本');
 1 fe94a9bdac78d1da assert.equal(headlessKind('', '', 1), 'agent-exit-1');
 1 fecc87c49ca94864 assert.deepEqual(staleTargets(stats, { limit: 'x' }), []);

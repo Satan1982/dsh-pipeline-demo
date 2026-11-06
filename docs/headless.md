@@ -9,7 +9,7 @@
 |---|---|---|
 | headless 可启动 | ✅ | `dsh headless --help` 正常解析 profile |
 | 工具齐全 | ✅ | dump-config 含 bash/pwsh/fs/fs-search/subagent/workflow/todo |
-| 无人值守不卡审批 | ✅ | `DSH_PERMISSION_MODE=danger-full-access` → approval policy `never` |
+| 无人值守不卡审批 | ✅ | `DSH_PERMISSION_MODE=danger-full-access` → approval policy `never`（**2026-11-06 起默认改为 `workspace-write`，见下节**） |
 | 读代码 + 改代码 | ✅ | 43s 内新增 `subtract()` 并补 4 条断言（含负数） |
 | 自己跑门禁 | ✅ | 自己发现 `PNPM_CLI` 缺失并补上，`verify: OK` |
 | 自己提交 + 推送 | ✅ | commit `d642993`，`afef1ab..d642993 main -> main`，`PUSH_OK` |
@@ -29,13 +29,17 @@ printf '%s' "在 src/index.js 加 subtract 并补测试，然后跑 verify.sh" |
 ## 为什么需要这个包装脚本
 
 `headless` profile 默认 provider 是 `deepseek-official`，需要 `DEEPSEEK_API_KEY`，本机没有。
-包装脚本做三件事：
+包装脚本做三件事（**2026-11-06 起默认档已改为「无凭据 + 本地模型」**）：
 
-1. 从 `~/.dsh/.credentials.yaml` 取 `SILICONFLOW_API_KEY`（不回显、不落盘）
-2. `DSH_PERMISSION_MODE=danger-full-access` → 审批策略 `never`，否则无人值守会挂在审批上
-3. `--patch <secrets 目录>/headless-model.yml` 覆盖模型路由
+1. 默认**不注入任何真实 key**：挂仓内 `ci/headless-local.yml`，路由到 `127.0.0.1:13305` 的 Lemonade（Qwen3-Coder-30B）。`LEMONADE_API_KEY` 只是 OpenAI 兼容层要求的占位符，不是秘密。
+2. 默认 `DSH_PERMISSION_MODE=workspace-write`（原来是 `danger-full-access`）：越界写被沙箱拒绝，fail-closed 而不是「什么都让它写」。
+3. 只有 `DSH_HEADLESS_ALLOW_CREDS=1` 时才回退旧行为：从 `~/.dsh/.credentials.yaml` 取 key（不落盘、不回显），默认 patch 换回 `<secrets 目录>/headless-model.yml`。传这个开关的有两类：工单显式打 `model:strong` / `model:paid`（`ci/dispatch.mjs:943`），以及 **rebase 解冲突路径**（`ci/dispatch.mjs:1559`，默认就用强模型）——这是全流程里唯一默认会碰凭据的一步。
 
-模型路由改 `<secrets 目录>/headless-model.yml` 里的 `agent-default-model`。
+`DSH_HEADLESS_DRY=1 bash ci/headless-task.sh x` 可干跑打印 5 行（mode / keys / patch / patch_exists / lemonade），不启动 agent、不消耗 token。`lemonade=on` 只表示「本地路由已启用」，**不探活**；真探活见下一行。
+
+`DSH_HEADLESS_DRY=1` 在 keys 关闭时会对 Lemonade 做一次 2 秒探活，失败只往 stderr 打一行 `⚠ Lemonade 探活失败`，不改那 5 行输出（那是给机器的契约）。
+
+模型路由改 `ci/headless-local.yml` 的 `agent-default-model`；要换回云端强模型，显式设 `DSH_HEADLESS_ALLOW_CREDS=1` 并改 `<secrets 目录>/headless-model.yml`。
 
 ## 模型可用性（实测）
 

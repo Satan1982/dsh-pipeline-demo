@@ -82,7 +82,10 @@ CUR_ASSERTS=$(grep -ho 'assert\.' src/*.test.js ci/*.test.mjs | wc -l | tr -d ' 
 # 文件集合指纹：计数相同不代表是同一批文件。删掉一个测试文件、再改名补一个，
 # 总数不动、断言数不动，只比计数就会被静默换血。指纹一变就必须显式 --bless，
 # 而 bless 是出现在 diff 里的动作，评审能看见。
-CUR_LIST=$(ls src/*.test.js ci/*.test.mjs | sort | tr '\n' ' ')
+# 排序必须钉死 locale：`sort` 受 LC_ALL/LANG 影响（ledger-cli 与 ledger. 在 en_US 下
+# 顺序相反），同一个仓库在不同 shell 里会算出不同指纹、被误判成「测试文件集合变了」。
+# 指纹是门禁的锚，它的输入不能依赖跑它的人是谁。
+CUR_LIST=$(ls src/*.test.js ci/*.test.mjs | LC_ALL=C sort | tr '\n' ' ')
 CUR_FP=$(printf '%s' "$CUR_LIST" | sha256sum | cut -c1-16)
 
 echo "== test guard =="

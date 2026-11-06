@@ -57,7 +57,7 @@
 | `ci/notify.mjs` | 三种「必须让人知道」的事件（任务失败 / 重投用完要人工接手 / 今日花费到顶）落 `events.jsonl` 并弹 Windows 通知 | 纯函数、可单测：`eventRecord()`、`toastText()`、`psToastBody()`、`writeToastScript()`（写 UTF-8 BOM 的 `.ps1`，PS 5.1 没 BOM 会把中文按 GBK 解）、`appendEvent()`；日志截断 300 / 弹窗 60+200 字符；弹窗失败只记一行，不影响任务 |
 | `ci/probe-plan.mjs` | 免费池 stale 探活：挑哪几个模型、怎么调 `probe.py`、怎么读它的输出 | 纯函数、可单测：`listModels()`、`staleTargets()`（stale 优先、按 id 排、默认 8 个）、`probeArgv()`（空清单不拼 `--only ""`）、`summarizeProbe()`；真正跑 python 留在 `dispatch.mjs` 的 `probeStale()`，只由 `--probe-stale` 手动触发 |
 | `ci/repos.mjs` | 同账号多库：解析 `repos.json`、给每库的子进程造三件套环境变量 | 纯函数、可单测：`parseRepos()`（非法/重复/空清单进 `errors` 不抛）、`childEnv()`（只覆盖 `DSH_REPO`/`DSH_LOG_DIR`/`DSH_WORKTREES`，带 `DSH_REPOS_CHILD` 防套娃）、`formatPlan()`；隔离是进程级的，单库路径没改 |
-| `ci/headless-task.sh` | 无头执行入口：给 agent 准备 PATH / 模型路由 / 权限档 | 挂 `--patch headless-model.yml`，`DSH_PERMISSION_MODE=danger-full-access`（无人值守不能卡审批） |
+| `ci/headless-task.sh` | 无头执行入口：给 agent 准备 PATH / 模型路由 / 权限档 | 默认挂仓内 `ci/headless-local.yml`（本地 Lemonade，**无真 key**）、`DSH_PERMISSION_MODE=workspace-write`；`DSH_HEADLESS_ALLOW_CREDS=1` 才回退 `.secrets` 路由 + 注入 key（`model:strong`/`model:paid` 工单，以及 rebase 解冲突这一步） |
 | `scripts/verify.sh` | 唯一门禁：lint → 测试 → 测试数基线 → 断言内容指纹 → build → pack | 数字降了就红，新增必须同 PR `--bless` |
 | `ci/review.mjs` | 机械评审：只看 diff 形状 | `debug-residue` / `test-removed` / `baseline-unsynced` / `no-file-change` / `gate-modified` 等 |
 | `ci/semantic-review.mjs` | 语义评审团：两个不同家族模型并行判「有没有真的满足验收」 | 任一 block 即 block；`DSH_REVIEW_MODELS` 可换；拿不到凭证就 skipped 并告警 |
@@ -117,8 +117,9 @@
 - 凭据只在 `<secrets 目录>`（不进仓库、不进 git 历史、不进日志——三处都扫过，0 命中）。
 - 该目录 ACL 已改为**只允许 `<本机账号>` / `SYSTEM` / `<本机账号>s`**（原来 `Authenticated Users` 有 Modify）。
 - agent 子进程的 env 走白名单（`scrubbedEnv()`）：`GIT_TOKEN`、`GIT_ASKPASS`、`SILICONFLOW_API_KEY` 等一律不传。
-- 但**agent 与调度器同用户运行**：agent 仍可从磁盘读 `.secrets`。这是当前最大的残余风险，
-  根因是「无人值守需要 danger-full-access」。真正隔离要换低权用户跑 agent，属于下一步。
+- 但**agent 与调度器同用户运行**：agent 仍可从磁盘读 `.secrets`。这是当前最大的残余风险。
+  2026-11-06 已把「手里有真 key」这一半摘掉（默认档走本地 Lemonade、`workspace-write`、不注入 key），
+  但只要同用户跑，「能读磁盘」这一半仍在。真正隔离要换低权用户跑 agent，属于下一步。
 - PAT 仍是 classic（`repo, workflow`，对本账号所有仓库可写）；建议换 fine-grained 单仓库 token。
 - 分支保护：**已修正（2026-10-28 实测）**。旧结论「私有库免费版 API 返回 403，开不了分支保护」只在
   「用 API 建 protection」这条路上成立；仓库上其实已经有 ruleset（要求走 PR + verify check 通过）。
