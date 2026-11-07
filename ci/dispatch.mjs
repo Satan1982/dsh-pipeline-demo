@@ -51,6 +51,7 @@ import { NEEDS_INFO_LABEL, buildNeedsInfoComment, buildNeedsInfoMail } from './n
 import { appendLedger, defaultLedgerFile, ledgerEntry } from './ledger.mjs';
 import { listModels, probeArgv, staleTargets, summarizeProbe, planProbe, poolCounts, INCLUDE_PAID_ENV } from './probe-plan.mjs';
 import { parseRepos, childEnv, formatPlan } from './repos.mjs';
+import { ENV_KEY as AUTO_MERGE_ENV, PILOT_REPO, parseAllowlist, decideAutoMerge } from './merge-policy.mjs';
 import { homedir } from 'node:os';
 import { runAsAgent } from './s4-job.mjs';
 
@@ -61,7 +62,9 @@ if (!process.execArgv.includes('--use-system-ca')) {
   process.exit(r.status ?? 1);
 }
 
-const REPO      = process.env.DSH_REPO ?? 'Satan1982/dsh-pipeline-demo';
+const REPO      = process.env.DSH_REPO ?? PILOT_REPO;
+// 自动合并的仓库白名单：缺省只有试点仓；真实仓要开，必须在启动环境里显式列出（空串=全禁）。
+const AUTO_MERGE_ALLOWLIST = parseAllowlist(process.env[AUTO_MERGE_ENV]);
 const HOME = process.env.USERPROFILE || process.env.HOME || '.';
 const io_url = fileURLToPath(import.meta.url);
 const REPO_DIR_RAW = path.dirname(path.dirname(io_url));
@@ -2112,25 +2115,38 @@ async function checkAgentPRs() {
       const { data: issueData } = await api('GET', `/repos/${REPO}/issues/${issueN}`);
       const labels = (issueData?.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
       const mergeState = (await api('GET', `/repos/${REPO}/pulls/${pr.number}`))?.data?.mergeable_state;
-      if (!labels.includes('merge:auto')) {
-        log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），等人工合并（未打 merge:auto）`);
-        continue;
-      }
-      // 评审降级/缺失时 PR body 带机器标记：即使打了 merge:auto 也不自动合并（评审层不是装饰）。
-      if (String(pr.body ?? '').includes('<!-- semantic:needs-human -->')) {
-        log(`[issue #${issueN}][prs] #${pr.number} 语义评审降级（团未凑够/缺失），不自动合并，等人工`);
-        notifyEvent({ kind: 'review-degraded', issue: issueN, why: `PR #${pr.number} 的语义评审降级，已跳过 merge:auto` });
-        continue;
-      }
-      // ruleset 要求分支是最新的（strict_required_status_checks_policy），落后的 PR 即使 CI 绿也合不了：
-      // 这类「behind」没有冲突文件，merge-tree 查不出来，只能在这里按状态补一次 rebase。
-      if (mergeState === 'behind' && rebaseTries < REBASE_MAX_TRIES) {
-        log(`[issue #${issueN}][prs] #${pr.number} 落后于 main（ruleset 要求最新），先 rebase`);
-        await rebaseAgentBranch(pr, issueN);
-        continue;
-      }
-      if (mergeState !== 'clean') {
-        log(`[issue #${issueN}][prs] #${pr.number} CI 绿但不可合并（${mergeState ?? 'unknown'}），本轮不合并`);
+      // 五个门：仓库白名单 → merge:auto 标签 → 评审未降级 → CI 绿 → 可合并（clean）。
+      // 白名单从环境变量来，不从仓库内文件读：agent 改得动仓库，读仓库内配置等于让它自己发权限。
+      const decision = decideAutoMerge({
+        repo: REPO,
+        allowlist: AUTO_MERGE_ALLOWLIST,
+        labels,
+        body: pr.body,
+        ciConclusion: ci.conclusion,
+        mergeState,
+      });
+      if (!decision.ok) {
+        if (decision.code === 'repo-not-allowed') {
+          log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），仓库 ${REPO} 不在自动合并白名单，等人工合并`);
+          continue;
+        }
+        if (decision.code === 'no-label') {
+          log(`[issue #${issueN}][prs] #${pr.number} CI 绿（${mergeState ?? 'unknown'}），等人工合并（未打 merge:auto）`);
+          continue;
+        }
+        if (decision.code === 'review-degraded') {
+          log(`[issue #${issueN}][prs] #${pr.number} 语义评审降级（团未凑够/缺失），不自动合并，等人工`);
+          notifyEvent({ kind: 'review-degraded', issue: issueN, why: `PR #${pr.number} 的语义评审降级，已跳过 merge:auto` });
+          continue;
+        }
+        // ruleset 要求分支是最新的（strict_required_status_checks_policy），落后的 PR 即使 CI 绿也合不了：
+        // 这类「behind」没有冲突文件，merge-tree 查不出来，只能在这里按状态补一次 rebase。
+        if (decision.code === 'merge-behind' && rebaseTries < REBASE_MAX_TRIES) {
+          log(`[issue #${issueN}][prs] #${pr.number} 落后于 main（ruleset 要求最新），先 rebase`);
+          await rebaseAgentBranch(pr, issueN);
+          continue;
+        }
+        log(`[issue #${issueN}][prs] #${pr.number} ${decision.why}，本轮不合并`);
         continue;
       }
       const merged = await api('PUT', `/repos/${REPO}/pulls/${pr.number}/merge`, {
@@ -2433,6 +2449,8 @@ async function main() {
       dayMaxCny: DAY_MAX_CNY,
       taskMaxCny: TASK_MAX_CNY,
       events: recentKinds(3),
+      repo: REPO,
+      autoMerge: AUTO_MERGE_ALLOWLIST,
     })) console.log(line);
     return;
   }
