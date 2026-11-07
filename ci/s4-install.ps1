@@ -344,10 +344,13 @@ if (-not $WhatIf) {
 
 # ── 5 注册低权任务 ─────────────────────────────────────────────────────────
 Step '注册低权 headless 计划任务'
-$argLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}\ci\s4-run-headless.ps1" -JobDir "{1}\current" -TriggerSafe' -f $Repo, $JobRoot
+$argLine = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}\ci\s4-run-headless.ps1" -JobDir "{1}\current" -TriggerSafe' -f $Repo, $JobRoot
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
+# 每 5 分钟一次的空转不该在桌面上闪一下控制台：动作带 -WindowStyle Hidden，
+# 任务本身也标记为 Hidden（任务管理器/计划任务库默认折叠，不影响运行）。
+$settings.Hidden = $true
 
 # 定时触发器：每 5 分钟叫一次，带 -TriggerSafe（没 job.json 就空转成功，征用后改名 .running 防重跑）
 $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)

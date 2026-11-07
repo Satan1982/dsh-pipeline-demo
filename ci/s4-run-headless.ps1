@@ -29,8 +29,10 @@ function Write-Done([hashtable]$doc) {
 }
 
 $started = (Get-Date)
+# 记下自己跑在哪个会话：0 = 服务会话，没有交互桌面，触发式启动不可能闪窗口。
+$sessionId = (Get-Process -Id $PID).SessionId
 $done = @{
-  ok = $false; exit = $null; user = $env:USERNAME; startedAt = $started.ToString('o')
+  ok = $false; exit = $null; user = $env:USERNAME; session = $sessionId; startedAt = $started.ToString('o')
   endedAt = $null; durationSec = 0; verdict = ''; tail = @(); error = ''
 }
 
@@ -41,7 +43,7 @@ try {
   if (-not (Test-Path -LiteralPath $jobFile)) {
     if ($TriggerSafe) {
       # 定时触发器空转：没有待跑作业就直接成功退出，别让任务每分钟报一次失败。
-      [System.IO.File]::WriteAllText((Join-Path $JobDir 'trigger-nop.txt'), ('no job.json at ' + (Get-Date).ToString('o')), $Utf8NoBom)
+      [System.IO.File]::WriteAllText((Join-Path $JobDir 'trigger-nop.txt'), ('no job.json at ' + (Get-Date).ToString('o') + ' session=' + $sessionId), $Utf8NoBom)
       exit 0
     }
     throw ('缺 ' + $jobFile)
