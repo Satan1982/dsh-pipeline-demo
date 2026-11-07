@@ -344,22 +344,24 @@ if (-not $WhatIf) {
 
 # ── 5 注册低权任务 ─────────────────────────────────────────────────────────
 Step '注册低权 headless 计划任务'
-$argLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}\ci\s4-run-headless.ps1" -JobDir "{1}\current"' -f $Repo, $JobRoot
+$argLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}\ci\s4-run-headless.ps1" -JobDir "{1}\current" -TriggerSafe' -f $Repo, $JobRoot
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
 
-Doing ('Register-ScheduledTask ' + $TaskName + '（以 ' + $AgentUser + ' 身份、无触发器、按需启动）')
+# 定时触发器：每 5 分钟叫一次，带 -TriggerSafe（没 job.json 就空转成功，征用后改名 .running 防重跑）
+$trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+Doing ('Register-ScheduledTask ' + $TaskName + '（以 ' + $AgentUser + ' 身份、每 5 分钟触发、-TriggerSafe）')
 if (-not $WhatIf) {
   New-Item -ItemType Directory -Path (Join-Path $JobRoot 'current') -Force | Out-Null
   [void](Run-Icacls @((Join-Path $JobRoot 'current'), '/grant', ($AgentUser + ':(OI)(CI)M')))
   try {
     if ($LogonType -eq 'S4U') {
       $principal = New-ScheduledTaskPrincipal -UserId $AgentUser -LogonType S4U -RunLevel Limited
-      Register-ScheduledTask -TaskName $TaskName -Action $action -Settings $settings -Principal $principal -Force | Out-Null
+      Register-ScheduledTask -TaskName $TaskName -Action $action -Settings $settings -Trigger $trigger -Principal $principal -Force | Out-Null
     } else {
       if (-not $password) { throw '没有密码（见第 2 步），Password 登录方式注册不了' }
-      Register-ScheduledTask -TaskName $TaskName -Action $action -Settings $settings -User $AgentUser -Password $password -RunLevel Limited -Force | Out-Null
+      Register-ScheduledTask -TaskName $TaskName -Action $action -Settings $settings -Trigger $trigger -User $AgentUser -Password $password -RunLevel Limited -Force | Out-Null
     }
     $t = Get-ScheduledTask -TaskName $TaskName
     Ok ('已注册：' + $t.TaskName + ' run-as=' + $t.Principal.UserId + ' logon=' + $t.Principal.LogonType + ' trigger=' + @($t.Triggers).Count)

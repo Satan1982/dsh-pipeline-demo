@@ -16,7 +16,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$JobDir,
   [string]$Install = 'C:\Users\Administrator\AppData\Local\Programs\DeepSeek Harness',
-  [string]$Repo = 'D:\code\dsh-pipeline-demo'
+  [string]$Repo = 'D:\code\dsh-pipeline-demo',
+  [switch]$TriggerSafe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,7 +38,20 @@ if (-not (Test-Path -LiteralPath $JobDir)) { New-Item -ItemType Directory -Path 
 
 try {
   $jobFile = Join-Path $JobDir 'job.json'
-  if (-not (Test-Path -LiteralPath $jobFile)) { throw ('缺 ' + $jobFile) }
+  if (-not (Test-Path -LiteralPath $jobFile)) {
+    if ($TriggerSafe) {
+      # 定时触发器空转：没有待跑作业就直接成功退出，别让任务每分钟报一次失败。
+      [System.IO.File]::WriteAllText((Join-Path $JobDir 'trigger-nop.txt'), ('no job.json at ' + (Get-Date).ToString('o')), $Utf8NoBom)
+      exit 0
+    }
+    throw ('缺 ' + $jobFile)
+  }
+  if ($TriggerSafe) {
+    # 先认领再跑：job.json 改名成 .running，重复触发时第二次看到的是「没有作业」。
+    $claimed = Join-Path $JobDir 'job.json.running'
+    try { Move-Item -LiteralPath $jobFile -Destination $claimed -Force } catch { exit 0 }
+    $jobFile = $claimed   # 认领后就从改名后的路径读，否则读不到刚被移走的文件
+  }
   $job = [System.IO.File]::ReadAllText($jobFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
   $task = [string]$job.task
   if ([string]::IsNullOrWhiteSpace($task)) { throw 'job.json 里 task 为空' }
