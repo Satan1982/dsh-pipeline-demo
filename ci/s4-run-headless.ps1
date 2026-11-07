@@ -1,4 +1,4 @@
-# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
+﻿# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
 #
 # 它不读任何凭据：账本/dsh-agent 自己的 home 里没有 .credentials.yaml，
 # 且下面会显式清掉可能从父进程漏下来的密钥变量（同 ci/dispatch.mjs:1850 的 SCRUB_ENV 口径）。
@@ -64,10 +64,7 @@ try {
   $work = $Repo
   if ($job.cwd) {
     $cand = [string]$job.cwd
-    # 多仓部署时作业根随仓走：调度器把 WORKTREE_ROOT 写进 job.json（它是可信侧），
-    # 低权侧只认这个值，不自己拼路径（否则第二个仓的合法 worktree 会被误判越权）。
-    $root = if ($job.worktreeRoot) { [string]$job.worktreeRoot } else { 'D:\code\.worktrees' }
-    $root = $root.TrimEnd('\', '/') + '\'
+    $root = 'D:\code\.worktrees\'
     if (-not $cand.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
       throw ('job.cwd 不在 ' + $root + ' 下: ' + $cand)
     }

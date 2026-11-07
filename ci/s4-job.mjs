@@ -36,7 +36,7 @@ export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_
   if (!existsSync(abs)) throw new Error('cwd 不存在: ' + abs);
   mkdirSync(jobDir, { recursive: true });
   for (const f of STALE) rmSync(path.join(jobDir, f), { force: true });
-  const job = { task: String(task), timeoutSec: Number(timeoutSec) || 2400, cwd: abs, worktreeRoot: WORKTREE_ROOT };
+  const job = { task: String(task), timeoutSec: Number(timeoutSec) || 2400, cwd: abs };
   // 模型路由只经 job 文件传（不走继承环境变量）：低权侧自己决定要不要用别的 patch。
   if (patch) job.patch = String(patch);
   writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(job, null, 2), 'utf8');
