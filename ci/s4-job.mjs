@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
-export const WORKTREE_ROOT = path.resolve(REPO, '..', '.worktrees');
+// 多仓部署时每个仓有自己的 .worktrees（调度器按 DSH_WORKTREES 建树）；
+// 这里必须用同一个根，否则低权侧会把合法 cwd 判成「不在 .worktrees 下」而拒绝干活。
+export const WORKTREE_ROOT = path.resolve(process.env.DSH_WORKTREES || path.join(REPO, '..', '.worktrees'));
 export const DEFAULT_JOB_DIR = path.join(WORKTREE_ROOT, '.s4', 'current');
 
 const STALE = ['done.json', 'headless.log', 'headless.err', 'task.txt', 'launcher.out', 'launcher.err'];
