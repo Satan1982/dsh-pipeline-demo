@@ -335,24 +335,8 @@ if ($haveBackup -or $WhatIf) {
   }
 }
 
-# 4c 管理员自己的 DSH home：C:\Users\Administrator\.dsh 是指向 D:\harness-home 的 junction，
-#    D:\ 根给 Authenticated Users 的 Modify 会继承进去 —— 低权 agent 能写管理员的 DSH home
-#    （.credentials.yaml、sessions、hindsight 全在里面）。探针 write-admin-dsh 抓的就是这个。
-$adminDsh = Join-Path $AdminHome '.dsh'
-$adminDshTarget = $null
-try { $adminDshTarget = (Get-Item -LiteralPath $adminDsh -Force).Target | Select-Object -First 1 } catch { }
-if (-not $adminDshTarget) { $adminDshTarget = $adminDsh }
-Doing ('收紧管理员 DSH home：' + $adminDshTarget + '（Administrators/SYSTEM 全控，去掉 Authenticated Users/Users）')
-if (-not $WhatIf) {
-  [void](Run-Icacls @($adminDshTarget, '/grant', ($me + ':(OI)(CI)F')))
-  [void](Run-Icacls @($adminDshTarget, '/grant', 'NT AUTHORITY\SYSTEM:(OI)(CI)F'))
-  [void](Run-Icacls @($adminDshTarget, '/grant', 'BUILTIN\Administrators:(OI)(CI)F'))
-  [void](Run-Icacls @($adminDshTarget, '/inheritance:r'))
-  $c = Run-Icacls @($adminDshTarget, '/remove:g', 'NT AUTHORITY\Authenticated Users', 'BUILTIN\Users', '/T', '/C', '/Q')
-  if ($c -eq 0) { Ok '已收紧（递归）' } else { Warn ('递归收回有失败 exit=' + $c + '：父目录已挡住穿越，个别文件残留不致命') }
-  $aclDsh = (& icacls.exe $adminDshTarget 2>&1) -join "`n"
-  if ($aclDsh -match 'Authenticated Users' -or $aclDsh -match 'BUILTIN\\Users:') { Fail 'DSH home 仍对其它本机用户开放' } else { Ok 'DSH home 已只给管理员/SYSTEM' }
-}
+# 4c 已移到第 5 步之后：这段要递归收紧 D:\harness-home（含 pnpm store，实测 7 分钟以上），
+#    放在注册之前时，一旦外层超时被杀就会正好死在 Register-ScheduledTask -Force 的删除窗口里。
 
 }
 
@@ -395,8 +379,30 @@ if (-not $WhatIf) {
   }
 }
 
-# ── 6 验收 ─────────────────────────────────────────────────────────────────
-if ($Verify) {
+if ($SkipAcl) {
+  Say '跳过 4c 管理员 DSH home 收紧（-SkipAcl）'
+} else {
+# 4c 管理员自己的 DSH home：C:\Users\Administrator\.dsh 是指向 D:\harness-home 的 junction，
+#    D:\ 根给 Authenticated Users 的 Modify 会继承进去 —— 低权 agent 能写管理员的 DSH home
+#    （.credentials.yaml、sessions、hindsight 全在里面）。探针 write-admin-dsh 抓的就是这个。
+$adminDsh = Join-Path $AdminHome '.dsh'
+$adminDshTarget = $null
+try { $adminDshTarget = (Get-Item -LiteralPath $adminDsh -Force).Target | Select-Object -First 1 } catch { }
+if (-not $adminDshTarget) { $adminDshTarget = $adminDsh }
+Doing ('收紧管理员 DSH home：' + $adminDshTarget + '（Administrators/SYSTEM 全控，去掉 Authenticated Users/Users）')
+if (-not $WhatIf) {
+  [void](Run-Icacls @($adminDshTarget, '/grant', ($me + ':(OI)(CI)F')))
+  [void](Run-Icacls @($adminDshTarget, '/grant', 'NT AUTHORITY\SYSTEM:(OI)(CI)F'))
+  [void](Run-Icacls @($adminDshTarget, '/grant', 'BUILTIN\Administrators:(OI)(CI)F'))
+  [void](Run-Icacls @($adminDshTarget, '/inheritance:r'))
+  $c = Run-Icacls @($adminDshTarget, '/remove:g', 'NT AUTHORITY\Authenticated Users', 'BUILTIN\Users', '/T', '/C', '/Q')
+  if ($c -eq 0) { Ok '已收紧（递归）' } else { Warn ('递归收回有失败 exit=' + $c + '：父目录已挡住穿越，个别文件残留不致命') }
+  $aclDsh = (& icacls.exe $adminDshTarget 2>&1) -join "`n"
+  if ($aclDsh -match 'Authenticated Users' -or $aclDsh -match 'BUILTIN\\Users:') { Fail 'DSH home 仍对其它本机用户开放' } else { Ok 'DSH home 已只给管理员/SYSTEM' }
+}
+
+}
+# ── 6 验收 ─────────────────────────────────────────────────────────────────if ($Verify) {
   Step '验收：以低权身份跑隔离自检（ci\s4-probe.ps1）'
   $probeOut = Join-Path $JobRoot 'probe.json'
   $pargs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}\ci\s4-probe.ps1" -Out "{1}"' -f $Repo, $probeOut
@@ -439,7 +445,6 @@ if ($Verify) {
       Fail ('验收失败：' + $_.Exception.Message)
     }
   }
-}
 
 # ── 7 收尾 ─────────────────────────────────────────────────────────────────
 Say ''
