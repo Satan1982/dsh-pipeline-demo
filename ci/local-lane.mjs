@@ -12,10 +12,11 @@
 //
 // 这里只做纯判断（拿 /health 的 JSON 判槽位），HTTP 留给调用方：好写好测。
 
-// 2026-11-06 夜间实测结论：30B 与本机 Hindsight 的 9B 无法共存（20GB 卡，30B Q4 约 18GB）。
-// 我们 load 30B 成功 → 十几秒内被 9B 顶掉 → 连 9B 一起被重载回 8001。也就是说真正能常驻的
-// LLM 只有 Qwen3.5-9B，默认档因此改成它；换更大的模型要等显存放得下（或在别处跑）。
-export const DEFAULT_LOCAL_MODEL = 'Qwen3.5-9B-GGUF';
+// 2026-11-07 本机实测：Lemonade 已将 Qwen3-Coder-30B（Q4_K_M，17.3GB）设为常驻并 pinned
+// （ctx 32768、--parallel 2），9B 不再唤醒槽位；Hindsight 期望的也正是 30B（11-04 漂移记录）。
+// 此前「30B 被 9B 顶掉、只能常驻 9B」的结论以 9B 抢槽为前提，pinned 后已不成立。
+// 换模型时同步改这里、ci/headless-local.yml 与 ci/headless-task.sh 的默认值。
+export const DEFAULT_LOCAL_MODEL = 'Qwen3-Coder-30B-A3B-Instruct-GGUF';
 
 /** /health 的 all_models_loaded 里，type=llm 的那些（embedding 不占 LLM 槽位）。 */
 export function llmEntries(health) {

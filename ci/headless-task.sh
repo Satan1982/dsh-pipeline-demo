@@ -92,7 +92,7 @@ fi
 # `No model loaded: <id>`（PI_AI_ERROR、0 token），调度器重试也一样 —— 2026-11-06 实测两次。
 # 跑之前显式预热并等 health 报告模型就绪，别再把「模型没加载」记成 agent 失败。
 if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
-  LOCAL_MODEL="${DSH_LOCAL_MODEL:-Qwen3.5-9B-GGUF}"
+  LOCAL_MODEL="${DSH_LOCAL_MODEL:-Qwen3-Coder-30B-A3B-Instruct-GGUF}"
   LOCAL_API="${LEMONADE_BASE:-http://127.0.0.1:13305/api/v1}"
   _preload() {
     curl -s -m 20 -X POST "$LOCAL_API/load" -H 'Content-Type: application/json' \

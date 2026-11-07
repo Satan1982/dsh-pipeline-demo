@@ -250,6 +250,7 @@
 1 55b4b2d005b05838 assert.equal(slugify('Hello World'), 'hello-world');
 1 562aa085b7479028 assert.equal(capitalizeWords(''), '');
 1 56734436da90d0af assert.equal(cube(0), 0);
+1 5691ca5de003bd43 assert.match(v.why, /Qwen3.5-9B-GGUF/);
 1 56a80938cc4f9d46 assert.deepEqual(rec.files, ['ci/x.mjs']);
 1 56b2cd18e58903ae assert.match(merged.escalatedFrom, /凭证/);
 1 56e943b87634a3ad assert.equal(u.totalTokens, 175);
@@ -696,7 +697,6 @@
 1 e6a44db3d90fe843 assert.deepEqual(d.orphanWorktrees, [31, 32]);
 1 e6bbc2fe07c8c87e assert.match(p, /不要声称它没被修改/);
 1 e728944a8974cc6b assert.equal(subject, '[needs-info] #42 补 一行文档');
-1 e73b15ca603e3b3c assert.match(v.why, /Qwen3-Coder-30B-A3B-Instruct-GGUF/);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
 1 e78e3b3ae169eea3 assert.equal(pass.verdict, 'pass');
 2 e82c52d6f20acaaa assert.equal(existsSync(file), false);

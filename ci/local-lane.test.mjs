@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { DEFAULT_LOCAL_MODEL, llmEntries, laneState, laneVerdict } from '../ci/local-lane.mjs';
 
 const EMB = { model_name: 'Qwen3-Embedding-0.6B-GGUF', type: 'embedding', status: 'ready', pid: 25068 };
-// 目标模型 = 默认档（2026-11-06 起是常驻的 Qwen3.5-9B；30B 装不下会和 Hindsight 互相顶掉）。
+// 目标模型 = 默认档（2026-11-07 起常驻 Qwen3-Coder-30B；9B 已退场）。
 const TARGET = { model_name: DEFAULT_LOCAL_MODEL, type: 'llm', status: 'ready', is_busy: false, pid: 24864 };
 // 另一只 LLM：占着槽位时我们 request 的目标就进不来。
-const OTHER = { model_name: 'Qwen3-Coder-30B-A3B-Instruct-GGUF', type: 'llm', status: 'in_use', is_busy: true, pid: 15440 };
+const OTHER = { model_name: 'Qwen3.5-9B-GGUF', type: 'llm', status: 'in_use', is_busy: true, pid: 15440 };
 
 test('llmEntries 只看 type=llm：embedding 不占 LLM 槽位', () => {
   assert.deepEqual(llmEntries({ all_models_loaded: [EMB, TARGET] }), [TARGET]);
@@ -42,7 +42,7 @@ test('槽位被别的 LLM 占着算 occupied：不能重投（投出去必然 0 
   assert.equal(lane.busy, true);
   const v = laneVerdict(lane);
   assert.equal(v.ok, false);
-  assert.match(v.why, /Qwen3-Coder-30B-A3B-Instruct-GGUF/);
+  assert.match(v.why, /Qwen3.5-9B-GGUF/);
   assert.match(v.why, /单槽/);
 });
 
