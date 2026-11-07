@@ -107,7 +107,11 @@ function Run-Icacls([string[]]$Argv) {
   $shown = 'icacls ' + (($Argv | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ')
   if ($WhatIf) { Doing $shown; return 0 }
   Write-Host ("    DO   " + $shown) -ForegroundColor DarkGray
-  $out = & $ICACLS @Argv 2>&1
+  # 原生 stderr 在 $ErrorActionPreference='Stop' 下会被当成终止错误：icacls 递归时遇到超长路径
+  # 只对那个文件报错（/C 继续），但脚本会因此整段退出。这里局部用 Continue，成败只看退出码。
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $out = & $ICACLS @Argv 2>&1 } finally { $ErrorActionPreference = $prev }
   $code = $LASTEXITCODE
   if ($code -ne 0) { Write-Host (($out | Out-String).Trim()) -ForegroundColor DarkRed }
   return $code
@@ -256,8 +260,10 @@ $adminSid = Get-SidOf 'BUILTIN\Administrators'
 $sysSid = Get-SidOf 'NT AUTHORITY\SYSTEM'
 # 交互账户。非提权进程的令牌里 BUILTIN\Administrators 是 deny-only SID：
 # 只给它授权等于没授权，本会话与调度器都会立刻失去 D:\code 的访问（v1 真实事故）。
-$me = "$env:USERDOMAIN\$env:USERNAME"
-if ($me -notmatch '\\') { $me = "$env:COMPUTERNAME\$env:USERNAME" }
+# 当前身份要用 WindowsIdentity 取：以 SYSTEM（broker/计划任务）运行时 $env:USERNAME 是机器账户
+# "ZHAO$"，拼出来的 WORKGROUP\ZHAO$ 没有 SID 映射，icacls /grant 会直接报「账户名与安全标识间无任何映射」。
+$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ([string]::IsNullOrWhiteSpace($me) -or $me -notmatch '\\') { $me = "$env:USERDOMAIN\$env:USERNAME" }
 
 if ($haveBackup -or $WhatIf) {
   # 顺序很重要：先把管理员/SYSTEM 显式写进去，再 /inheritance:r，
