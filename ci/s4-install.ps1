@@ -33,6 +33,9 @@ param(
   [string]$LogonType = 'Password',
   [switch]$WhatIf,
   [switch]$Verify,
+  # 只跑注册与验收、跳过 ACL 递归：以 SYSTEM 递归 D:\harness-home 要 8 分钟以上，
+  # broker 超时会把 Register-ScheduledTask -Force 杀成「任务消失」。
+  [switch]$SkipAcl,
   [switch]$VerifyEntry
 )
 
@@ -221,6 +224,9 @@ if (-not $WhatIf) {
 }
 
 # ── 4 收紧 ACL ─────────────────────────────────────────────────────────────
+if ($SkipAcl) {
+  Say '跳过 ACL 收紧（-SkipAcl，复用当前 ACL）'
+} else {
 Step '收紧 ACL'
 
 # 4a 安装目录：C:\Users\Administrator 默认没有 Users ACE，低权用户连安装目录都穿不透。
@@ -348,8 +354,14 @@ if (-not $WhatIf) {
   if ($aclDsh -match 'Authenticated Users' -or $aclDsh -match 'BUILTIN\\Users:') { Fail 'DSH home 仍对其它本机用户开放' } else { Ok 'DSH home 已只给管理员/SYSTEM' }
 }
 
+}
+
 # ── 5 注册低权任务 ─────────────────────────────────────────────────────────
 Step '注册低权 headless 计划任务'
+# 注册前留一份现任务 XML：Register-ScheduledTask -Force 是「先删后建」，中途失败或被杀
+# 会让任务整个消失（本机 11-07 真发生过）。有备份就能一条命令恢复。
+$taskXmlBackup = Join-Path $SecretsDir 's4-task-backup.xml'
+try { Export-ScheduledTask -TaskName $TaskName | Set-Content -LiteralPath $taskXmlBackup -Encoding UTF8 -ErrorAction Stop } catch { }
 $argLine = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}\ci\s4-run-headless.ps1" -JobDir "{1}\current" -TriggerSafe' -f $Repo, $JobRoot
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -375,6 +387,10 @@ if (-not $WhatIf) {
     $t = Get-ScheduledTask -TaskName $TaskName
     Ok ('已注册：' + $t.TaskName + ' run-as=' + $t.Principal.UserId + ' logon=' + $t.Principal.LogonType + ' trigger=' + @($t.Triggers).Count)
   } catch {
+    # 注册失败时任务可能已经被删掉了，先用备份恢复，再报错 —— 别留下「任务不存在」的空窗。
+    if (Test-Path -LiteralPath $taskXmlBackup) {
+      try { Register-ScheduledTask -TaskName $TaskName -Xml (Get-Content -LiteralPath $taskXmlBackup -Raw) -Force | Out-Null; Warn '注册失败，已用备份 XML 恢复旧任务' } catch { }
+    }
     Fail ('注册失败：' + $_.Exception.Message)
   }
 }
