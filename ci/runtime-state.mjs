@@ -102,7 +102,7 @@ export function parseRuntime(argv) {
 
 // 只读体检的输出：一眼要能回答「谁在跑、能不能领新单、今天花了多少」。
 // 用固定前缀（`mode:` / `lock:` / `pause:` / `spend:`），方便 grep，也不假装是 JSON。
-export function formatStatus({ mode, lock, st, spendCny, dayMaxCny, taskMaxCny, events, repo, autoMerge }) {
+export function formatStatus({ mode, lock, st, spendCny, dayMaxCny, taskMaxCny, events }) {
   const lines = [];
   lines.push(`mode: ${mode}`);
   if (!lock) {
@@ -114,6 +114,5 @@ export function formatStatus({ mode, lock, st, spendCny, dayMaxCny, taskMaxCny, 
   lines.push(st.paused ? `pause: 是（${st.pausedWhy || '未写原因'}，自 ${st.pausedAt || '?'}）` : 'pause: 否');
   lines.push(`spend: 今日 ¥${Number(spendCny).toFixed(4)} / 日上限 ¥${Number(dayMaxCny).toFixed(2)}；单任务上限 ¥${Number(taskMaxCny).toFixed(2)}`);
   if (events && events.length) lines.push(`events: 最近 ${events.length} 条：${events.join(' | ')}`);
-  if (repo) lines.push(`repo: ${repo} | 自动合并白名单: ${(autoMerge && autoMerge.length ? autoMerge.join(', ') : '（空：谁都不许自动合并）')}`);
   return lines;
 }

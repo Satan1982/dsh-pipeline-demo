@@ -36,14 +36,12 @@
 1 103a0d7c0d21268f assert.ok(r.findings.some((f) => f.severity === 'warn' && f.rule === 'diff-large'));
 1 10acaf75209275dd assert.match(body, /去掉 `needs-info`、重新打 `agent:ready`/);
 1 10fd0bd14556bb89 assert.equal(d.on, false);
-1 110c2ba9b98b0eed assert.equal(r.code, 'repo-not-allowed');
 1 11e5614554e9cccd assert.equal(r.cmd, 'help', `${flag} 应打印用法而不是 exit 2`);
 1 123f79242d1c560d assert.equal(reverseWords('hello world'), 'world hello');
 1 1259e84d5e917c45 assert.equal(d.verdict, 'fail');
 1 1284f405b4f9d167 assert.equal(lockHeld({ alive: true, ageMs: 30 * MIN, mode: 'once', staleMs: STALE }), true);
 1 12b31ef99486dbce assert.equal(headlessKind('dsh: MISSING_CREDENTIAL: no API key', '', 1), 'llm-missing-credential');
 1 13043c62fe6b6060 assert.equal(classifyConflicts([]).kind, 'none');
-1 1333503eb1d921fd assert.equal(r.code, 'ok');
 1 1367b3e913e6967c assert.equal(plan.candidates, 1);
 1 137083502772ce49 assert.equal(VERIFY.includes('ENV_FAIL'), true, '退出前必须打出可分类的 ENV_FAIL 标记');
 1 13c29ba19637d5a8 assert.match(m, /T1\["T1 存储层"\]/);
@@ -58,7 +56,7 @@
 1 15bc0df37554a0ab assert.equal(unfalsifiableReason(cmd), null, `${cmd} 不应被误拒`);
 3 160a1dc2184f87db assert.equal(runCli(['--bogus'], io), 2);
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
-15 171d4db9216880f9 assert.equal(r.ok, false);
+14 171d4db9216880f9 assert.equal(r.ok, false);
 1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
 1 1844b3157bc7303b assert.equal(result.stdout.trim(), 'income=100 expense=30 balance=70');
 1 187548b30c671b3c assert.equal(JSON.parse(lines[1]).issue, 2);
@@ -74,7 +72,6 @@
 1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
 1 1b8cdc8589e2391a assert.equal(new Set(lines.map((r) => r.fp)).size, 1);
 1 1c0c5b59a648b57d assert.equal(repeatText('ab', -2), '');
-1 1c0c764b9829e9a5 assert.equal(ENV_KEY, 'DSH_AUTO_MERGE_REPOS');
 3 1c1455c3e8f456a5 assert.notEqual(fingerprint(a), fingerprint(b));
 1 1c1c8571a290260b assert.equal(subtract(5, 3), 2);
 1 1c22925d4c2c3536 assert.throws(() => average([]), RangeError);
@@ -92,7 +89,6 @@
 1 1f914edcd74707a9 assert.equal(rec.issue, 42);
 1 1f946da5b1fb1492 assert.match(d.detail, /没有 VERDICT 行/);
 1 1f9fdee06773c346 assert.deepEqual(next, [{ date: '2026-10-01', amount: 100, note: '工资' }]);
-1 1ffa0f38c15fa411 assert.deepEqual(parseAllowlist(undefined), [PILOT_REPO.toLowerCase()]);
 1 2007399da72fc5b3 assert.match(renderPool({}), /读不到 `fm\.py stats` 快照/);
 1 201599a756a1dce0 assert.match(m, /T1 --> T2/);
 1 210f4ae3c8ae2650 assert.ok(Number.isFinite(interval) && interval > 0, `心跳间隔不合法：${m[1]}`);
@@ -114,7 +110,6 @@
 1 26ac16007879e190 assert.equal(e.blockedAt, '2026-10-28T00:00:00.000Z');
 1 26c2fa96ce1ed671 assert.equal(modeOf('once'), 'once');
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
-1 282386a572e97dfa assert.equal(decideAutoMerge({ repo: PILOT_REPO, allowlist, labels: [] }).code, 'no-label');
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
 1 297875285b0ccd7f assert.equal(r.cmd, null, '--serve 是模式旗标，不是子命令');
 1 2a5a4fb935f6b515 assert.ok(env.DSH_WORKTREES.includes('.worktrees'));
@@ -142,7 +137,7 @@
 1 31f69f9de78e409b assert.equal(rec.why.length, 300);
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
 1 32345cc3fbfa21aa assert.equal(missing.ok, false);
-9 32364602f0692844 assert.equal(r.ok, true);
+8 32364602f0692844 assert.equal(r.ok, true);
 1 329671b9aa29b36a assert.match(formatSemantic(partial), /需人工复核/);
 1 3314f433b2755958 assert.equal(reverseEachWord('a bc'), 'a cb');
 1 33181ccf91367e49 assert.equal(body.name, 'agent:blocked:manual');
@@ -208,7 +203,6 @@
 1 473903b36856a7aa assert.equal(d.action, 'giveup');
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 47c0440baa018033 assert.equal(partial.valid, 1);
-1 47eaccd553bce5ff assert.deepEqual(parseAllowlist(' '), []);
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
@@ -295,7 +289,6 @@
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64ccd5cbe6962aaf assert.deepEqual(stale.map((s) => s.n), [1, 3]);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
-1 64f0f67e824ba257 assert.equal(autoMergeAllowed('Satan1982/FOO', list), true);
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 650de28edaf09791 assert.ok(body.includes('#42'));
 1 6541a70237f9f10e assert.equal(d.entry.gaveUp, false);
@@ -303,7 +296,6 @@
 1 668054daf061b715 assert.equal(VERIFY.includes('NODE_FAIL'), true, 'node 自己跑不起来也要算环境问题');
 1 66a8c3e9cbcffca2 assert.equal(KNOWN_FLAGS.includes('--unattended'), true);
 1 674340056cef0f79 assert.ok(patchFile, 'dispatch.mjs 里找不到 PAID_PATCH');
-1 67abc68300a7f181 assert.deepEqual(list, ['satan1982/foo', 'other/bar']);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
 4 689bf358a088942b assert.equal(merged.verdict, 'pass');
 1 68a0d087b14fe861 assert.deepEqual(d.orphanWorktrees, []);
@@ -349,7 +341,6 @@
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 75a12177806c7982 assert.equal(DISPATCH.includes('Number(v.code) === 78 || v.spawnError === true'), true, 'spawn 失败与超时必须按不同字段区分');
-1 75b539bbffa223a8 assert.equal(autoMergeAllowed(PILOT_REPO, parseAllowlist(undefined)), true);
 1 7623cff3f773697a assert.equal(DISPATCH.includes("runEnv.DSH_HEADLESS_RESUME = resumeId ? '1' : '';"), true);
 1 7650cf62fa365ae8 assert.ok(r.findings.some((f) => f.rule === 'baseline-unsynced'));
 1 772eecf1080adccf assert.equal(REQUIRED_LABELS.some((n) => n.startsWith('dep-on:')), false);
@@ -520,7 +511,6 @@
 1 ab677777f17a2c3b assert.match(body.text, /验收命令 exit 1/);
 1 ab987ad3e9281a3e assert.equal(minOf(3, 9), 3);
 1 ac33b6f2b997bd02 assert.equal(checkUnattendedIntake({ acceptanceCmds: 'echo "VERDICT: PASS"' }).ok, false);
-1 ac78c60fd824a4e9 assert.deepEqual(parseAllowlist(''), []);
 1 ad4c3143b972b9b4 assert.equal(spend.unitCny, 0.5);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 2 adf8acb56bdf7fbe assert.equal(runCli(['--file', file], io), 0);
@@ -576,14 +566,12 @@
 1 ba7e8e2604057020 assert.equal(a, b);
 1 bb15690086877b7a assert.throws(() => parseSumArgs([]), TypeError);
 1 bb71957e7af94fb5 assert.ok(text.toLowerCase().includes('docs/failures.jsonl') || text.includes('failures.jsonl'));
-1 bbb00dcb8cb84816 assert.equal(autoMergeAllowed('Satan1982/dsh-pipeline-demo', list), false);
 1 bbb2613eed1ac119 assert.equal(modeOf('serve'), 'serve');
 1 bc0048fe54601a1e assert.match(r.model, /^mock:/);
 1 bca4f35142462246 assert.equal(initials('grace brewster hopper'), 'GBH');
 1 bcaffba0485cdfee assert.equal(runCli([], io), 2);
 1 bd0bb350b8af0819 assert.equal(eventRecord({ kind: 'daycap', cny: 5 }).cny, 5);
 1 bdb5e0980d3dcc20 assert.match(formatSemantic(missing), /评审缺失/);
-1 bdd0c6e74f827189 assert.match(r.why, /不在自动合并白名单/);
 1 bdd7326601b68d91 assert.ok(body.includes('CreateToastNotifier'));
 1 be0b71a8b20342fe assert.equal(toastText({ kind: 'weird' }).title, '流水线 weird');
 1 be583b44c3249f3e assert.match(tasks[0].cmd, /VERDICT: PASS/);
@@ -599,7 +587,6 @@
 1 c2922946bf57a58b assert.match(formatSemantic(merged), /评审团 2\/2 有效/);
 1 c34f2e331bacde66 assert.equal(back.kind, 'blocked-manual');
 1 c376b10368dc6b02 assert.deepEqual(args, { date: '2026-10-01', amount: 100, note: 'salary', file: 'ledger.json' });
-1 c40e7d1ce2bd630b assert.equal(autoMergeAllowed(PILOT_REPO, parseAllowlist('')), false);
 1 c472b006b5fcbe49 assert.equal(headlessKind('Now I will add the function', '', 0), 'agent-no-change');
 1 c47ccc56232070f2 assert.equal(u.inputTokens, 150);
 1 c47f2e6597dcd890 assert.match(p, /"verdict":"pass"\|"block"/);
@@ -661,7 +648,6 @@
 1 d4e0ef3b94cd0001 assert.equal(lines.length, 1);
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
-1 d557a007fb302703 assert.equal(autoMergeAllowed('Satan1982/real-repo', parseAllowlist(undefined)), false);
 1 d57182334dd2ed69 assert.equal(rec.kind, 'gate-override');
 1 d5796e4f055e04fd assert.throws(() => parseSumArgs(['--month', '2026-1']), TypeError);
 1 d58d6096ef8d0d8f assert.equal(REQUIRED_LABELS.includes(NEEDS_INFO_LABEL), true);
@@ -698,7 +684,6 @@
 1 e185c10eb4c74d49 assert.equal(backoffMs(99), 60 * MIN);
 1 e1a7d1447921ba98 assert.equal(isOdd(0), false);
 1 e1cc585dd8f65913 assert.match(formatDrift(d), /worktree/);
-3 e206c55d2ee6127d assert.equal(decideAutoMerge({
 1 e243cecc44f7d973 assert.equal(excerpt('abc', 3), 'abc');
 1 e2a1a3d2e575b86c assert.deepEqual(summarize(entries, '2026-10'), { income: 0, expense: 10, balance: -10 });
 1 e2a6460ebe6bd7ae assert.equal(slugify(''), '');
