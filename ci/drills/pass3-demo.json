@@ -1,0 +1,15 @@
+{
+  "note": "Pass^3 演示批次：10 个确定性切片（同一命令独立跑 3 次）。n=10 < 36，只报原始比例 + Wilson 区间；真实 agent 任务跑批需要 issue 队列，见 docs/92。",
+  "tasks": [
+    { "id": "src-index-tests", "cmd": "node --test src/index.test.js" },
+    { "id": "src-ledger-tests", "cmd": "node --test src/ledger.test.js" },
+    { "id": "src-ledger-cli-tests", "cmd": "node --test src/ledger-cli.test.js" },
+    { "id": "src-stats-tests", "cmd": "node --test src/stats.test.js" },
+    { "id": "src-strings-tests", "cmd": "node --test src/strings.test.js" },
+    { "id": "src-text-tests", "cmd": "node --test src/text.test.js" },
+    { "id": "ci-unit-tests", "cmd": "node --test ci/risk-lane.test.mjs ci/trust-verify.test.mjs ci/metrics.test.mjs ci/seed-defects.test.mjs" },
+    { "id": "lint", "cmd": "bash scripts/lint.sh" },
+    { "id": "import-check", "cmd": "node scripts/check-imports.mjs" },
+    { "id": "assert-guard", "cmd": "node scripts/assert-guard.mjs" }
+  ]
+}

@@ -6,6 +6,8 @@
 - Lint only: `npm run lint`
 - Test only: `npm test`
 - Build artifact: `node scripts/build.js` -> `dist/*.tgz` + `dist/build-info.json`
+- Pass^3 度量（P2）：`node ci/pass3.mjs --tasks ci/drills/pass3-demo.json [--json out.json]` —— 同一命令独立跑 3 次全过才算通过；**n<36 只报原始比例 + Wilson 95% 区间，不得宣称达到 0.7**
+- 种子缺陷集（P2，独立真值）：`node ci/seed-defects.mjs --first-error` —— 漏报/无效样本必须修测试或重算样本，不许删样本
 
 ## Rules
 

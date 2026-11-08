@@ -36,6 +36,7 @@ import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { overlayOriginGate } from './gate-snapshot.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
+import { formatFirstError, parseFirstError } from './metrics.mjs';
 import { HIGH_RISK_LABEL, defaultLaneStatsFile, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
@@ -1050,7 +1051,7 @@ async function verifyWorktree(wt) {
   if (Number(v.code) === 78 || v.spawnError === true) {
     const tail78 = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-5).join('\n');
     const why = Number(v.code) === 78 ? '门禁在受限环境里无法启动子进程（exit 78）' : '门禁进程根本没起来（bash 不可用）';
-    return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}` };
+    return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}`, raw: `${v.out}\n${v.err}` };
   }
   const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
   // 尾部为空时至少留下退出码：历史上出现过「门禁失败但日志只有冒号」的情况，无法判断是
@@ -1059,6 +1060,8 @@ async function verifyWorktree(wt) {
   return {
     ok: false,
     detail: `独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：exit=${v.code}\n${body}`,
+    // full output：first_error 归因要扫完整输出，不能只看尾部 25 行（TAP 的 not ok 行往往更靠前）。
+    raw: `${v.out}\n${v.err}`,
   };
 }
 
@@ -1278,10 +1281,15 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 1) 独立门禁：不接受作者自评
     const gate = await verifyWorktree(wt);
     if (!gate.ok) {
+      // v3 P2（docs/89 §3.5）：门禁失败时把第一个失败的测试钉出来。只看尾部 25 行
+      // 经常看不到 TAP 的 not ok（它更靠前），所以用 verifyWorktree 带回来的完整输出。
+      const firstError = gate.env ? { found: false } : parseFirstError(gate.raw ?? gate.detail);
+      const firstErrorLine = firstError.found ? `\nFIRST_ERROR: ${formatFirstError(firstError)}` : '';
+      if (firstError.found) log(`${tag} first_error：${formatFirstError(firstError)}`);
       // 环境失败不进失败指纹库：那不是「这单写错了」，记进去会污染「同类失败根因」，
       // 还会在下一轮被当成先验灌回 agent（让它去改根本没坏的测试）。
-      if (!gate.env) recordFailure({ text: gate.detail, issue: n, attempt, reason: gate.detail }, FAIL_STORE);
-      const err = new Error(gate.detail);
+      if (!gate.env) recordFailure({ text: `${gate.detail}${firstErrorLine}`, issue: n, attempt, reason: gate.detail }, FAIL_STORE);
+      const err = new Error(`${gate.detail}${firstErrorLine}`);
       if (gate.env) err.env = true;
       throw err;
     }
@@ -1789,7 +1797,8 @@ ${logText.slice(-8000)}
     const gate = await verifyWorktree(wt);
     if (!gate.ok) {
       // CI 修复轮也走同一条规矩：环境失败不打回「重写」，直接带标记抛上去让外层暂停/挂起。
-      const err = new Error(`CI 修复后门禁未通过：${gate.detail.slice(0, 800)}`);
+      const fe = gate.env ? { found: false } : parseFirstError(gate.raw ?? gate.detail);
+      const err = new Error(`CI 修复后门禁未通过：${gate.detail.slice(0, 800)}${fe.found ? `\nFIRST_ERROR: ${formatFirstError(fe)}` : ''}`);
       if (gate.env) err.env = true;
       throw err;
     }
@@ -1979,7 +1988,8 @@ async function rebaseAgentBranch(pr, issueN) {
 
     const gate = await verifyWorktree(wt);
     if (!gate.ok) {
-      const err = new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}`);
+      const fe = gate.env ? { found: false } : parseFirstError(gate.raw ?? gate.detail);
+      const err = new Error(`rebase 后门禁未通过：${gate.detail.slice(0, 800)}${fe.found ? `\nFIRST_ERROR: ${formatFirstError(fe)}` : ''}`);
       if (gate.env) err.env = true; // 环境问题不该被记成「这个 PR 坏了」，外层据此挂起而不是判红
       throw err;
     }
