@@ -1,4 +1,5 @@
 1 00142e7b3505fa5f assert.equal(DISPATCH.includes('gaveUp: true'), true, '人工挂起要写 gaveUp，否则 recoverBlocked 还会自动重投');
+1 0022a1f40ea7360c assert.equal(readFileSync(path.join(cand.dir, 'new-src.mjs'), 'utf8'), 'export const x = 1;\n', '未跟踪新文件要进候选树');
 1 003e64826c6f34bc assert.equal(e.requeues, 0);
 1 00696c3bfee02bea assert.equal(st.pausedWhy.includes('损坏'), true);
 1 009fda72c6211261 assert.match(String(bad.code ?? bad.why), /hash|链/i);
@@ -183,6 +184,7 @@
 1 342fe5ffa01622d7 assert.equal(d.action, 'wait');
 1 3439ff38fd8f1028 assert.equal(VERIFY.includes('ERR:EPERM'), true, '探针要区分错误码');
 1 343ea657ee5fe028 assert.deepEqual(mixed.source, ['src/y.js']);
+1 3449e78fba530ef0 assert.equal(existsSync(cand.dir), false, 'cleanup 要删临时目录');
 1 34a02174a64c0e6d assert.match(missing.why, /缺少/);
 1 358dabdaa657515f assert.equal(tasks.length, 4);
 1 35bcc6e7344c73ed assert.match(readFileSync(audit, 'utf8'), /scripts\/verify\.sh/);
@@ -556,6 +558,7 @@
 1 9a08d45fdcd52fdb assert.equal(single.needsHuman, undefined);
 1 9a2b9009e63fd1da assert.equal(lane.state, 'occupied');
 1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
+1 9a3bb20366a478d4 assert.equal(cand.gate.sha256, gateBytesSha256(cand.dir).sha256);
 1 9a49cb50df0d1711 assert.equal(res.dropped, 4);
 1 9a5578cd87ed59c4 assert.equal(headlessKind('', out, 1), 'llm-rate-limit');
 1 9a92c28dd8e7ffb6 assert.match(md, /共 3 个模型，ok 1 个/);
@@ -606,6 +609,7 @@
 1 a6b96f6fdd06f441 assert.equal(spend.metered, 0.30000000000000004);
 1 a745b939375945c0 assert.equal(formatFindings({ findings: [] }), '评审通过：没有发现问题。');
 1 a79526c232c68eaa assert.equal(capitalize('abc'), 'Abc');
+1 a79e85b7e242310f assert.equal(readFileSync(path.join(cand.dir, 'notes.md'), 'utf8'), 'v2\n', '未提交改动要进候选树');
 1 a8482f26780542fa assert.equal(maxOf(3, 9), 9);
 1 a914a8d4d1a2c680 assert.equal(covered.ok, true);
 1 a91a5e5613481138 assert.equal(lane.holder, OTHER.model_name);
@@ -782,6 +786,7 @@
 1 d5796e4f055e04fd assert.throws(() => parseSumArgs(['--month', '2026-1']), TypeError);
 1 d58d6096ef8d0d8f assert.equal(REQUIRED_LABELS.includes(NEEDS_INFO_LABEL), true);
 1 d6482f02e902d440 assert.equal(capitalizeWords(' a b '), 'A B');
+1 d6564ec35c5eea48 assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'verify.sh'), 'utf8'), 'echo origin-gate\n', '门禁字节必须被 origin 覆盖');
 1 d6b1a91bf47854a4 assert.notEqual(w1.nonce, w2.nonce);
 1 d6c1d38843162ae6 assert.notEqual(defect.replace, defect.find, `${defect.id}: replace 与 find 相同`);
 1 d6d14603fe07293c assert.equal(VERIFY.includes('DSH_VERIFY_TEST_EPERM'), true, '缺自测开关，这条分支无法被验证');
@@ -797,6 +802,7 @@
 1 d8aa09c79dc94680 assert.equal(DISPATCH.includes('function winEnv()'), true, '缺少 winEnv()');
 1 d907abe22f30533a assert.equal(localLaneEnabled({ DSH_LOCAL_LANE: '1' }), true);
 1 d98a7074446b8d2a assert.equal(off.ok, false);
+1 d9d13e35ff61d53a assert.equal(readFileSync(path.join(dir, 'scripts', 'verify.sh'), 'utf8'), 'echo TAMPERED\n');
 1 d9fba3ccf2190da3 assert.equal(slugify(' A B '), 'a-b');
 1 da00f34046543dc7 assert.equal(d.entry.gaveUp, true);
 1 da0ccd20f18ed91b assert.ok(r.errors.some((e) => e.includes('写事件失败')));

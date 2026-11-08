@@ -34,7 +34,7 @@ import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_U
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
-import { overlayOriginGate } from './gate-snapshot.mjs';
+import { prepareCandidateTree } from './gate-snapshot.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
 import { HIGH_RISK_LABEL, defaultLaneStatsFile, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane } from './risk-lane.mjs';
@@ -1031,41 +1031,46 @@ async function recoverBlocked() {
 // 里再跑一遍；红就是红，绿才有资格进下一步。
 
 async function verifyWorktree(wt) {
-  // v3 P0（docs/89 §3.1）：门禁脚本从 origin/main 只读快照执行，并记被执行字节哈希。
-  // 拿不到 origin 字节就 fail-closed——不能拿「agent 改过的工作树」当裁判。
-  let gate;
+  // v3 P2（docs/89 §3.1 line 53）：门禁在「候选树」上跑，不在 agent 的脏工作树里跑。
+  // 候选树 = HEAD + 已跟踪改动 patch + 未跟踪新文件，门禁字节仍从 origin/main 覆盖。
+  // 生成失败就 fail-closed——宁可拒单，也不拿「agent 改过的工作树」当裁判。
+  let cand;
   try {
-    gate = overlayOriginGate({ repoDir: wt, gitBin: GIT });
+    cand = prepareCandidateTree({ repoDir: wt, gitBin: GIT });
   } catch (e) {
-    return { ok: false, detail: `门禁快照失败（fail-closed，未执行工作树门禁）：${e.message}` };
+    return { ok: false, detail: `候选树生成失败（fail-closed，未执行工作树门禁）：${e.message}` };
   }
-  const v = await run(BASH, ['scripts/verify.sh'], {
-    cwd: wt, timeout: 15 * 60 * 1000,
-    env: { PATH: CHILD_PATH, PNPM_CLI },
-  });
-  if (v.code === 0) {
-    // stdout 一起带回去：witness 的 stdout_sha256 要绑「这次门禁到底吐了什么」，
-    // 只记 gate 字节哈希证明不了门禁的输出没有在记录前后被换掉。
-    return { ok: true, gate_bytes_sha256: gate.sha256, gate_ref: gate.ref, stdout: `${v.out}\n${v.err}` };
+  try {
+    const v = await run(BASH, ['scripts/verify.sh'], {
+      cwd: cand.dir, timeout: 15 * 60 * 1000,
+      env: { PATH: CHILD_PATH, PNPM_CLI },
+    });
+    if (v.code === 0) {
+      // stdout 一起带回去：witness 的 stdout_sha256 要绑「这次门禁到底吐了什么」，
+      // 只记 gate 字节哈希证明不了门禁的输出没有在记录前后被换掉。
+      return { ok: true, gate_bytes_sha256: cand.gate.sha256, gate_ref: cand.gateRef, stdout: `${v.out}\n${v.err}` };
+    }
+    // 78 = EX_CONFIG：门禁自己判定「这台机器现在跑不了子进程」，不是代码问题。
+    // code -1 / 带 error：连 bash 都没起来（PATH 错、WSL 抢了 bash.exe），同样是环境不是代码。
+    // 记成普通失败会让同一张工单白烧三次重试预算（红线：环境失败不消耗重试预算）。
+    if (Number(v.code) === 78 || v.spawnError === true) {
+      const tail78 = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-5).join('\n');
+      const why = Number(v.code) === 78 ? '门禁在受限环境里无法启动子进程（exit 78）' : '门禁进程根本没起来（bash 不可用）';
+      return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}`, raw: `${v.out}\n${v.err}` };
+    }
+    const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
+    // 尾部为空时至少留下退出码：历史上出现过「门禁失败但日志只有冒号」的情况，无法判断是
+    // 门禁自己退非零还是脚本根本没产出任何东西（现在两边都写清楚）。
+    const body = tail || '（门禁没有任何输出）';
+    return {
+      ok: false,
+      detail: `独立门禁未通过（调度器在候选树上跑的 bash scripts/verify.sh，不采信 agent 自述）：exit=${v.code}\n${body}`,
+      // full output：first_error 归因要扫完整输出，不能只看尾部 25 行（TAP 的 not ok 行往往更靠前）。
+      raw: `${v.out}\n${v.err}`,
+    };
+  } finally {
+    cand.cleanup();
   }
-  // 78 = EX_CONFIG：门禁自己判定「这台机器现在跑不了子进程」，不是代码问题。
-  // code -1 / 带 error：连 bash 都没起来（PATH 错、WSL 抢了 bash.exe），同样是环境不是代码。
-  // 记成普通失败会让同一张工单白烧三次重试预算（红线：环境失败不消耗重试预算）。
-  if (Number(v.code) === 78 || v.spawnError === true) {
-    const tail78 = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-5).join('\n');
-    const why = Number(v.code) === 78 ? '门禁在受限环境里无法启动子进程（exit 78）' : '门禁进程根本没起来（bash 不可用）';
-    return { ok: false, env: true, detail: `ENV_FAIL: ${why}\n${tail78}`, raw: `${v.out}\n${v.err}` };
-  }
-  const tail = `${v.out}\n${v.err}`.trim().split('\n').filter(Boolean).slice(-25).join('\n');
-  // 尾部为空时至少留下退出码：历史上出现过「门禁失败但日志只有冒号」的情况，无法判断是
-  // 门禁自己退非零还是脚本根本没产出任何东西（现在两边都写清楚）。
-  const body = tail || '（门禁没有任何输出）';
-  return {
-    ok: false,
-    detail: `独立门禁未通过（调度器自己跑的 bash scripts/verify.sh，不采信 agent 自述）：exit=${v.code}\n${body}`,
-    // full output：first_error 归因要扫完整输出，不能只看尾部 25 行（TAP 的 not ok 行往往更靠前）。
-    raw: `${v.out}\n${v.err}`,
-  };
 }
 
 // 提交之后才能拿到 base...HEAD 的 diff，所以评审放在 commit 之后、push 之前。

@@ -1,15 +1,205 @@
 {
-  "note": "Pass^3 演示批次：10 个确定性切片（同一命令独立跑 3 次）。n=10 < 36，只报原始比例 + Wilson 区间；真实 agent 任务跑批需要 issue 队列，见 docs/92。",
+  "note": "Pass^3 批次：50 个确定性切片（每个独立跑 3 次）。n>=36，可报 0.7 阈值结论；但切片是门禁/测试文件粒度，不等于真实 agent 工单成功率（后者需 issue 队列，见 docs/92 §七）。",
   "tasks": [
-    { "id": "src-index-tests", "cmd": "node --test src/index.test.js" },
-    { "id": "src-ledger-tests", "cmd": "node --test src/ledger.test.js" },
-    { "id": "src-ledger-cli-tests", "cmd": "node --test src/ledger-cli.test.js" },
-    { "id": "src-stats-tests", "cmd": "node --test src/stats.test.js" },
-    { "id": "src-strings-tests", "cmd": "node --test src/strings.test.js" },
-    { "id": "src-text-tests", "cmd": "node --test src/text.test.js" },
-    { "id": "ci-unit-tests", "cmd": "node --test ci/risk-lane.test.mjs ci/trust-verify.test.mjs ci/metrics.test.mjs ci/seed-defects.test.mjs" },
-    { "id": "lint", "cmd": "bash scripts/lint.sh" },
-    { "id": "import-check", "cmd": "node scripts/check-imports.mjs" },
-    { "id": "assert-guard", "cmd": "node scripts/assert-guard.mjs" }
+    {
+      "id": "index-src-tests",
+      "cmd": "node --test src/index.test.js"
+    },
+    {
+      "id": "ledger-cli-src-tests",
+      "cmd": "node --test src/ledger-cli.test.js"
+    },
+    {
+      "id": "ledger-src-tests",
+      "cmd": "node --test src/ledger.test.js"
+    },
+    {
+      "id": "stats-src-tests",
+      "cmd": "node --test src/stats.test.js"
+    },
+    {
+      "id": "strings-src-tests",
+      "cmd": "node --test src/strings.test.js"
+    },
+    {
+      "id": "text-src-tests",
+      "cmd": "node --test src/text.test.js"
+    },
+    {
+      "id": "allowgate-ci-tests",
+      "cmd": "node --test ci/allowgate.test.mjs"
+    },
+    {
+      "id": "blocked-recovery-ci-tests",
+      "cmd": "node --test ci/blocked-recovery.test.mjs"
+    },
+    {
+      "id": "cost-report-ci-tests",
+      "cmd": "node --test ci/cost-report.test.mjs"
+    },
+    {
+      "id": "digest-ci-tests",
+      "cmd": "node --test ci/digest.test.mjs"
+    },
+    {
+      "id": "dispatch-load-ci-tests",
+      "cmd": "node --test ci/dispatch-load.test.mjs"
+    },
+    {
+      "id": "distill-ci-tests",
+      "cmd": "node --test ci/distill.test.mjs"
+    },
+    {
+      "id": "drift-ci-tests",
+      "cmd": "node --test ci/drift.test.mjs"
+    },
+    {
+      "id": "env-failure-ci-tests",
+      "cmd": "node --test ci/env-failure.test.mjs"
+    },
+    {
+      "id": "event-ci-tests",
+      "cmd": "node --test ci/event.test.mjs"
+    },
+    {
+      "id": "failures-ci-tests",
+      "cmd": "node --test ci/failures.test.mjs"
+    },
+    {
+      "id": "gate-override-ci-tests",
+      "cmd": "node --test ci/gate-override.test.mjs"
+    },
+    {
+      "id": "gate-snapshot-ci-tests",
+      "cmd": "node --test ci/gate-snapshot.test.mjs"
+    },
+    {
+      "id": "headless-defaults-ci-tests",
+      "cmd": "node --test ci/headless-defaults.test.mjs"
+    },
+    {
+      "id": "headless-kind-ci-tests",
+      "cmd": "node --test ci/headless-kind.test.mjs"
+    },
+    {
+      "id": "intake-check-ci-tests",
+      "cmd": "node --test ci/intake-check.test.mjs"
+    },
+    {
+      "id": "labels-ci-tests",
+      "cmd": "node --test ci/labels.test.mjs"
+    },
+    {
+      "id": "ledger-ci-tests",
+      "cmd": "node --test ci/ledger.test.mjs"
+    },
+    {
+      "id": "local-lane-ci-tests",
+      "cmd": "node --test ci/local-lane.test.mjs"
+    },
+    {
+      "id": "lock-heartbeat-ci-tests",
+      "cmd": "node --test ci/lock-heartbeat.test.mjs"
+    },
+    {
+      "id": "lock-policy-ci-tests",
+      "cmd": "node --test ci/lock-policy.test.mjs"
+    },
+    {
+      "id": "merge-policy-ci-tests",
+      "cmd": "node --test ci/merge-policy.test.mjs"
+    },
+    {
+      "id": "metrics-ci-tests",
+      "cmd": "node --test ci/metrics.test.mjs"
+    },
+    {
+      "id": "model-policy-ci-tests",
+      "cmd": "node --test ci/model-policy.test.mjs"
+    },
+    {
+      "id": "needs-info-ci-tests",
+      "cmd": "node --test ci/needs-info.test.mjs"
+    },
+    {
+      "id": "notify-ci-tests",
+      "cmd": "node --test ci/notify.test.mjs"
+    },
+    {
+      "id": "plan-ci-tests",
+      "cmd": "node --test ci/plan.test.mjs"
+    },
+    {
+      "id": "pool-block-ci-tests",
+      "cmd": "node --test ci/pool-block.test.mjs"
+    },
+    {
+      "id": "prices-ci-tests",
+      "cmd": "node --test ci/prices.test.mjs"
+    },
+    {
+      "id": "probe-plan-ci-tests",
+      "cmd": "node --test ci/probe-plan.test.mjs"
+    },
+    {
+      "id": "rebase-conflict-ci-tests",
+      "cmd": "node --test ci/rebase-conflict.test.mjs"
+    },
+    {
+      "id": "repos-ci-tests",
+      "cmd": "node --test ci/repos.test.mjs"
+    },
+    {
+      "id": "review-ci-tests",
+      "cmd": "node --test ci/review.test.mjs"
+    },
+    {
+      "id": "risk-lane-ci-tests",
+      "cmd": "node --test ci/risk-lane.test.mjs"
+    },
+    {
+      "id": "runtime-state-ci-tests",
+      "cmd": "node --test ci/runtime-state.test.mjs"
+    },
+    {
+      "id": "s4-job-acl-ci-tests",
+      "cmd": "node --test ci/s4-job-acl.test.mjs"
+    },
+    {
+      "id": "seed-defects-ci-tests",
+      "cmd": "node --test ci/seed-defects.test.mjs"
+    },
+    {
+      "id": "semantic-review-ci-tests",
+      "cmd": "node --test ci/semantic-review.test.mjs"
+    },
+    {
+      "id": "trust-verify-ci-tests",
+      "cmd": "node --test ci/trust-verify.test.mjs"
+    },
+    {
+      "id": "usage-ci-tests",
+      "cmd": "node --test ci/usage.test.mjs"
+    },
+    {
+      "id": "verdict-ci-tests",
+      "cmd": "node --test ci/verdict.test.mjs"
+    },
+    {
+      "id": "worktree-audit-ci-tests",
+      "cmd": "node --test ci/worktree-audit.test.mjs"
+    },
+    {
+      "id": "lint",
+      "cmd": "bash scripts/lint.sh"
+    },
+    {
+      "id": "import-check",
+      "cmd": "node scripts/check-imports.mjs"
+    },
+    {
+      "id": "assert-guard",
+      "cmd": "node scripts/assert-guard.mjs"
+    }
   ]
 }

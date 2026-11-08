@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_GIT, gateBytesSha256, overlayOriginGate } from '../ci/gate-snapshot.mjs';
+import { DEFAULT_GIT, gateBytesSha256, overlayOriginGate, prepareCandidateTree } from '../ci/gate-snapshot.mjs';
 
 function git(cwd, args) {
   return execFileSync(DEFAULT_GIT, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
@@ -58,4 +58,29 @@ test('overlayOriginGate：origin 前进后哈希跟着变（证明记的是被�
   git(dir, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
   const v2 = overlayOriginGate({ repoDir: dir }).sha256;
   assert.notEqual(v1, v2);
+});
+
+test('prepareCandidateTree：已跟踪改动 + 未跟踪新文件进候选树，门禁字节仍取 origin', () => {
+  const dir = makeRepo();
+  writeFileSync(path.join(dir, 'notes.md'), 'v1\n');
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'notes v1']);
+  git(dir, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+
+  writeFileSync(path.join(dir, 'notes.md'), 'v2\n');
+  writeFileSync(path.join(dir, 'new-src.mjs'), 'export const x = 1;\n');
+  writeFileSync(path.join(dir, 'scripts', 'verify.sh'), 'echo TAMPERED\n');
+
+  const cand = prepareCandidateTree({ repoDir: dir });
+  try {
+    assert.equal(readFileSync(path.join(cand.dir, 'notes.md'), 'utf8'), 'v2\n', '未提交改动要进候选树');
+    assert.equal(readFileSync(path.join(cand.dir, 'new-src.mjs'), 'utf8'), 'export const x = 1;\n', '未跟踪新文件要进候选树');
+    assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'verify.sh'), 'utf8'), 'echo origin-gate\n', '门禁字节必须被 origin 覆盖');
+    assert.equal(cand.gate.sha256, gateBytesSha256(cand.dir).sha256);
+    // 原工作树不被门禁 checkout 写脏：agent 的 TAMPERED 字节原样保留（供评审/取证）。
+    assert.equal(readFileSync(path.join(dir, 'scripts', 'verify.sh'), 'utf8'), 'echo TAMPERED\n');
+  } finally {
+    cand.cleanup();
+  }
+  assert.equal(existsSync(cand.dir), false, 'cleanup 要删临时目录');
 });
