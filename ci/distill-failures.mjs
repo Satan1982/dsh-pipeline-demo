@@ -12,6 +12,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { classifyCause } from './failures.mjs';
@@ -19,6 +20,30 @@ import { classifyCause } from './failures.mjs';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const STORE = process.env.DSH_FAILURES_STORE || path.join(ROOT, 'docs/failures.jsonl');
 const CLIENT = process.env.DSH_HINDSIGHT_CLIENT || path.join(homedir(), '.hindsight/coding-agent.json');
+
+// 客户端配置由 Hindsight 插件维护，插件重写配置时会丢掉 apiToken 等未知键；
+// 调度器又用 scrubbedEnv 启动子进程，继承来的 HINDSIGHT_API_TOKEN 进不来。
+// 因此 token 解析按「配置 → 进程 env → 用户级 env（注册表）」兜底，任何一步都只用于发请求，不打印。
+function readClient() {
+  try {
+    return JSON.parse(readFileSync(CLIENT, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return {};
+  }
+}
+
+function userEnv(name) {
+  if (process.platform !== 'win32') return '';
+  const r = spawnSync('reg', ['query', 'HKCU\\Environment', '/v', name], { encoding: 'utf8', windowsHide: true });
+  if (r.status !== 0) return '';
+  const line = (r.stdout || '').split(/\r?\n/).find((l) => /REG_(?:EXPAND_)?SZ\s+\S/.test(l));
+  const m = line && line.match(/REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/);
+  return m ? m[1] : '';
+}
+
+function resolveToken(cfg) {
+  return cfg.apiToken || process.env.HINDSIGHT_API_TOKEN || userEnv('HINDSIGHT_API_TOKEN');
+}
 
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
@@ -97,15 +122,18 @@ export function render(groups) {
 }
 
 async function post(text, bank) {
-  const cfg = JSON.parse(readFileSync(CLIENT, 'utf8'));
-  const url = `${cfg.apiUrl.replace(/\/$/, '')}/v1/default/banks/${encodeURIComponent(bank)}/memories`;
+  const cfg = readClient();
+  const auth = resolveToken(cfg);
+  if (!auth) throw new Error('[distill] 缺少 Hindsight 凭据：配置无 apiToken，User 环境也没有 HINDSIGHT_API_TOKEN');
+  const base = (cfg.apiUrl || 'http://127.0.0.1:9077').replace(/\/$/, '');
+  const url = `${base}/v1/default/banks/${encodeURIComponent(bank)}/memories`;
   const body = {
     items: [{ content: text, context: 'pipeline-failures', tags: ['pipeline', 'failures'] }],
     async: true,
   };
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiToken}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${auth}` },
     body: JSON.stringify(body),
   });
   const raw = await res.text();
@@ -125,7 +153,6 @@ async function main() {
     console.error('[distill] --dry：只打印，没有写入 Hindsight。');
     process.exit(0);
   }
-  const cfg = JSON.parse(readFileSync(CLIENT, 'utf8'));
   // 默认写独立 bank：踩坑知识跨仓库通用，混进某个仓库的 coding bank 反而不好检索。
   const bank = pickFlag('--bank', process.env.DSH_HINDSIGHT_BANK || 'pipeline::failures');
   if (!FORCE && !bank) {
