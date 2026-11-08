@@ -36,6 +36,7 @@ import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree } from './gate-snapshot.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
+import { loadKeyring } from './trust/keys.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
 import { HIGH_RISK_LABEL, defaultLaneStatsFile, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
@@ -343,6 +344,13 @@ const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
 // v3 P1（docs/89 §3.1）：证据链单独一条 append-only JSONL，和运行日志分开——
 // 日志会轮转覆盖，证据不能（链一断，所有已签的 witness 就作废了）。
 const WITNESS_FILE = process.env.DSH_WITNESS_FILE || defaultChainFile(REPO_DIR);
+// v3 P1 补（docs/89 §六-1）：ed25519 私钥只在调度器进程；存在则签发带签名并强制验签，
+// 不存在则保持哈希链 L2（旧行为）。公钥与撤销清单在 governance/keys/（随仓库分发）。
+const WITNESS_KEY = process.env.DSH_WITNESS_KEY || path.join(SECRETS_DIR, 'dispatch-ed25519.pem');
+const WITNESS_KEY_ID = process.env.DSH_WITNESS_KEY_ID || 'dispatch-20261108';
+const WITNESS_SIGNING = existsSync(WITNESS_KEY);
+const WITNESS_KEYRING_DIR = process.env.DSH_KEYRING || path.join(REPO_DIR, 'governance', 'keys');
+const WITNESS_KEYS = WITNESS_SIGNING && existsSync(WITNESS_KEYRING_DIR) ? loadKeyring(WITNESS_KEYRING_DIR) : null;
 const LANE_STATS_FILE = defaultLaneStatsFile(REPO_DIR);
 // 进程启动时从落盘记录恢复样本；之后每张单追加一条。重启不清零（目标 ≤5% 才有意义）。
 const LANE_RECORDS = loadLaneStats(LANE_STATS_FILE);
@@ -1403,6 +1411,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 能引用的那个。工作树不干净时 attestCommit 直接拒绝（fail-closed）。
     const att = attestCommit({
       repoDir: wt, issue: n, stdout: gate.stdout, gateBytes: gate.gate_bytes_sha256, chainFile: WITNESS_FILE,
+      privateKeyPath: WITNESS_SIGNING ? WITNESS_KEY : null, keyId: WITNESS_KEY_ID,
     });
     if (!att.ok) throw new Error(`证据签发失败（不 push 未签名证据）：${att.why}`);
     log(`${tag} witness ${att.witness.hash.slice(0, 12)}：commit ${att.witness.commit.slice(0, 8)} tree ${att.witness.tree_after.slice(0, 8)}`);
@@ -1637,7 +1646,7 @@ async function pushWithRetry(cwd, refspec, extraArgs = []) {
   // v3 P1（docs/89 §3.1）：push 前断言。链必须完整，且要推的 HEAD 被某条 witness 覆盖
   // （commit + tree_after 双匹配，§3.2 L2）。放在退避重试之前判一次：网络失败可以重试，
   // 证据缺失重试也补不出来；这条不通过就绝不 push。
-  const proof = assertHeadWitnessed({ repoDir: cwd, chainFile: WITNESS_FILE });
+  const proof = assertHeadWitnessed({ repoDir: cwd, chainFile: WITNESS_FILE, keyring: WITNESS_KEYS });
   if (!proof.ok) throw new Error(`push 前断言失败（拒推未签名证据）：${proof.why}`);
   const backoff = [3000, 7000, 15000, 30000];
   let last = null;
@@ -2055,6 +2064,7 @@ async function rebaseAgentBranch(pr, issueN) {
     // 所以必须在 push 前重新签发，否则 pushWithRetry 的断言会拒推。
     const proof = attestCommit({
       repoDir: wt, issue: issueN, stdout: gate.stdout, gateBytes: gate.gate_bytes_sha256, chainFile: WITNESS_FILE,
+      privateKeyPath: WITNESS_SIGNING ? WITNESS_KEY : null, keyId: WITNESS_KEY_ID,
     });
     if (!proof.ok) throw new Error(`证据签发失败（不 push 未签名证据）：${proof.why}`);
     log(`${tag} witness ${proof.witness.hash.slice(0, 12)}：commit ${proof.witness.commit.slice(0, 8)} tree ${proof.witness.tree_after.slice(0, 8)}`);

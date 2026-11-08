@@ -83,7 +83,10 @@ if ! "$GIT" rev-parse --verify -q "$BASE" >/dev/null; then
   BASE=main
 fi
 CHAIN=${DSH_WITNESS_FILE:-.logs/witness.jsonl}
-if ! node "$VERIFY" --chain "$CHAIN" --repo . --land "$BASE"; then
+# docs/89 §六-1：governance/keys 存在时强制 ed25519 验签（未签名/撤销 key 都拒）。
+KEYRING_ARGS=()
+if [ -d governance/keys ]; then KEYRING_ARGS=(--keys governance/keys); fi
+if ! node "$VERIFY" --chain "$CHAIN" --repo . --land "$BASE" "${KEYRING_ARGS[@]}"; then
   echo "验签未通过：拒绝推送未签名证据（docs/89 §3.1）" >&2
   exit 2
 fi

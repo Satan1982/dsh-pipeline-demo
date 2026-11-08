@@ -11,6 +11,12 @@ REMOTE="${DSH_GITEE_REMOTE:-gitee}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 
+# 本机 PATH 里没有 node/pnpm（见 AGENTS.md），缺失时补随包运行时。
+if ! command -v node >/dev/null 2>&1; then
+  INSTALL=${DSH_INSTALL:-$HOME/AppData/Local/Programs/DeepSeek Harness}
+  export PATH="$INSTALL/resources/runtime/primary-runtime/dependencies/node/bin:$PATH"
+fi
+
 if [ ! -f "$SECRETS/gitee-token.txt" ]; then
   echo "没有 $SECRETS/gitee-token.txt，跳过 Gitee 镜像" >&2
   exit 0
@@ -32,5 +38,25 @@ if ! "$GIT" fetch origin main --quiet 2>/dev/null; then
     exit 1
   fi
 fi
+# v3 P1（docs/89 §六-2）：镜像也是出口，推送前必须验签。
+# land.sh 在 push GitHub 前已经验过一次；这里覆盖「单独跑 mirror-gitee.sh」的旁路。
+# 链不存在/不覆盖 $SRC → fail-closed；跨机无链时只能用显式开关放行并留痕。
+VERIFY="$ROOT/ci/trust/verify.mjs"
+CHAIN="$ROOT/.logs/witness.jsonl"
+KEY_ARGS=""
+if [ -d "$ROOT/governance/keys" ]; then KEY_ARGS="--keys $ROOT/governance/keys"; fi
+if ! node "$VERIFY" --chain "$CHAIN" --repo "$ROOT" --head "$SRC" $KEY_ARGS >/dev/null 2>&1; then
+  if [ "${DSH_GITEE_ALLOW_UNVERIFIED:-0}" = "1" ]; then
+    echo "Gitee 镜像：$SRC 验签未通过，但 DSH_GITEE_ALLOW_UNVERIFIED=1，放行并留痕" >&2
+    mkdir -p "$ROOT/.logs"
+    printf '{"at":"%s","src":"%s","reason":"%s"}\n' \
+      "$(date -Iseconds)" "$SRC" "${DSH_GITEE_ALLOW_UNVERIFIED_REASON:-手动放行}" \
+      >> "$ROOT/.logs/gitee-unverified.jsonl" 2>/dev/null || true
+  else
+    echo "Gitee 镜像：$SRC 未被 witness 覆盖，拒绝推送；如确认要推，设 DSH_GITEE_ALLOW_UNVERIFIED=1 并写理由" >&2
+    exit 2
+  fi
+fi
+
 # 推 $SRC（能 fetch 就用 origin/main，拉不动就用本地 main）
 "$GIT" -c credential.helper= push "$REMOTE" "$SRC:refs/heads/main" --tags 2>&1 | tail -3

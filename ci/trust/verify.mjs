@@ -18,7 +18,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gateBytesSha256 } from '../gate-snapshot.mjs';
-import { MARKER, buildWitness, sha256, verifyChain } from './witness.mjs';
+import { loadKeyring } from './keys.mjs';
+import { MARKER, buildWitness, sha256, signWitness, verifyChain } from './witness.mjs';
 
 export const CHAIN_BASENAME = 'witness.jsonl';
 export const EXIT_OK = 0;
@@ -64,25 +65,28 @@ export function readChain(file) {
 }
 
 // 追加一条 witness：prev_hash 取当前链尾，nonce 随机（同一秒并发也不会撞）。
-export function appendWitness(file, fields) {
+// signer = { privateKey, keyId } 时加 ed25519 签名（docs/89 §六-1）；签名对象不含 sig，
+// 所以 witness.hash 与 prev_hash 链接规则不变。
+export function appendWitness(file, fields, { signer = null } = {}) {
   const list = readChain(file);
   if (!list.ok) throw new Error(`witness 链读不了，拒绝签发：${list.error}`);
   const prev = list.entries.length ? list.entries[list.entries.length - 1] : null;
-  const w = buildWitness({
+  let w = buildWitness({
     ...fields,
     nonce: fields.nonce ?? randomUUID(),
     prev_hash: prev ? prev.hash : 'GENESIS',
     marker: fields.marker ?? MARKER,
   });
+  if (signer) w = signWitness(w, signer);
   mkdirSync(path.dirname(file), { recursive: true });
   appendFileSync(file, `${JSON.stringify(w)}\n`);
   return w;
 }
 
-export function verifyChainFile(file) {
+export function verifyChainFile(file, { keys = null, requireSignature = false } = {}) {
   const r = readChain(file);
   if (!r.ok) return { ok: false, n: 0, code: 'chain-unreadable', why: r.error };
-  const v = verifyChain(r.entries);
+  const v = verifyChain(r.entries, { keys, requireSignature });
   return { ...v, n: r.entries.length, entries: r.entries, missing: !!r.missing };
 }
 
@@ -111,9 +115,29 @@ export function isWorkingTreeClean(repoDir, ignorePrefixes = ['scripts', 'ci']) 
   return git(repoDir, ['status', '--porcelain', '--untracked-files=no', '--', ...pathspec]) === '';
 }
 
+// 私钥只由签名进程读；读不到就拒签（fail-closed），不会静默降级成无签名。
+export function loadSigner(privateKeyPath, keyId = null) {
+  if (!privateKeyPath) return null;
+  const privateKey = readFileSync(privateKeyPath, 'utf8');
+  return { privateKey, keyId: keyId || path.basename(privateKeyPath, '.pem') };
+}
+
 // 签发「本次提交 + 门禁执行」的证据。工作树不干净 → 拒签（fail-closed）。
-export function attestCommit({ repoDir, issue, stdout = '', gateBytes, chainFile = defaultChainFile(repoDir) }) {
+// privateKeyPath 缺省不签名（旧哈希链 L2）；由 dispatch 用 DSH_WITNESS_KEY 打开。
+export function attestCommit({
+  repoDir, issue, stdout = '', gateBytes, chainFile = defaultChainFile(repoDir),
+  privateKeyPath = process.env.DSH_WITNESS_KEY ?? null,
+  keyId = process.env.DSH_WITNESS_KEY_ID ?? null,
+}) {
   if (!isWorkingTreeClean(repoDir)) return { ok: false, why: '工作树不干净（已跟踪文件有改动），拒绝签发 witness' };
+  let signer = null;
+  if (privateKeyPath) {
+    try {
+      signer = loadSigner(privateKeyPath, keyId);
+    } catch (e) {
+      return { ok: false, why: `私钥读不了（${privateKeyPath}）：${e.message}` };
+    }
+  }
   let ids;
   try {
     ids = headIds(repoDir);
@@ -134,12 +158,12 @@ export function attestCommit({ repoDir, issue, stdout = '', gateBytes, chainFile
     tree_after: ids.tree,
     stdout_sha256: sha256(stdout),
     gate_bytes_sha256: gate,
-  });
-  return { ok: true, witness: w, chainFile };
+  }, { signer });
+  return { ok: true, witness: w, chainFile, signed: !!signer };
 }
 
-export function assertHeadWitnessed({ repoDir, chainFile = defaultChainFile(repoDir), ref = 'HEAD' }) {
-  const chain = verifyChainFile(chainFile);
+export function assertHeadWitnessed({ repoDir, chainFile = defaultChainFile(repoDir), ref = 'HEAD', keyring = null }) {
+  const chain = verifyChainFile(chainFile, { keys: keyring, requireSignature: !!keyring });
   if (!chain.ok) {
     return { ok: false, code: chain.code ?? 'chain-invalid', why: `witness 链无效：${chain.why}` };
   }
@@ -176,8 +200,8 @@ export function landChangedFiles(repoDir, base = 'origin/main') {
   return git(repoDir, ['diff', '--name-only', `${base}...HEAD`]).split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
-function landCheck({ repoDir, chainFile, base, env }) {
-  const chain = verifyChainFile(chainFile);
+function landCheck({ repoDir, chainFile, base, env, keyring = null }) {
+  const chain = verifyChainFile(chainFile, { keys: keyring, requireSignature: !!keyring });
   if (!chain.ok) return { ok: false, why: `witness 链无效：${chain.why}` };
   let ids;
   try {
@@ -228,7 +252,7 @@ function parseArgs(argv) {
   const out = { flags: new Set(), opts: new Map() };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--chain' || a === '--repo' || a === '--land' || a === '--head') {
+    if (a === '--chain' || a === '--repo' || a === '--land' || a === '--head' || a === '--keys') {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} 缺参数`);
       out.opts.set(a, v);
@@ -250,16 +274,17 @@ export function main(argv = process.argv.slice(2), env = process.env, log = cons
   }
   const repoDir = path.resolve(args.opts.get('--repo') ?? process.cwd());
   const chainFile = path.resolve(args.opts.get('--chain') ?? defaultChainFile(repoDir));
-  const chain = verifyChainFile(chainFile);
+  const keyring = args.opts.has('--keys') ? loadKeyring(path.resolve(args.opts.get('--keys'))) : null;
+  const chain = verifyChainFile(chainFile, { keys: keyring, requireSignature: !!keyring });
   if (!chain.ok) {
     errLog(`VERDICT: FAIL｜witness 链无效（${chain.code}）：${chain.why}`);
     errLog(`chain=${chainFile}`);
     return EXIT_FAIL;
   }
-  log(`chain=${chainFile} n=${chain.n}${chain.missing ? '（文件不存在，视为空链）' : ''}`);
+  log(`chain=${chainFile} n=${chain.n}${chain.missing ? '（文件不存在，视为空链）' : ''}${keyring ? ` keys=${keyring.size}（ed25519 验签）` : '（哈希链 L2，未启用 ed25519）'}`);
 
   if (args.opts.has('--land')) {
-    const r = landCheck({ repoDir, chainFile, base: args.opts.get('--land'), env });
+    const r = landCheck({ repoDir, chainFile, base: args.opts.get('--land'), env, keyring });
     if (!r.ok) {
       errLog(`VERDICT: FAIL｜${r.why}`);
       return EXIT_FAIL;
@@ -272,7 +297,7 @@ export function main(argv = process.argv.slice(2), env = process.env, log = cons
 
   if (args.opts.has('--head')) {
     const ref = args.opts.get('--head') || 'HEAD';
-    const r = assertHeadWitnessed({ repoDir, chainFile, ref });
+    const r = assertHeadWitnessed({ repoDir, chainFile, ref, keyring });
     if (!r.ok) {
       errLog(`VERDICT: FAIL｜${r.why}`);
       return EXIT_FAIL;

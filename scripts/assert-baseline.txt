@@ -6,6 +6,7 @@
 1 0165d91ddac72fea assert.deepEqual(probeArgv([]), []);
 1 01925de1b49a6453 assert.deepEqual(p, { pid: 123, at: '2026-10-28T00:00:00.000Z', mode: 'serve' });
 1 020f88e4fbe47365 assert.equal(missing.unknown, true);
+1 02328c5566c24727 assert.equal(verifyWitness(signed, { publicKey: keys.get('k1'), requireSignature: true }).ok, true);
 1 0290119b4372e4b2 assert.equal(meta.gateOnly, false);
 1 02fef7c69671c475 assert.equal(plan.stale, 3);
 1 034a857be64208b3 assert.equal(powOf(-2, 3), -8);
@@ -176,6 +177,7 @@
 1 32345cc3fbfa21aa assert.equal(missing.ok, false);
 9 32364602f0692844 assert.equal(r.ok, true);
 1 3249acb73d4e7f97 assert.match(v.why, /没有 ok 模型/);
+1 327c3361b5f5987e assert.equal(keys.size, 1);
 1 329671b9aa29b36a assert.match(formatSemantic(partial), /需人工复核/);
 1 3314f433b2755958 assert.equal(reverseEachWord('a bc'), 'a cb');
 1 33181ccf91367e49 assert.equal(body.name, 'agent:blocked:manual');
@@ -216,6 +218,7 @@
 1 3c370b34399d1276 assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
 1 3c7d29cbd0e44d6e assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
+1 3c812dcb3a552c76 assert.equal(verifyWitness(tampered, { publicKey: keys.get('k1'), requireSignature: true }).code, 'hash-mismatch');
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
 1 3cfe9c075e849d7f assert.deepEqual(parseLane(['lane:docs']).lane, LANE.docs);
 1 3d12306f105c88ad assert.equal(decideAutoMerge({ repo: PILOT_REPO, allowlist, enabled: true, labels: [] }).code, 'no-label');
@@ -262,6 +265,7 @@
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
+1 4899f9c6e326f0e8 assert.equal(verifyWitness(signed, { publicKey: after.get('k1'), revokedKeys: after.revoked, requireSignature: true }).code, 'key-revoked');
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
 1 493ae59437c4bfa9 assert.equal(b.cause, '写错');
 1 4999988d975c90e1 assert.match(formatAudit(stale)[0], /不自动删/);
@@ -332,6 +336,7 @@
 1 5db26f2d4062b729 assert.equal(checkUnattendedIntake({ acceptanceCmds: '' }).ok, false);
 2 5df17bc31cde40de assert.equal(v.ok, true);
 1 5dfda1e9aaabb63b assert.equal(multiply(2, 3), 6);
+1 5eb5679558199d82 assert.ok(loadKeyring(dir).revoked.has('k1'));
 1 5ee5ab971f9c3fd4 assert.equal(s, '21082 tokens（in 21013 / out 69，1 步）');
 4 5f97e5921577c171 assert.equal(result.status, 0, result.stderr);
 1 5fd0acf5325efb64 assert.ok(!line.includes('\n'));
@@ -360,6 +365,7 @@
 1 668054daf061b715 assert.equal(VERIFY.includes('NODE_FAIL'), true, 'node 自己跑不起来也要算环境问题');
 1 66a8c3e9cbcffca2 assert.equal(KNOWN_FLAGS.includes('--unattended'), true);
 1 674340056cef0f79 assert.ok(patchFile, 'dispatch.mjs 里找不到 PAID_PATCH');
+1 674f5f0b44f81acb assert.equal(readRevocations(dir).length, 1);
 1 67abc68300a7f181 assert.deepEqual(list, ['satan1982/foo', 'other/bar']);
 1 67ee99de41e08eaf assert.equal(missing.ok, true);
 1 67f955b1a9375e65 assert.equal(clamp(15, 0, 10), 10);
@@ -482,6 +488,7 @@
 1 88512d51cd39d86d assert.equal(ok.commands, 2);
 1 8896673890866ec1 assert.deepEqual(Object.keys(v).sort(), ['ok', 'why']);
 1 88c7a28b3acda15a assert.equal(maxOf(7, 7), 7);
+1 88d7807ba09a3028 assert.equal(meta.fingerprint.length, 32);
 1 88f34342159347f5 assert.equal(gateBytesSha256(dir).files.length, 2);
 1 89178f7cd6968541 assert.deepEqual(loadLaneStats(path.join(dir, 'none.jsonl')), []);
 1 8968b1fb9790feed assert.ok(r.findings.some((f) => f.rule === 'forbidden-path'));
@@ -526,8 +533,10 @@
 1 95ad2d0798be005a assert.equal(DISPATCH.includes('if (!gate.env) recordFailure('), true, '环境失败不能进失败指纹库');
 1 95d4c3b6db64ba2f assert.equal(out, 'Error: 评审层拒绝');
 1 95e778dc4489fe52 assert.equal(backoffMs(-3), 5 * MIN);
+1 961d3ded758d63d1 assert.equal(verifyChain([witness(0)], { keys, requireSignature: true }).code, 'unsigned-witness');
 1 9630f46e92ca7034 assert.equal(result.stdout.trim(), 'income=0 expense=0 balance=0');
 1 96310ce4e40b8165 assert.deepEqual(staleTargets(stats, { limit: 0 }), []);
+1 967013340b9acd0c assert.equal(verifyWitness(badSig, { publicKey: keys.get('k1'), requireSignature: true }).code, 'sig-invalid');
 1 967ab5ab1d569aac assert.equal(d.on, true);
 1 968dd987b0576778 assert.equal(stdoutEchoes.length, 5, `干跑 stdout 行数应恒为 5，实际 ${stdoutEchoes.length}`);
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
@@ -536,6 +545,7 @@
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 975ea2c125aa5fca assert.deepEqual(r.unknown, [], '--serve 被当成未知旗标会让 startResident() 拉起的进程 exit 2，常驻永远起不来');
 1 97dac011e31a8d24 assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
+1 97f635455847a79a assert.equal(verifyChain([w1, w2], { keys, requireSignature: true }).ok, true);
 1 98049eeb7cb20b4f assert.equal(parsed.kind, 'tap');
 1 981cfef14769a936 assert.ok(interval < 3 * 60 * 1000, `心跳间隔 ${interval}ms 不小于判陈旧阈值 180000ms，跑单期间仍会被接管`);
 1 981ffeb12f9f207d assert.match(body, /bash scripts\/verify\.sh/);
@@ -546,6 +556,7 @@
 1 9968a8c7797ede3c assert.equal(e.nextProbeAt, '2026-10-28T00:05:00.000Z');
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
+1 99df3c6b41bffe84 assert.ok(readFileSync(pubPath, 'utf8').includes('PUBLIC KEY'));
 1 9a08d45fdcd52fdb assert.equal(single.needsHuman, undefined);
 1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
 1 9a3bb20366a478d4 assert.equal(cand.gate.sha256, gateBytesSha256(cand.dir).sha256);
@@ -567,6 +578,7 @@
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 9f271104d3828c3e assert.equal(parseRepos(['not-a-repo']).entries.length, 0);
 1 9f8f2dbc50c88be2 assert.equal(laneStats([]).rate, 0);
+1 a01c43690c5d20ea assert.throws(() => genKeypair({ keysDir: dir, keyId: 'k1' }), /已存在/);
 1 a056a70a11d046ac assert.ok(Math.abs(iv.p - 0.7) < 1e-9);
 1 a08497bb28f16c8c assert.match(body, /重新打 `agent:ready`/);
 1 a0dce9432bcd6da9 assert.equal(SCRIPT.includes('DSH_HEADLESS_ALLOW_CREDS'), true);
@@ -747,6 +759,7 @@
 1 cd6b978e2965cc74 assert.match(formatAudit(clean)[0], /可移除/);
 1 cd94a29912382453 assert.match(line, /unknown→high-risk/);
 1 cda34fa32ea7233b assert.throws(() => fib(1.5), TypeError);
+1 cdf1c1abb5d87962 assert.ok(readFileSync(privPath, 'utf8').includes('PRIVATE KEY'));
 1 ce5e07a4a9754be6 assert.equal(merged.tier, 'paid');
 1 cecbebfb0b31dee7 assert.deepEqual(parseBackoff('1,2.5'), [1 * MIN, 2.5 * MIN]);
 1 cef734f3d2e9b7cc assert.equal(isDue({ ...e, gaveUp: true }, T0 + 60 * MIN), false);
@@ -789,6 +802,7 @@
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 d89c47ab8c174f62 assert.equal(recoveryDecision({ entry: null, now: T0 }).action, 'skip');
 1 d8aa09c79dc94680 assert.equal(DISPATCH.includes('function winEnv()'), true, '缺少 winEnv()');
+1 d8dd4cd676baaf9d assert.equal(verifyWitness(w, { publicKey: keys.get('k1'), requireSignature: true }).code, 'unsigned-witness');
 1 d9d13e35ff61d53a assert.equal(readFileSync(path.join(dir, 'scripts', 'verify.sh'), 'utf8'), 'echo TAMPERED\n');
 1 d9fba3ccf2190da3 assert.equal(slugify(' A B '), 'a-b');
 1 da00f34046543dc7 assert.equal(d.entry.gaveUp, true);
@@ -830,6 +844,7 @@
 1 e744e5c618311ecf assert.equal(parseLane(['lane:docs']).unknown, false);
 1 e76c353d4e0cca15 assert.equal(square(4), 16);
 1 e78e3b3ae169eea3 assert.equal(pass.verdict, 'pass');
+1 e79954262a3541f7 assert.equal(rec.key_id, 'k1');
 1 e825033be5340dcf assert.equal(w1.marker, 'DSH-WITNESS-V1');
 2 e82c52d6f20acaaa assert.equal(existsSync(file), false);
 1 e86ec0a676f628a8 assert.match(p, /调度器已经跑过的验收命令/);
@@ -882,6 +897,7 @@
 1 f49be3b3c45c06bb assert.equal(lanePolicy(LANE.standard).forceStrictVerdict, false);
 1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f4ae9d9fb5284632 assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
+1 f595f63475f608d1 assert.ok(keys.get('k1'));
 1 f5a2813d25e1a939 assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
 1 f61a15f29c54d5c1 assert.equal(meta.code.length, 0);
 1 f639e51f1e4769ae assert.equal(JSON.parse(seen[0].init.body).issue, 7);
