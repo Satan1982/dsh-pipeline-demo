@@ -73,6 +73,8 @@ test('代理：上游 5xx 原样回传并记日志', async () => {
     const res = await fetch(`${proxy.baseURL}/v1/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${proxy.token}` }, body: '{}', signal: AbortSignal.timeout(5000) });
     assert.equal(res.status, 429);
     assert.match(logs.join('\n'), /upstream 429/);
+    // 调度器据此把限流与「agent 写错」分开：429 只等重试，不判额度耗尽。
+    assert.equal(proxy.upstreamStatus(), 429);
   } finally {
     await proxy.close();
     await new Promise((r) => srv.close(r));

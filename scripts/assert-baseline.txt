@@ -794,6 +794,7 @@
 1 d4e16f3a94e09910 assert.equal(sessionIdOf(""), "");
 2 d51d7f25acb280b8 assert.equal(r.kind, 'baseline-only');
 1 d557a007fb302703 assert.equal(autoMergeAllowed('Satan1982/real-repo', parseAllowlist(undefined)), false);
+1 d568615c95e4801d assert.equal(proxy.upstreamStatus(), 429);
 1 d57182334dd2ed69 assert.equal(rec.kind, 'gate-override');
 1 d5796e4f055e04fd assert.throws(() => parseSumArgs(['--month', '2026-1']), TypeError);
 1 d58d6096ef8d0d8f assert.equal(REQUIRED_LABELS.includes(NEEDS_INFO_LABEL), true);

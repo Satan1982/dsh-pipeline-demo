@@ -1263,7 +1263,10 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     } finally {
       if (taskProxy) await taskProxy.close();
     }
-    LAST_RAW.set(n, String(r.raw ?? r.out ?? ''));
+    // 代理看到的上游 429 是限流证据：reason 里可能只有 agent-exit-1，这里补进 LAST_RAW，
+    // 否则会被免费池判定误判成「额度耗尽」直接挂起（2026-11-08 #116/#119 实测）。
+    const proxyStatus = taskProxy?.upstreamStatus?.();
+    LAST_RAW.set(n, `${String(r.raw ?? r.out ?? '')}${proxyStatus >= 400 ? `\n[proxy] upstream ${proxyStatus}` : ''}`);
     if (r.usage && r.usage.totalTokens === 0) ZERO_TOKEN_FAILS.set(n, (ZERO_TOKEN_FAILS.get(n) ?? 0) + 1);
     else ZERO_TOKEN_FAILS.delete(n);
     const sessionId = sessionIdOf(r.raw);
@@ -1618,33 +1621,16 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       await blockManual(issue, `环境失败（重试 ${ENV_RETRY_MAX} 次仍不可用）`, `门禁无法在受限环境里启动子进程。\n\n${reason.slice(-1200)}`);
       return;
     }
-  // 限流（429 / TPM limit reached）是环境噪声，不是这次改动的问题：等一会儿再来，
-  // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
-  // 免费档额度用尽（modelscope 返回 insufficient balance）不是「这单写错了」，
-  // 而是免费池这个模型暂时不可用：本单改走付费档重来一次，不消耗重试预算。
-  // 免费档不可用时改走付费：两条判据——
-  // ① 文本命中额度/余额/无可用模型（含本轮原始输出的尾部，防止报错被截断后漏判）；
-  // ② 连续 2 次 0 token（模型根本没开始干活），不看文本也能判定。
+  // agent 的原始输出里常带真实的 429 文本（reason 只有 agent-exit-1），所以先取尾部再判。
   const rawTail = String(LAST_RAW.get(n) || '').slice(-800).replace(/\s+/g, ' ').trim();
-  const zeroTries = ZERO_TOKEN_FAILS.get(n) ?? 0;
-  const quotaish = /QUOTA|insufficient[ _-]?balance|余额不足|无可用模型|no available model/i.test(`${reason}\n${rawTail}`);
-  // 免费池不可用（额度耗尽 / 连续 0 token）时的处置交给 pool-block.mjs 的纯函数，
-  // 默认挂起工单而不是自动烧付费（DSH_FREE_POOL_BLOCK=0 可退回旧行为）。
-  const poolText = `${reason}${NL}${rawTail}`;
-  const poolWhy = blockReason({ text: poolText, zeroTries });
-  const poolDecision = freePoolDecision({ text: poolText, zeroTries, usePaid, enabled: FREE_POOL_BLOCK });
-  if (poolDecision === 'block') {
-    await blockTask(issue, poolWhy, rawTail);
-    return;
-  }
-  if (poolDecision === 'paid') {
-    FORCE_PAID.add(n);
-    log(`${tag} 免费档不可用（${poolWhy}），本单改用 deepseek-flash（付费）后重试${rawTail ? '：' + rawTail.slice(-200) : ''}`);
-    return runTask(issue, attempt, reason);
-  }
-  if (rawTail) log(`${tag} 失败时的原始输出尾部：${rawTail.slice(-400)}`);
-
-  if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached/.test(reason)) {
+  // 限流（429 / TPM limit reached / upstream 429）是环境噪声，不是这次改动的问题：等一会儿再来，
+  // 而且**不消耗重试预算**——2026-10-26 实测三次 429 就把 #69 判了死，白丢一次任务。
+  // 必须排在免费池判定之前：429 的文本也可能撞上池子的关键词，被判成「额度耗尽→挂起」后
+  // 就再也不会重试（2026-11-08 实测 Flash-Next 连续 429 被直接 block）。
+  // 限流重试用尽：按普通失败处理，但**不能**让下面的免费池判定把它标成「额度耗尽→挂起」，
+  // 那会把「等 8 分钟就恢复的限流」误报成账户问题（2026-11-08 #121 实测）。
+  let rateLimitExhausted = false;
+  if (/llm-rate-limit|RATE_LIMIT: 429|TPM limit reached|upstream 429/i.test(`${reason}\n${rawTail}`)) {
     const tries = RATE_LIMIT_RETRIES.get(n) ?? 0;
     if (tries < RATE_LIMIT_MAX) {
       RATE_LIMIT_RETRIES.set(n, tries + 1);
@@ -1654,7 +1640,30 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       return runTask(issue, attempt, reason);
     }
     log(`${tag} 限流重试 ${RATE_LIMIT_MAX} 次仍失败，按普通失败处理`);
+    rateLimitExhausted = true;
   }
+  // 免费档额度用尽（modelscope 返回 insufficient balance）不是「这单写错了」，
+  // 而是免费池这个模型暂时不可用：本单改走付费档重来一次，不消耗重试预算。
+  // 免费档不可用时改走付费：两条判据——
+  // ① 文本命中额度/余额/无可用模型（含本轮原始输出的尾部，防止报错被截断后漏判）；
+  // ② 连续 2 次 0 token（模型根本没开始干活），不看文本也能判定。
+  const zeroTries = ZERO_TOKEN_FAILS.get(n) ?? 0;
+  const quotaish = /QUOTA|insufficient[ _-]?balance|余额不足|无可用模型|no available model/i.test(`${reason}\n${rawTail}`);
+  // 免费池不可用（额度耗尽 / 连续 0 token）时的处置交给 pool-block.mjs 的纯函数，
+  // 默认挂起工单而不是自动烧付费（DSH_FREE_POOL_BLOCK=0 可退回旧行为）。
+  const poolText = `${reason}${NL}${rawTail}`;
+  const poolWhy = blockReason({ text: poolText, zeroTries });
+  const poolDecision = freePoolDecision({ text: poolText, zeroTries, usePaid, enabled: FREE_POOL_BLOCK });
+  if (!rateLimitExhausted && poolDecision === 'block') {
+    await blockTask(issue, poolWhy, rawTail);
+    return;
+  }
+  if (!rateLimitExhausted && poolDecision === 'paid') {
+    FORCE_PAID.add(n);
+    log(`${tag} 免费档不可用（${poolWhy}），本单改用 deepseek-flash（付费）后重试${rawTail ? '：' + rawTail.slice(-200) : ''}`);
+    return runTask(issue, attempt, reason);
+  }
+  if (rawTail) log(`${tag} 失败时的原始输出尾部：${rawTail.slice(-400)}`);
     // 失败指纹入仓：下次同类失败（哪怕换一张工单）能直接拿到这次的根因。
     try { recordFailure({ text: reason, issue: n, attempt, reason: reason.slice(0, 1500) }, FAIL_STORE); } catch { /* 记账失败不影响重试 */ }
     if (attempt < MAX_ATTEMPTS) {

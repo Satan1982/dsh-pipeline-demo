@@ -18,6 +18,9 @@ export function startLlmProxy({ upstream, apiKey, log = () => {} } = {}) {
   if (!upstream) throw new Error('缺少 upstream baseURL');
   if (!apiKey) throw new Error('缺少上游 apiKey');
   const token = randomBytes(24).toString('hex');
+  // 上游状态码留痕：调度器据此把「429 限流」与「agent 写错了」分开（429 只等重试，不挂起）。
+  let lastUpstreamStatus = 0;
+  const recordStatus = (code) => { lastUpstreamStatus = code; };
   const upstreamBase = upstream.replace(/\/+$/, '');
   const upstreamP = new URL(upstreamBase);
   const requestImpl = upstreamP.protocol === 'https:' ? httpsRequest : httpRequest;
@@ -41,6 +44,7 @@ export function startLlmProxy({ upstream, apiKey, log = () => {} } = {}) {
     const headers = { ...req.headers, host: target.host, authorization: `Bearer ${apiKey}` };
     const up = requestImpl(target, { method: req.method, headers }, (ur) => {
       const code = ur.statusCode ?? 502;
+      recordStatus(code);
       res.writeHead(code, ur.headers);
       ur.pipe(res);
       if (code >= 400) log(`[proxy] upstream ${code} ${path}`);
@@ -62,6 +66,7 @@ export function startLlmProxy({ upstream, apiKey, log = () => {} } = {}) {
         port,
         token,
         baseURL: `http://${HOST}:${port}`,
+        upstreamStatus: () => lastUpstreamStatus,
         close: () => new Promise((r) => server.close(() => r())),
       });
     });
