@@ -95,7 +95,7 @@ if [ -f "$SECRETS/github-token.txt" ] && [ -f "$SECRETS/askpass.sh" ]; then
     if GIT_ASKPASS="$SECRETS/askpass.sh" \
        GIT_TOKEN="$(tr -d ' \r\n\t' < "$SECRETS/github-token.txt")" \
        GIT_TERMINAL_PROMPT=0 \
-       "$GIT" -c credential.helper= push "$REMOTE" main; then
+       "$GIT" -c credential.helper= -c credential.interactive=true push "$REMOTE" main; then
       PUSHED=1
       break
     fi
