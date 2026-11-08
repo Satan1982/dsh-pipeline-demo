@@ -38,7 +38,7 @@ import { prepareCandidateTree } from './gate-snapshot.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
-import { HIGH_RISK_LABEL, defaultLaneStatsFile, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane } from './risk-lane.mjs';
+import { HIGH_RISK_LABEL, defaultLaneStatsFile, findRunJs, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane, runHighRiskAdapter } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
@@ -294,6 +294,14 @@ const DRY       = process.argv.includes('--dry-run');
 // --unattended 是给计划任务用的：Windows 计划任务的动作里不方便设环境变量，直接带上参数即可。
 const UNATTENDED = (process.env.DSH_UNATTENDED ?? '') === '1' || process.argv.includes('--unattended');
 const PROBE_STALE = process.argv.includes('--probe-stale');
+// --issue N：只跑这一单（Pass^3 真实工单用）。带上它时不再扫整个队列，也不在 --once 下补位常驻进程，
+// 否则一次「单跑」会顺手拉起一个会和它抢任务的调度器。
+const FORCE_ISSUE = (() => {
+  const i = process.argv.indexOf('--issue');
+  const raw = i >= 0 ? process.argv[i + 1] : '';
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+})();
 const POOL_SNAPSHOT = process.argv.includes('--pool-snapshot');
 // 运行态三件（--status / --pause / --resume）：纯本地读写，不进轮询。
 const RUNTIME = parseRuntime(process.argv);
@@ -1395,6 +1403,31 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       log(`${tag} 验收命令通过（${acceptanceCmds.split('\n').length} 行，裁决=${decision.verdict}）`);
     }
 
+    // docs/89 §3.6：high-risk（含 unknown）工单额外走仓外 tools/pipeline/run.mjs 薄适配器。
+    // 契约由 issue 的 `### 高风险验证` 给出 spec 目录；适配器只传参、解析 0/2/3/4/5/6、回写证据，
+    // 不自己造 spec 格式。默认 auto：有段才跑；required：缺段即 fail-closed。
+    if (lp.lane === 'high-risk') {
+      const specDir = stripFence(pick(sections, '高风险验证')).split('\n')[0].trim();
+      const mode = process.env.DSH_HIGH_RISK_ADAPTER || 'auto';
+      if (specDir) {
+        const runJs = findRunJs(REPO_DIR);
+        const hr = await runHighRiskAdapter({
+          runJs, specDir, repoDir: REPO_DIR, verify: acceptanceCmds || 'bash scripts/verify.sh',
+        });
+        recordLane(LANE_STATS_FILE, { issue: n, kind: 'high-risk-adapter', ok: hr.ok, code: hr.code, why: hr.reason });
+        if (!hr.ok) {
+          const detail = `high-risk 适配器拒绝（exit ${hr.code}，${hr.reason}）：\n${String(hr.out ?? '').slice(-2000)}`;
+          recordFailure({ text: detail, issue: n, attempt, reason: 'high-risk adapter failed' }, FAIL_STORE);
+          throw new Error(detail);
+        }
+        log(`${tag} high-risk 适配器通过（exit 0）：${specDir}`);
+      } else if (mode === 'required') {
+        throw new Error('high-risk 工单缺 `### 高风险验证`（spec 目录）：DSH_HIGH_RISK_ADAPTER=required 下 fail-closed');
+      } else {
+        log(`${tag} ⚠ high-risk 工单未给 \`### 高风险验证\`，跳过仓外适配器（DSH_HIGH_RISK_ADAPTER=required 可强制）`);
+      }
+    }
+
     if (status) {
       // agent 有时会用 git add -f 把调度器自己写的 .dsh/PLAN.md 一起提交（实测 #64），
       // 那是内部笔记：从索引里摘掉，别让它进 PR，也别让评审团把它算成越界改动。
@@ -1740,7 +1773,7 @@ async function pollOnce() {
   // 每轮都读一次状态文件：`--pause`/`--resume` 是人从另一个进程下单的，
   // 只在启动时读一次（旧做法）意味着运行中的常驻进程根本不理它，钱闸形同虚设。
   syncPauseFromDisk();
-  if (PAUSE_CLAIM) return 0;
+  if (PAUSE_CLAIM && !FORCE_ISSUE) return 0;
   // 免费池的状态会变（模型下架 / 额度用尽）：每轮都试着刷一次强档 patch，
   // registryStats 自带 TTL（DSH_STATS_TTL_MS，默认 10 分钟），所以只有过期时才会真跑 fm.py。
   prepareStrongPatch();
@@ -1760,10 +1793,21 @@ async function pollOnce() {
     pauseClaim(`今日估算花费 ${formatCny(spent)} 已达上限 ${formatCny(DAY_MAX_CNY)}`);
     return 0;
   }
-  const { data } = await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`);
-  const issues = (Array.isArray(data) ? data : []).filter(
-    (i) => !i.pull_request && !i.labels.some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
+  // --issue 单跑直接按号取：列表接口带 labels 过滤时，新建 issue 偶尔索引未跟上会返回空
+  // （2026-11-08 22:52 实测 #106 刚建好就查不到），单号点查没有这个问题。
+  const raw = FORCE_ISSUE
+    ? (await api('GET', `/repos/${REPO}/issues/${FORCE_ISSUE}`)).data
+    : (await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`)).data;
+  let issues = (Array.isArray(raw) ? raw : [raw]).filter(
+    (i) => i && !i.pull_request && !(i.labels ?? []).some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
   );
+  if (FORCE_ISSUE) {
+    issues = issues.filter((i) => i.state === 'open' && (i.labels ?? []).some((l) => l.name === 'agent:ready'));
+    if (!issues.length) {
+      log(`--issue ${FORCE_ISSUE}：不是 open + agent:ready（已领取/已挂起），本轮跳过`);
+      return 0;
+    }
+  }
   if (issues.length === 0) {
     log('没有待处理任务');
     return 0;
@@ -2629,7 +2673,7 @@ async function main() {
   // 计划任务每 5 分钟用 --once 敲门。--ensure 手动拉起的常驻进程挂在当前工具调用的进程树上，
   // 工具调用一结束就可能被回收（03:15 就是这样丢的），所以这里顺手补位：没有活着的常驻进程
   // 就拉起一个，然后让位给它轮询。补位失败才退回单轮执行。
-  if (ONCE && !lockHolder()) {
+  if (ONCE && !FORCE_ISSUE && !lockHolder()) {
     let pid = null;
     try {
       pid = startResident();
@@ -2644,7 +2688,9 @@ async function main() {
     }
   }
 
-  const lock = acquireLock();
+  // --issue 单跑是 operator 显式点名的一单：pass3 先 --pause 让常驻不再领新单，但常驻仍持有
+  // 调度锁（它只是不领单），这里若照常抢锁会被静默挡回；单跑不写锁，跑完也不留锁。
+  const lock = FORCE_ISSUE ? { ok: true, release() {} } : acquireLock();
   if (!lock.ok) {
     // 计划任务每 5 分钟拿 --once 来敲门，常驻进程在跑时不该刷日志
     if (!ONCE) log(`已有调度器在跑（pid=${lock.holder.pid} 起于 ${lock.holder.at}），本次直接退出`);

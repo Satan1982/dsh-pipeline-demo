@@ -54,6 +54,12 @@ try {
     try { Move-Item -LiteralPath $jobFile -Destination $claimed -Force } catch { exit 0 }
     $jobFile = $claimed   # 认领后就从改名后的路径读，否则读不到刚被移走的文件
   }
+  # 诊断（2026-11-08 ACL 排查）：低权侧到底看到哪几条 ACE、文件是否可见。失败时读 diag.txt。
+  try {
+    $aclLines = (Get-Acl -LiteralPath $jobFile).Access | ForEach-Object { "$($_.IdentityReference) $($_.AccessControlType) $($_.FileSystemRights)" }
+    $diag = @("user=$env:USERNAME", "session=$sessionId", "jobFile=$jobFile", "exists=$(Test-Path -LiteralPath $jobFile)") + $aclLines
+    [System.IO.File]::WriteAllText((Join-Path $JobDir 'diag.txt'), ($diag -join "`r`n"), $Utf8NoBom)
+  } catch { }
   $job = [System.IO.File]::ReadAllText($jobFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
   $task = [string]$job.task
   if ([string]::IsNullOrWhiteSpace($task)) { throw 'job.json 里 task 为空' }

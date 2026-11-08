@@ -1,0 +1,89 @@
+{
+  "note": "Pass^3 真实工单任务定义。每个任务独立造 3 个 issue 副本，各跑一次 dispatch --issue。新增文件放 ci/pass3/，不触碰门禁与测试基线。",
+  "tasks": [
+    {
+      "id": "p3-01",
+      "title": "新增 formatMs：毫秒转 0ms/999ms/1.0s/1m30s",
+      "goal": "新增 ci/pass3/fmt-duration.mjs，导出 formatMs(ms)。规则：<1000 输出整数+'ms'；<60000 输出秒保留 1 位小数+'s'；否则输出 分+'m'+秒+'s'（秒为整数）。",
+      "acceptance": "0→'0ms'；999→'999ms'；1000→'1.0s'；61000→'1m1s'；90000→'1m30s'",
+      "cmds": "node --input-type=module -e 'const {formatMs}=await import(\"./ci/pass3/fmt-duration.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(formatMs(0),\"0ms\"); eq(formatMs(999),\"999ms\"); eq(formatMs(1000),\"1.0s\"); eq(formatMs(61000),\"1m1s\"); eq(formatMs(90000),\"1m30s\")'"
+    },
+    {
+      "id": "p3-02",
+      "title": "新增 describeExit：把 run.mjs 退出码翻成短句",
+      "goal": "新增 ci/pass3/describe-exit.mjs，导出 describeExit(code)。映射：0→'ok'，2→'invalid-spec'，3→'verify-failed'，4→'worker-failed'，5→'timeout'，6→'rejected'，其余→'unknown'。",
+      "acceptance": "0→'ok'；2→'invalid-spec'；3→'verify-failed'；4→'worker-failed'；5→'timeout'；6→'rejected'；99→'unknown'",
+      "cmds": "node --input-type=module -e 'const {describeExit}=await import(\"./ci/pass3/describe-exit.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(describeExit(0),\"ok\"); eq(describeExit(2),\"invalid-spec\"); eq(describeExit(3),\"verify-failed\"); eq(describeExit(4),\"worker-failed\"); eq(describeExit(5),\"timeout\"); eq(describeExit(6),\"rejected\"); eq(describeExit(99),\"unknown\")'"
+    },
+    {
+      "id": "p3-03",
+      "title": "新增 clampInt：整数夹取",
+      "goal": "新增 ci/pass3/clamp-int.mjs，导出 clampInt(x, min, max)：先按 Math.trunc 取整，再夹到 [min, max]，非有限数抛 TypeError。",
+      "acceptance": "clampInt(5,0,3)=3；clampInt(-2,0,3)=0；clampInt(2.9,0,3)=2；clampInt(Infinity,0,3) 抛 TypeError",
+      "cmds": "node --input-type=module -e 'const {clampInt}=await import(\"./ci/pass3/clamp-int.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(clampInt(5,0,3),3); eq(clampInt(-2,0,3),0); eq(clampInt(2.9,0,3),2); let threw=false; try{clampInt(Infinity,0,3)}catch(e){threw=e instanceof TypeError} if(!threw)throw new Error(\"no TypeError\")'"
+    },
+    {
+      "id": "p3-04",
+      "title": "新增 parseLabelList：逗号标签去空去重保序",
+      "goal": "新增 ci/pass3/parse-labels.mjs，导出 parseLabelList(text)：按逗号切分，去掉首尾空白与空项，保序去重。",
+      "acceptance": "'a, b,,a'→['a','b']；''→[]；' x , y , x '→['x','y']",
+      "cmds": "node --input-type=module -e 'const {parseLabelList}=await import(\"./ci/pass3/parse-labels.mjs\"); const s=(x)=>JSON.stringify(x); const eq=(a,b)=>{if(s(a)!==s(b))throw new Error(s([a,b]))}; eq(parseLabelList(\"a, b,,a\"),[\"a\",\"b\"]); eq(parseLabelList(\"\"),[]); eq(parseLabelList(\" x , y , x \"),[\"x\",\"y\"])'"
+    },
+    {
+      "id": "p3-05",
+      "title": "新增 shortSha：短哈希",
+      "goal": "新增 ci/pass3/short-sha.mjs，导出 shortSha(sha, len=7)：返回前 len 位；输入长度不足 len 时原样返回；空串返回空串。",
+      "acceptance": "40 位哈希→前 7 位；'abc'→'abc'；''→''",
+      "cmds": "node --input-type=module -e 'const {shortSha}=await import(\"./ci/pass3/short-sha.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(shortSha(\"0123456789abcdef0123456789abcdef01234567\"),\"0123456\"); eq(shortSha(\"abc\"),\"abc\"); eq(shortSha(\"\"),\"\")'"
+    },
+    {
+      "id": "p3-06",
+      "title": "新增 formatCny：分转人民币字符串",
+      "goal": "新增 ci/pass3/format-cny.mjs，导出 formatCny(cents)：返回 '¥' + (cents/100) 保留两位小数；非有限数或负数抛 TypeError。",
+      "acceptance": "0→'¥0.00'；1234→'¥12.34'；5→'¥0.05'；-1 抛 TypeError",
+      "cmds": "node --input-type=module -e 'const {formatCny}=await import(\"./ci/pass3/format-cny.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(formatCny(0),\"¥0.00\"); eq(formatCny(1234),\"¥12.34\"); eq(formatCny(5),\"¥0.05\"); let threw=false; try{formatCny(-1)}catch(e){threw=e instanceof TypeError} if(!threw)throw new Error(\"no TypeError\")'"
+    },
+    {
+      "id": "p3-07",
+      "title": "新增 splitNonEmptyLines：去空行切分",
+      "goal": "新增 ci/pass3/split-lines.mjs，导出 splitNonEmptyLines(text)：按换行切分，去掉纯空白行，其余行原样保留（不去首尾空格）。",
+      "acceptance": "'a\\n\\n b \\n'→['a',' b ']；''→[]；'\\n \\n'→[]",
+      "cmds": "node --input-type=module -e 'const {splitNonEmptyLines}=await import(\"./ci/pass3/split-lines.mjs\"); const s=(x)=>JSON.stringify(x); const eq=(a,b)=>{if(s(a)!==s(b))throw new Error(s([a,b]))}; eq(splitNonEmptyLines(\"a\\n\\n b \\n\"),[\"a\",\" b \"]); eq(splitNonEmptyLines(\"\"),[]); eq(splitNonEmptyLines(\"\\n \\n\"),[])'"
+    },
+    {
+      "id": "p3-08",
+      "title": "新增 dedupe：保序去重",
+      "goal": "新增 ci/pass3/dedupe.mjs，导出 dedupe(items)：按 SameValueZero 保序去重，返回新数组，不改入参。",
+      "acceptance": "[1,2,1,3]→[1,2,3]；['a','a']→['a']；[]→[]；入参不变",
+      "cmds": "node --input-type=module -e 'const {dedupe}=await import(\"./ci/pass3/dedupe.mjs\"); const s=(x)=>JSON.stringify(x); const eq=(a,b)=>{if(s(a)!==s(b))throw new Error(s([a,b]))}; const src=[1,2,1,3]; eq(dedupe(src),[1,2,3]); eq(dedupe([\"a\",\"a\"]),[\"a\"]); eq(dedupe([]),[]); eq(src,[1,2,1,3])'"
+    },
+    {
+      "id": "p3-09",
+      "title": "新增 isTestFile：测试文件判定",
+      "goal": "新增 ci/pass3/is-test-file.mjs，导出 isTestFile(name)：name 以 '.test.mjs' 或 '.test.js' 结尾返回 true，其余 false。",
+      "acceptance": "'ci/x.test.mjs'→true；'src/a.test.js'→true；'ci/x.mjs'→false；'x.test'→false",
+      "cmds": "node --input-type=module -e 'const {isTestFile}=await import(\"./ci/pass3/is-test-file.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(isTestFile(\"ci/x.test.mjs\"),true); eq(isTestFile(\"src/a.test.js\"),true); eq(isTestFile(\"ci/x.mjs\"),false); eq(isTestFile(\"x.test\"),false)'"
+    },
+    {
+      "id": "p3-10",
+      "title": "新增 maskSecret：只留前 6 位",
+      "goal": "新增 ci/pass3/mask-secret.mjs，导出 maskSecret(text)：长度>6 时返回前 6 位+'…'；长度<=6 时返回 '…'；非字符串返回 '…'。",
+      "acceptance": "'abcdef123456'→'abcdef…'；'short'→'…'；''→'…'",
+      "cmds": "node --input-type=module -e 'const {maskSecret}=await import(\"./ci/pass3/mask-secret.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(maskSecret(\"abcdef123456\"),\"abcdef…\"); eq(maskSecret(\"short\"),\"…\"); eq(maskSecret(\"\"),\"…\")'"
+    },
+    {
+      "id": "p3-11",
+      "title": "新增 formatBytes：字节数格式化为 B/KiB/MiB",
+      "goal": "新增 ci/pass3/format-bytes.mjs，导出 formatBytes(n)：<1024 输出整数+' B'；<1048576 输出 (n/1024).toFixed(1)+' KiB'；否则 (n/1048576).toFixed(1)+' MiB'。",
+      "acceptance": "512→'512 B'；1024→'1.0 KiB'；1536→'1.5 KiB'；1048576→'1.0 MiB'",
+      "cmds": "node --input-type=module -e 'const {formatBytes}=await import(\"./ci/pass3/format-bytes.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(formatBytes(512),\"512 B\"); eq(formatBytes(1024),\"1.0 KiB\"); eq(formatBytes(1536),\"1.5 KiB\"); eq(formatBytes(1048576),\"1.0 MiB\")'"
+    },
+    {
+      "id": "p3-12",
+      "title": "新增 titleize：kebab-case 转标题",
+      "goal": "新增 ci/pass3/titleize.mjs，导出 titleize(text)：按 '-' 切分，每段首字母大写其余原样，用空格连接；空串返回空串。",
+      "acceptance": "'hello-world'→'Hello World'；'a-b-c'→'A B C'；''→''",
+      "cmds": "node --input-type=module -e 'const {titleize}=await import(\"./ci/pass3/titleize.mjs\"); const eq=(a,b)=>{if(a!==b)throw new Error(JSON.stringify([a,b]))}; eq(titleize(\"hello-world\"),\"Hello World\"); eq(titleize(\"a-b-c\"),\"A B C\"); eq(titleize(\"\"),\"\")'"
+    }
+  ]
+}

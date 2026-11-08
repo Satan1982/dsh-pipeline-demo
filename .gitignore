@@ -1,8 +1,10 @@
 *.tgz
+.tmp/
 .tmp-ledger*.json
 .DS_Store
 .dsh/
 .logs/
 dist/
 docs/failures.jsonl
+ci/drills/pass3-issues-result.json
 node_modules/

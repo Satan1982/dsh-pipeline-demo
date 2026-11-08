@@ -17,6 +17,13 @@ jobs:
           node-version: 22
       - name: Gate
         run: bash scripts/verify.sh
+      - name: Witness keyring
+        # P3：GitHub Actions 验签的最小闭环——CI 加载 governance/keys（公钥 + 撤销账本）并验链。
+        # 链文件是本地 .logs 审计日志、不进仓库，因此 CI 里通常是空链（PASS）；一旦链随提交
+        # 进入仓库（或后续改成 governance/witness.jsonl），这一步会自动按 ed25519 验签。
+        run: |
+          test -d governance/keys
+          node ci/trust/verify.mjs --keys governance/keys
       - name: Test counts must not shrink
         if: github.event_name == 'pull_request'
         run: |

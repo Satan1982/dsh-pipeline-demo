@@ -37,6 +37,13 @@ export PNPM_CLI="${PNPM_CLI:-$BUNDLE/pnpm/bin/pnpm.cjs}"
 
 export DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"
 
+# worktree 的 owner 是 Administrator，低权 agent 跑 git 会报 dubious ownership（2026-11-08
+# 实测 p3-01 第一次就因此「未产生任何改动」）。只在本入口进程内放开，不改 dsh-agent 的用户级
+# 配置（那个文件当前进程也没写权限）。
+export GIT_CONFIG_COUNT="${GIT_CONFIG_COUNT:-1}"
+export GIT_CONFIG_KEY_0="safe.directory"
+export GIT_CONFIG_VALUE_0="*"
+
 ALLOW_CREDS="${DSH_HEADLESS_ALLOW_CREDS:-0}"
 if [ "$ALLOW_CREDS" = "1" ]; then
   # 旧行为（显式 opt-in）：需要真 key 的路由才走这里。默认 patch 也跟着回到 .secrets 那份。

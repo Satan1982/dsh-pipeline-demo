@@ -35,13 +35,27 @@ function looksLikeJobsRoot(dir) {
 export function hardenJobDir(jobDir, jobFile = 'job.json') {
   if (!looksLikeJobsRoot(jobDir)) return { ok: false, skipped: true, why: '非 ProgramData jobDir，跳过 ACL' };
   const d = path.resolve(jobDir);
+  const root = path.resolve(JOBS_ROOT);
+  // 低权进程要能穿过 JOBS_ROOT 才能到 current/：根目录只给 SYSTEM/Administrator 时，
+  // agent 打开 job.json 报 UnauthorizedAccessException（2026-11-08 22:53 实测）。
+  // 只给根目录本身 RX，不下发继承；子目录由下面的 /inheritance:r 全量重设。
+  const r = d.toLowerCase() !== root.toLowerCase() && existsSync(root)
+    ? spawnSync('icacls', [root, '/grant', `${AGENT_USER}:(RX)`], { encoding: 'utf8' })
+    : { status: 0 };
   const a = spawnSync('icacls', [d, '/inheritance:r',
-    '/grant:r', 'Administrator:(OI)(CI)F', 'SYSTEM:(OI)(CI)F', `${AGENT_USER}:(OI)(CI)RW`],
+    // M = Modify（含 FILE_TRAVERSE）。只给 RW 时低权进程打开 job.json 会因目录缺遍历位报
+    // UnauthorizedAccessException（2026-11-08 实测「访问被拒绝」）；job.json 再单独 Deny W。
+    '/grant:r', 'Administrator:(OI)(CI)F', 'SYSTEM:(OI)(CI)F', `${AGENT_USER}:(OI)(CI)M`],
   { encoding: 'utf8' });
   const target = path.join(d, jobFile);
-  const b = spawnSync('icacls', [target, '/deny', `${AGENT_USER}:(W)`], { encoding: 'utf8' });
-  const ok = a.status === 0 && b.status === 0;
-  return { ok, dir: a.status, file: b.status, err: ok ? '' : `${a.stderr || ''}${b.stderr || ''}`.trim() };
+  // 先删旧的 Deny 再重新加：每次 prepareJob 都 /deny 会累积出重复 ACE（实测同一条 4 份）。
+  spawnSync('icacls', [target, '/remove:d', AGENT_USER], { encoding: 'utf8' });
+  // 只 deny WriteData/AppendData，不用 (W)：icacls 的 (W) 展开含 SYNCHRONIZE，
+  // 而 CreateFile(GENERIC_READ) 也要 SYNCHRONIZE，Deny 它会连带把读拒掉
+  // （2026-11-08 实测：dsh-agent 有 Allow Modify 仍报「对 job.json 的访问被拒绝」）。
+  const b = spawnSync('icacls', [target, '/deny', `${AGENT_USER}:(WD,AD)`], { encoding: 'utf8' });
+  const ok = r.status === 0 && a.status === 0 && b.status === 0;
+  return { ok, root: r.status, dir: a.status, file: b.status, err: ok ? '' : `${r.stderr || ''}${a.stderr || ''}${b.stderr || ''}`.trim() };
 }
 
 const STALE = ['done.json', 'headless.log', 'headless.err', 'task.txt', 'launcher.out', 'launcher.err'];
