@@ -1,4 +1,4 @@
-# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
+﻿# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
 #
 # 它不读任何凭据：账本/dsh-agent 自己的 home 里没有 .credentials.yaml，
 # 且下面会显式清掉可能从父进程漏下来的密钥变量（同 ci/dispatch.mjs:1850 的 SCRUB_ENV 口径）。
@@ -95,7 +95,7 @@ try {
   # 环境：只给入口需要的东西。清掉一切可能的凭据来源。
   foreach ($k in @('GIT_TOKEN','GIT_ASKPASS','GIT_SSH_COMMAND','GIT_SSH_VARIANT','GH_TOKEN','GITHUB_TOKEN',
                    'SILICONFLOW_API_KEY','ZHIPU_API_KEY','LEMONADE_HOME_API_KEY','HINDSIGHT_API_TOKEN','DEEPSEEK_API_KEY',
-                   'DSH_HEADLESS_ALLOW_CREDS','DSH_HEADLESS_PATCH','DSH_HEADLESS_RESUME','DSH_SESSION_ID')) {
+                   'DSH_HEADLESS_ALLOW_CREDS','DSH_HEADLESS_PATCH','DSH_HEADLESS_RESUME','DSH_SESSION_ID','DSH_PROXY_TOKEN')) {
     Remove-Item -LiteralPath ('Env:' + $k) -ErrorAction SilentlyContinue
   }
   $env:DSH_INSTALL = $Install
@@ -114,6 +114,12 @@ try {
   # 低权通道不再默认走本地路由（2026-11-08 停用本地大模型）：调度器必须经 job.patch
   # 显式传模型路由；没传时入口 fail-closed（exit 1），不会被悄悄退回 Lemonade。
   if ($job.patch) { $env:DSH_HEADLESS_PATCH = [string]$job.patch }
+  # job.env 只放一次性的代理 token；真 key 始终在调度器进程，低权侧拿不到。
+  if ($job.env) {
+    foreach ($p in $job.env.PSObject.Properties) {
+      if ($null -ne $p.Value -and "$($p.Value)" -ne '') { Set-Item -Path ('Env:' + $p.Name) -Value ([string]$p.Value) }
+    }
+  }
   $env:TMP = $env:TEMP
 
   $taskFile = Join-Path $JobDir 'task.txt'

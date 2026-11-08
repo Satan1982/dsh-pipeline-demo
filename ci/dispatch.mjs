@@ -42,6 +42,7 @@ import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryS
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
+import { startLlmProxy } from './llm-proxy.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
 import { decideRequeue } from './requeue-policy.mjs';
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
@@ -97,6 +98,67 @@ const REBASE_AGENT_TIMEOUT_MS = Number(process.env.DSH_REBASE_TIMEOUT_MS ?? 8 * 
 // 免费池的强模型会下线/换名，所以启动时现选一个，写成 patch 文件交给 headless。
 // 显式设了 DSH_HEADLESS_STRONG_PATCH 就完全不动（调试/回滚用）。
 let STRONG_MODEL_NAME = '';
+
+// ── S4 低权代理（docs/77 §8）────────────────────────────────────────────────
+// agent 拿不到真 key：调度器读 provider patch 的 apiKeyEnv、起 loopback 代理、
+// 生成一份只含「代理地址 + 一次性 token 变量名」的 patch。token 走任务 env（不进文件）。
+const CRED_FILE = process.env.DSH_CREDENTIALS || path.join(HOME, '.dsh', '.credentials.yaml');
+const PROXY_TOKEN_VAR = ['DSH', 'PROXY', 'TOKEN'].join('_');
+
+function readCredential(name) {
+  if (process.env[name]) return process.env[name];
+  try {
+    const line = readFileSync(CRED_FILE, 'utf8').split(/\r?\n/).find((l) => l.trim().startsWith(`${name}:`));
+    if (!line) return '';
+    return line.slice(line.indexOf(':') + 1).trim().replace(/^['"]|['"]$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+function parsePatchRoute(file) {
+  const text = readFileSync(file, 'utf8');
+  const one = (re) => (re.exec(text)?.[1] ?? '').trim();
+  return {
+    baseURL: one(/^\s*baseURL:\s*(\S+)\s*$/m),
+    apiKeyEnv: one(/^\s*apiKeyEnv:\s*(\S+)\s*$/m),
+    model: one(/^\s*model:\s*(\S+)\s*$/m),
+  };
+}
+
+async function startTaskProxy(kind, tag) {
+  const src = kind === 'paid' ? PAID_PATCH : STRONG_PATCH;
+  let route;
+  try {
+    route = parsePatchRoute(src);
+  } catch (e) {
+    log(`${tag} ⚠ 代理：读不到路由 patch ${src}（${e.message}）`);
+    return null;
+  }
+  if (!route.baseURL || !route.apiKeyEnv) {
+    log(`${tag} ⚠ 代理：${kind} 路由缺 baseURL/apiKeyEnv（${src}）`);
+    return null;
+  }
+  const upstreamKey = readCredential(route.apiKeyEnv);
+  if (!upstreamKey) {
+    log(`${tag} ⚠ 代理：没有 ${route.apiKeyEnv} 凭据（$DSH_CREDENTIALS 或环境变量），回退 fail-closed`);
+    return null;
+  }
+  const proxy = await startLlmProxy({
+    upstream: route.baseURL,
+    apiKey: upstreamKey,
+    log: (m) => log(`${tag} ${m}`),
+  });
+  // 只替换地址与密钥变量名；模型/provider 原样保留，文件里没有密钥。
+  let text = readFileSync(src, 'utf8');
+  text = text.replace(/^(\s*)baseURL:\s*\S+.*$/m, `$1baseURL: ${proxy.baseURL}`);
+  text = text.replace(/^(\s*)apiKeyEnv:\s*\S+.*$/m, `$1apiKeyEnv: ${PROXY_TOKEN_VAR}`);
+  if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+  const patchFile = path.join(LOG_DIR, `headless-proxy-${kind}-${process.pid}-${proxy.port}.yml`);
+  writeFileSync(patchFile, text);
+  log(`${tag} 代理已起：${proxy.baseURL} → ${route.baseURL}（${route.model || kind}）`);
+  return { ...proxy, patchFile };
+}
 
 function writeStrongPatch(model) {
   STRONG_MODEL_NAME = model;
@@ -1151,8 +1213,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     const quotaPaid = FORCE_PAID.has(n);
     forcePaid = forcePaidLabel;
     usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
+    // S4：真 key 留在调度器，低权 agent 只拿一次性 token（ci/llm-proxy.mjs）。
+    // 代理起来后 patch 指向 127.0.0.1，任务结束即关；代理失败才退回「不给 patch」的 fail-closed。
+    let taskProxy = null;
     if (S4_ON && (useStrong || usePaid)) {
-      log(`${tag} ⚠ 低权隔离：${usePaid ? 'model:paid' : '强模型'} 路由要 .secrets 里的 key，本地档已停用；本次不给 patch，入口按环境失败退出`);
+      taskProxy = await startTaskProxy(usePaid ? 'paid' : 'strong', tag);
+      if (taskProxy) {
+        runEnv.DSH_HEADLESS_PATCH = taskProxy.patchFile;
+        runEnv.DSH_PROXY_TOKEN = taskProxy.token;
+        log(`${tag} 代理路由：${usePaid ? 'deepseek-flash（付费）' : '免费强档'}，真 key 不进 agent`);
+      } else {
+        log(`${tag} ⚠ 低权隔离：代理未起，本次不给 patch，入口按环境失败退出`);
+      }
     }
     if (usePaid && !S4_ON) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
@@ -1163,12 +1235,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 只有显式升级（model:strong / model:paid 导致的 .secrets 路由）才允许入口注入真实凭据。
     // 默认档不再有本地路由（2026-11-08 停用本地大模型）：入口未收到 patch 就 fail-closed，
     // 由调度器把「没有可用模型路由」暴露为环境失败，而不是悄悄退回 Lemonade。
-    if (runEnv.DSH_HEADLESS_PATCH) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';
+    // 非 S4 的 .secrets 路由才允许入口自己读凭据；S4 代理只用一次性 token，不注入凭据开关。
+    if (runEnv.DSH_HEADLESS_PATCH && !S4_ON) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';
     log(`${tag} 启动 headless（cwd=${wt}${modelNote}）`);
     const t0 = Date.now();
-    const r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
+    let r;
+    try {
+      r = await runHeadless(wt, prompt, runEnv, TIMEOUT);
+    } finally {
+      if (taskProxy) await taskProxy.close();
+    }
     LAST_RAW.set(n, String(r.raw ?? r.out ?? ''));
     if (r.usage && r.usage.totalTokens === 0) ZERO_TOKEN_FAILS.set(n, (ZERO_TOKEN_FAILS.get(n) ?? 0) + 1);
     else ZERO_TOKEN_FAILS.delete(n);
@@ -2027,7 +2105,8 @@ export async function runHeadless(cwd, prompt, env, timeout) {
   // 只有「通道本身不可用」（没写出 done.json：没有 dsh-agent 密码、launcher 起不来）才回退原来的 bash
   // spawn —— 隔离装坏了不该让整条流水线停摆；任务自己失败（有 done.json、exit≠0）照常上报，不回退。
   if (process.env.DSH_S4_AGENT !== '0') {
-    const r = await runAsAgent({ task: prompt, cwd, timeoutSec: Math.round(timeout / 1000), patch: env.DSH_HEADLESS_PATCH || '' });
+    // S4 下代理 token 经 job.env 白名单传给低权 runner（真 key 不进去）。
+    const r = await runAsAgent({ task: prompt, cwd, timeoutSec: Math.round(timeout / 1000), patch: env.DSH_HEADLESS_PATCH || '', env: { DSH_PROXY_TOKEN: env.DSH_PROXY_TOKEN || '' } });
     if (r.done) {
       const usage = sumUsage(r.out);
       if (!r.ok) log(`[s4] 低权 run 失败 exit=${r.code}：${r.error || ''}`);

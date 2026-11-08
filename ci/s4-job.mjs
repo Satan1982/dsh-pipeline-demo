@@ -46,7 +46,7 @@ export function hardenJobDir(jobDir, jobFile = 'job.json') {
 
 const STALE = ['done.json', 'headless.log', 'headless.err', 'task.txt', 'launcher.out', 'launcher.err'];
 
-export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '' }) {
+export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '', env = null }) {
   if (!task || !String(task).trim()) throw new Error('task 为空');
   if (!cwd) throw new Error('缺 cwd');
   const abs = path.resolve(cwd);
@@ -60,6 +60,12 @@ export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_
   const job = { task: String(task), timeoutSec: Number(timeoutSec) || 2400, cwd: abs };
   // 模型路由只经 job 文件传（不走继承环境变量）：低权侧自己决定要不要用别的 patch。
   if (patch) job.patch = String(patch);
+  // job.json 对低权 agent 可读，所以这里只放一次性变量（代理 token），不放真 key。
+  if (env && typeof env === 'object') {
+    const safe = {};
+    for (const k of ['DSH_PROXY_TOKEN']) if (env[k]) safe[k] = String(env[k]);
+    if (Object.keys(safe).length) job.env = safe;
+  }
   writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(job, null, 2), 'utf8');
   // 落盘后立刻收 ACL：目录只给 Administrator/SYSTEM/agent 读写，job.json 对 agent Deny 写。
   hardenJobDir(jobDir);
@@ -85,10 +91,10 @@ export function runAsAgent(opts) {
 }
 
 async function runAsAgentOnce({
-  task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '',
+  task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_DIR, patch = '', env = null,
   launcher = path.join(HERE, 's4-as-agent.ps1'), onSpawn = null,
 }) {
-  const job = prepareJob({ task, cwd, timeoutSec, jobDir, patch });
+  const job = prepareJob({ task, cwd, timeoutSec, jobDir, patch, env });
   const doneFile = path.join(jobDir, 'done.json');
 
   const child = spawn(

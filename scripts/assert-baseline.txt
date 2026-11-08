@@ -11,6 +11,7 @@
 1 034a857be64208b3 assert.equal(powOf(-2, 3), -8);
 1 03b38274465ea5de assert.ok(files.has(expected), `缺少对 ${expected} 的种子缺陷`);
 1 03bf59f8666e6c9f assert.equal(res.after, 2);
+1 03c87d9dc05da7e8 assert.deepEqual(job.env, { DSH_PROXY_TOKEN: 'abc' });
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 044971a6cb999b93 assert.deepEqual(parseBackoff(''), REQUEUE_BACKOFF_MS);
 1 05edc66d6d686fad assert.deepEqual(ok.unknown, [], '带值的旗标不该把值本身当未知旗标');
@@ -84,6 +85,7 @@
 1 1a4310201679f9ed assert.equal(finalText([ev({ type: 'text', text: 'a' }), ev({ type: 'text', text: 'b' })].join('\n')), 'ab');
 1 1a6b7e16abfa4bd0 assert.match(parseRepos([]).errors[0], /空/);
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
+1 1a8b0ec3841c5013 assert.equal(res.status, 401);
 1 1ac79781a2ab86d3 assert.equal(sumRange(1, 5), 15);
 1 1b2309d38f6d1534 assert.equal(docsRun, EXIT_OK);
 1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
@@ -138,6 +140,7 @@
 1 26ac16007879e190 assert.equal(e.blockedAt, '2026-10-28T00:00:00.000Z');
 1 26c2fa96ce1ed671 assert.equal(modeOf('once'), 'once');
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
+1 2836807e46ca1537 assert.equal('env' in JSON.parse(readFileSync(path.join(jobDir, 'job.json'), 'utf8')), false);
 1 287cc0430a62b5f2 assert.equal(summary.n, 36);
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
 1 297875285b0ccd7f assert.equal(r.cmd, null, '--serve 是模式旗标，不是子命令');
@@ -180,6 +183,7 @@
 1 335cf4c996d4c0bc assert.equal(isEven(3), false);
 1 337797164293fa1b assert.equal(absValue(0), 0);
 1 337af19339b590d9 assert.deepEqual(pickFreeModels(stats, FREE_STRONG_MODELS, 2), ['ZhipuAI/GLM-5.2', 'Qwen/Qwen3.8-27B']);
+1 339b6fe087b449f5 assert.equal(up.seen.length, 0);
 1 33b815658935de45 assert.equal(env.PATH, 'p');
 1 342fe5ffa01622d7 assert.equal(d.action, 'wait');
 1 3439ff38fd8f1028 assert.equal(VERIFY.includes('ERR:EPERM'), true, '探针要区分错误码');
@@ -292,6 +296,7 @@
 1 5202bf99b44a41df assert.equal(AUTO_MERGE_ENABLED, false);
 1 5224eb9780a4b1c8 assert.equal(lockHeld({ alive: true, ageMs: STALE, mode: 'once', staleMs: STALE }), false);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
+1 526e12f93662d845 assert.deepEqual(onDisk.env, { DSH_PROXY_TOKEN: 'abc' });
 1 52b02ce216326c65 assert.deepEqual(parseVerdict('VERDICT: FAIL median([]) 返回 0'), { verdict: 'fail', reason: 'median([]) 返回 0' });
 7 53095f4c2a89c4b9 assert.equal(d.ok, false);
 1 536622f909dec164 assert.equal(statsExpired(0, now), true, '没抓过就算过期');
@@ -360,6 +365,7 @@
 4 689bf358a088942b assert.equal(merged.verdict, 'pass');
 1 68a0d087b14fe861 assert.deepEqual(d.orphanWorktrees, []);
 1 68a241706446e575 assert.equal(roundTo(1.2345, 3), 1.235);
+1 68f152e5d31f0823 assert.equal(body.url, '/v1/chat/completions');
 1 692679e3f8c9affb assert.equal(finalText(''), '');
 1 692a5820dd520fa2 assert.ok(Math.abs(spend.cny - 1.3) < 1e-9);
 4 698af44bab3510e1 assert.equal(bad.ok, false);
@@ -524,6 +530,7 @@
 1 967ab5ab1d569aac assert.equal(d.on, true);
 1 968dd987b0576778 assert.equal(stdoutEchoes.length, 5, `干跑 stdout 行数应恒为 5，实际 ${stdoutEchoes.length}`);
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
+1 9702078e09f6ba0e assert.equal(up.seen[0].auth, 'Bearer real-key');
 1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 97151d445d92ccb5 assert.equal(typo.lane, LANE.highRisk);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
@@ -549,6 +556,7 @@
 1 9bc94504f41bb5ca assert.ok(md.includes('#5'));
 1 9c16f48a8579d3f1 assert.match(DISPATCH, /WIN_KEEP = \[[^\]]*'SystemRoot'/u, 'winEnv 必须带 SystemRoot');
 1 9c1a808e6f7b5e27 assert.equal(r.verdict, 'pass');
+1 9c6050e47cd5c5a8 assert.equal(job.env, undefined);
 1 9c82e88ed3e7be75 assert.equal(errors.length, 1);
 1 9c8620494969b525 assert.match(body.color, /^[0-9a-f]{6}$/);
 1 9cf510795804b6b4 assert.equal(toastText({ kind: 'daycap', why: '今日已花 ¥5' }).title, '流水线 今日花费到顶');
@@ -660,6 +668,7 @@
 1 b8819833c8a92041 assert.ok(text.includes('共 2 个根因'));
 1 b896ac46d8646f10 assert.notEqual(shortHash('a'), shortHash('b'));
 1 b8b03a457ccc6eeb assert.ok(formatFindings(r).includes('allow:gate'));
+1 b8b6385b663ca2fa assert.equal(res.status, 429);
 1 b8b8dcd40a0af879 assert.equal(formatCny(0.00234), '¥0.0023');
 1 b8e849102b9a8b5c assert.equal(rec.issue, 88);
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
@@ -849,6 +858,7 @@
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 ee407d61d04734ae assert.equal(statsExpired(now - 60_000, now), false, '1 分钟前抓的还有效');
 1 ee5bcce8ae76eef4 assert.equal(d.probed, true);
+1 ee70c31a202e24a5 assert.match(logs.join('\n'), /upstream 429/);
 1 eebaa9aadb7fc7aa assert.equal(parsed.line, 12);
 1 eec20a3a9ea87290 assert.throws(() => wilsonInterval(-1, 2), RangeError);
 1 eec436ee80dd8bf3 assert.equal(again.paused, true);
@@ -856,6 +866,7 @@
 1 ef3c33ec792cc782 assert.equal(e.gaveUp, false);
 1 ef55af71a30c0ca3 assert.ok(allowed.size > 0, 'policy.paid.models 不能为空');
 1 ef9bb2c9de7b217e assert.equal(summary.n, 3);
+1 f018c4c86a27bd3f assert.equal(res.status, 200);
 1 f0362a4f6542bbae assert.equal(isWorkingTreeClean(dir), false);
 1 f0c6a0e6aa8c2f69 assert.throws(() => absValue("x"), TypeError);
 1 f0cd300a6407f245 assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), [
@@ -895,6 +906,7 @@
 1 fa424e742fb44593 assert.equal(median([1, 3, 2]), 2);
 1 fa5a58382b44e9c9 assert.equal(r.findings[0].rule, 'semantic-unparseable');
 1 fa9cd155eb0e3eb9 assert.equal(a.count, 2);
+1 fad6c72e33c48029 assert.equal(up.seen.length, 1);
 1 fb201fb82fec0771 assert.equal(toFahrenheit(100), 212);
 1 fb834215f58b4782 assert.equal(summary.canClaim, false);
 1 fc21e9367b9c99f3 assert.ok(at > gateAt, `${key} 出现在开关之前，等于默认注入`);
