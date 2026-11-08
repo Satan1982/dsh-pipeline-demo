@@ -75,7 +75,9 @@ function runDispatch(extra) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['ci/dispatch.mjs', ...extra], {
       cwd: REPO_DIR,
-      env: process.env,
+      // 付费档全量是测试开销，不该被日常 5 元日闸挡（2026-11-08 第一轮 22 单因 ¥5.02 到顶被跳过，
+      // 白跑 30 分钟）。用户显式设了 DSH_DAY_MAX_CNY 就尊重之。
+      env: { ...process.env, ...(PAID && !process.env.DSH_DAY_MAX_CNY ? { DSH_DAY_MAX_CNY: '20' } : {}) },
       stdio: 'inherit',
     });
     const timer = setTimeout(() => { try { child.kill(); } catch { /* 已退出 */ } }, TIMEOUT_MS);
