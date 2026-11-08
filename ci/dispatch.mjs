@@ -34,6 +34,7 @@ import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_U
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
+import { overlayOriginGate } from './gate-snapshot.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
@@ -1018,11 +1019,19 @@ async function recoverBlocked() {
 // 里再跑一遍；红就是红，绿才有资格进下一步。
 
 async function verifyWorktree(wt) {
+  // v3 P0（docs/89 §3.1）：门禁脚本从 origin/main 只读快照执行，并记被执行字节哈希。
+  // 拿不到 origin 字节就 fail-closed——不能拿「agent 改过的工作树」当裁判。
+  let gate;
+  try {
+    gate = overlayOriginGate({ repoDir: wt, gitBin: GIT });
+  } catch (e) {
+    return { ok: false, detail: `门禁快照失败（fail-closed，未执行工作树门禁）：${e.message}` };
+  }
   const v = await run(BASH, ['scripts/verify.sh'], {
     cwd: wt, timeout: 15 * 60 * 1000,
     env: { PATH: CHILD_PATH, PNPM_CLI },
   });
-  if (v.code === 0) return { ok: true };
+  if (v.code === 0) return { ok: true, gate_bytes_sha256: gate.sha256, gate_ref: gate.ref };
   // 78 = EX_CONFIG：门禁自己判定「这台机器现在跑不了子进程」，不是代码问题。
   // code -1 / 带 error：连 bash 都没起来（PATH 错、WSL 抢了 bash.exe），同样是环境不是代码。
   // 记成普通失败会让同一张工单白烧三次重试预算（红线：环境失败不消耗重试预算）。
