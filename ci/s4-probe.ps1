@@ -1,8 +1,9 @@
-﻿# s4-probe.ps1 — S4 隔离自检。必须由「低权用户」执行才有意义（计划任务 DSHAgentProbe）。
+# s4-probe.ps1 — S4 隔离自检。必须由「低权用户」执行才有意义（计划任务 DSHAgentProbe）。
 #
 # 每条检查都写「期望 / 实际 / 判定」，结果落 JSON 给管理员侧读：
 #   powershell -NoProfile -File ci\s4-probe.ps1 -Out D:\code\.worktrees\.s4\probe.json
-# 加上 -SkipEntry:$false 会顺带起一次真实 headless（会调本地 Lemonade，慢但不花钱）。
+# 加上 -SkipEntry:$false 会顺带起一次真实 headless（本地大模型档已停用，未给
+# DSH_HEADLESS_PATCH 时入口会 fail-closed；只在确实配好云端路由时才试）。
 #
 # 注意：以管理员身份跑会得到一堆 FAIL（那正是期望的反面），不要拿它当「隔离没过」。
 

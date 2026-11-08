@@ -7,15 +7,15 @@
 #   DSH_HEADLESS_DRY=1 bash ci/headless-task.sh "任务描述"   # 只打印将生效的路由/权限，不跑
 #
 # 它会:
-#   1. 挂本地模型路由 patch（默认 ci/headless-local.yml → 127.0.0.1:13305 的 Lemonade），
-#      **默认不注入任何真实 API key**（agent 不该持凭据，docs/76 §13 S1）
+#   1. 挂 **显式指定**的模型路由 patch（DSH_HEADLESS_PATCH）；不再默认挂任何路由。
+#      本地大模型档已停用（2026-11-08 用户裁决），未给 patch 就直接 fail-closed（exit 1）。
 #   2. 默认 workspace-write 权限档（不再是 danger-full-access，§13 S2）
 #   3. DSH_HEADLESS_ALLOW_CREDS=1 时才回退到旧行为：从 ~/.dsh/.credentials.yaml 取 key
 #      （不落盘、不回显），并把默认 patch 换回 $SECRETS_DIR/headless-model.yml
 #
-# 为什么默认改本地: 之前这个入口既注入 3 把真 key，又给 danger-full-access，
-# 等于把 .secrets 交给一个自动改代码的进程。真实隔离要低权用户（§13 S4），
-# 那之前至少先做到「手里没有真东西」——手里没 key 就没有泄漏面。
+# 为什么不再有默认本地档: 用户裁决「新方案以后都停用本地大模型」；保留本地默认等于把
+# Lemonade 重新焊回主流程。入口只认显式路由，缺 patch 就把「没有可用模型」暴露成环境
+# 失败，而不是悄悄跑本地。凭据档仍是显式 opt-in，凭据类变量一律由调用方决定。
 set -uo pipefail
 
 INSTALL="${DSH_INSTALL:?未设置 DSH_INSTALL：指向 DeepSeek Harness 安装目录}"
@@ -57,24 +57,17 @@ if [ "$ALLOW_CREDS" = "1" ]; then
     unset _ms
   fi
 else
-  # 默认：本地 Lemonade，无真 key。LEMONADE_API_KEY 只是 OpenAI 兼容层要求的占位符，不是秘密。
-  PATCH="${DSH_HEADLESS_PATCH:-$ROOT/ci/headless-local.yml}"
-  export LEMONADE_API_KEY="${LEMONADE_API_KEY:-lemonade-local}"
+  # 新方案：不再有默认本地路由。路由 patch 必须由调用方显式给出（调度器经 job.patch）。
+  PATCH="${DSH_HEADLESS_PATCH:-}"
 fi
 
 if [ "${DSH_HEADLESS_DRY:-}" = "1" ]; then
-  # 那 5 行是给机器读的契约，别往里加字段；探活结果只走 stderr。
+  # 那 5 行是给机器读的契约，别往里加字段。
   echo "mode=$DSH_PERMISSION_MODE"
   echo "keys=$([ "$ALLOW_CREDS" = "1" ] && echo on || echo off)"
   echo "patch=$PATCH"
-  echo "patch_exists=$([ -f "$PATCH" ] && echo yes || echo no)"
-  echo "lemonade=$([ "$ALLOW_CREDS" = "1" ] && echo off || echo on)"
-  if [ "$ALLOW_CREDS" != "1" ]; then
-    # lemonade=on 只说路由选的是本地，不代表端点活着。默认档唯一的模型端点掉线时，
-    # 否则整条流水线只会表现为「agent exit≠0」，没人知道是模型没起来。
-    _probe=$(curl -s -m 2 -o /dev/null -w '%{http_code}' "${LEMONADE_BASE:-http://127.0.0.1:13305/api/v1}/models" 2>/dev/null || true)
-    [ "$_probe" = "200" ] || echo "⚠ Lemonade 探活失败 HTTP=${_probe:-000}（默认档唯一模型端点，agent 会起不来）" >&2
-  fi
+  echo "patch_exists=$([ "$PATCH" ] && [ -f "$PATCH" ] && echo yes || echo no)"
+  echo "local=off"
   exit 0
 fi
 
@@ -83,48 +76,14 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-if [ ! -f "$PATCH" ]; then
-  echo "模型路由 patch 不存在：$PATCH（本地默认应为 ci/headless-local.yml）" >&2
+if [ -z "$PATCH" ]; then
+  echo "未指定模型路由 patch：本地大模型档已停用（2026-11-08 裁决）；请显式设置 DSH_HEADLESS_PATCH（或 DSH_HEADLESS_ALLOW_CREDS=1 走凭据档）" >&2
   exit 1
 fi
 
-# 本地 Lemonade 空闲会卸载模型，而后续请求不会替它加载：表现为
-# `No model loaded: <id>`（PI_AI_ERROR、0 token），调度器重试也一样 —— 2026-11-06 实测两次。
-# 跑之前显式预热并等 health 报告模型就绪，别再把「模型没加载」记成 agent 失败。
-if [ "$ALLOW_CREDS" != "1" ] && [ "${DSH_SKIP_PRELOAD:-0}" != "1" ]; then
-  LOCAL_MODEL="${DSH_LOCAL_MODEL:-Qwen3-Coder-30B-A3B-Instruct-GGUF}"
-  LOCAL_API="${LEMONADE_BASE:-http://127.0.0.1:13305/api/v1}"
-  _preload() {
-    curl -s -m 20 -X POST "$LOCAL_API/load" -H 'Content-Type: application/json' \
-      -d "{\"model_name\":\"$LOCAL_MODEL\"}" >/dev/null 2>&1 || true
-  }
-  _preload
-  _ready=0
-  # 冷启动 30B Q4 从磁盘加载实测能到两分多钟，给足 240 秒。
-  for _i in $(seq 1 120); do
-    if curl -s -m 2 "$LOCAL_API/health" 2>/dev/null | tr ',' '\n' | grep -q "$LOCAL_MODEL"; then
-      _ready=1
-      break
-    fi
-    # max_models.llm=1 + auto_evict=false：槽位被别的模型占着时第一次 /load 直接被拒，
-    # 只试一次就会空等到超时（2026-11-06 实测：Hindsight 的 9B 占槽 → 我们 240s 拿到空）。
-    # 每 20 秒补一次：Lemonade 是「谁后加载谁赢」，槽位一空就能抢到。
-    if [ $((_i % 10)) -eq 0 ]; then _preload; fi
-    sleep 2
-  done
-  if [ "$_ready" = "1" ]; then
-    echo "预热本地模型 $LOCAL_MODEL：ok" >&2
-  else
-    # max_models.llm=1：别的客户端先要了另一个模型，我们就被挤掉。把挤占者名字打出来，别只说超时。
-    _other=$(curl -s -m 2 "$LOCAL_API/health" 2>/dev/null | grep -o '"model_loaded":"[^"]*"' | head -1)
-    echo "⚠ 预热本地模型 $LOCAL_MODEL 超时（${_other:-model_loaded 未知}；LLM 槽位只有 1 个，可能被别的客户端占着）" >&2
-    unset _other
-    # 模型没就绪就开跑，必然是 0 token 的 `No model loaded`——那不是任务写错，是环境问题。
-    # 打 ENV_FAIL 并 exit 78：调度器按环境失败重试、不占工单的重试预算（见 dispatch.mjs 环境失败分支）。
-    echo "ENV_FAIL: 本地模型 $LOCAL_MODEL 未就绪（Lemonade 单 LLM 槽位被占），本次不起 agent" >&2
-    exit 78
-  fi
-  unset _i _ready _preload
+if [ ! -f "$PATCH" ]; then
+  echo "模型路由 patch 不存在：$PATCH" >&2
+  exit 1
 fi
 # DSH_HEADLESS_JSON=1 时输出 newline-delimited 事件流（调度器据此统计 token 用量）。
 JSON_ARGS=()

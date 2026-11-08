@@ -74,4 +74,4 @@ machine-wide free pool instead of guessing a model id:
 - Registry (shared by all workspaces): `C:\Users\Administrator\.dsh\tools\free-models\free-models.json`.
   Status is refreshed by `Free Model Heartbeat` (30 min) and `Free Model Probe` (daily 07:10); cost is 0.
 - Do not add a dependency or a provider key for this: the pool already covers siliconflow / zhipu / modelscope / OVH.
-- **本地大模型档默认停用**（2026-11-08 用户裁决：「这个新方案以后都停用本地大模型了」）：调度器不再探活 Lemonade `/health`，`agent:blocked` 重投只看云端池；只有显式 `DSH_LOCAL_LANE=1` 才恢复旧行为（留给旧流程/本机测试，不是默认路径）。
+- **本地大模型档已删除**（2026-11-08 用户裁决：「这个新方案以后都停用本地大模型了」）：调度器不再探活本地端点，`agent:blocked` 重投只看云端池；`ci/headless-task.sh` 不再有默认本地路由，未显式给 `DSH_HEADLESS_PATCH` 就 fail-closed（exit 1），`ci/headless-local.yml` 已删除。临时本机测试请显式给路由 patch。

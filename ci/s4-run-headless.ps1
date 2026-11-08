@@ -1,4 +1,4 @@
-﻿# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
+# s4-run-headless.ps1 — 低权 headless 任务的进程入口（由计划任务 DSHAgentHeadless 以 dsh-agent 身份启动）
 #
 # 它不读任何凭据：账本/dsh-agent 自己的 home 里没有 .credentials.yaml，
 # 且下面会显式清掉可能从父进程漏下来的密钥变量（同 ci/dispatch.mjs:1850 的 SCRUB_ENV 口径）。
@@ -111,8 +111,8 @@ try {
   # spawn EPERM，而 agent 必须能自己跑 `bash scripts/verify.sh --bless` 交基线（门禁不采信自述）。
   # 所以这里显式关掉进程内沙箱；边界仍由账户 ACL 决定，不是靠这层。
   $env:DSH_PERMISSION_MODE = 'danger-full-access'
-  # 低权通道默认走 ci/headless-local.yml；调度器要换模型路由（paid/strong）时经 job.patch 传，
-  # 不靠继承环境变量——凭据类的环境变量在这条路径上必须一律由这里显式决定。
+  # 低权通道不再默认走本地路由（2026-11-08 停用本地大模型）：调度器必须经 job.patch
+  # 显式传模型路由；没传时入口 fail-closed（exit 1），不会被悄悄退回 Lemonade。
   if ($job.patch) { $env:DSH_HEADLESS_PATCH = [string]$job.patch }
   $env:TMP = $env:TEMP
 

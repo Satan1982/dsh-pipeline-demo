@@ -43,7 +43,7 @@ import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
-import { laneState, laneVerdict, DEFAULT_LOCAL_MODEL, localLaneEnabled, disabledLaneVerdict, decideRequeue } from './local-lane.mjs';
+import { decideRequeue } from './requeue-policy.mjs';
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
@@ -909,43 +909,13 @@ function poolHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
   return value;
 }
 
-// 本地免费档的槽位探活（Lemonade /health）。2026-11-08 起默认停用（DSH_LOCAL_LANE=1 才开）：
-// 新方案不再依赖本地大模型，重投只看云端通道。旧理由保留在此，供临时启用时对照：
-// 云端池「有 ok 模型」不代表这张单真能跑——低权隔离把密钥挡掉后，任务实际落到本地
-// Lemonade，而它的 LLM 槽位只有 1 个，Hindsight 的 Qwen3.5-9B 会周期性把槽位占了。
-// 只看云端就重投，等于让工单必然再挂一次（0 token），一晚上的重投预算（3 次）很快烧完。
-const LOCAL_API = String(process.env.LEMONADE_BASE || 'http://127.0.0.1:13305/api/v1').replace(/\/+$/, '');
-const LOCAL_MODEL = process.env.DSH_LOCAL_MODEL || DEFAULT_LOCAL_MODEL;
-let LANE_PROBE = { at: 0, value: null };
-
-async function localLaneHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
-  // 2026-11-08 用户裁决：新方案停用本地大模型；默认不探活、不把本地槽位当重投依据。
-  if (!localLaneEnabled()) return disabledLaneVerdict();
-  if (LANE_PROBE.value && now - LANE_PROBE.at < ttl) return LANE_PROBE.value;
-  let value;
-  try {
-    const res = await fetch(`${LOCAL_API}/health`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    value = laneVerdict(laneState(await res.json(), LOCAL_MODEL));
-  } catch (e) {
-    value = { ok: false, why: `本地档探活失败：${e.message}` };
-  }
-  LANE_PROBE = { at: Date.now(), value };
-  return value;
-}
-
-// 这张单重投出去能不能真的跑？2026-11-08 起只走云端通道（本地大模型档默认停用）：
-//   model:paid 走云端付费档 —— 云端池有 ok 模型就行；
-//   其余走云端免费池 —— 同样以 poolHealth 为准。
-// 本地档只在 DSH_LOCAL_LANE=1 时参与判断（旧流程/本机测试）；判据本身是纯函数，见 local-lane.mjs。
-// 任一条可用就重投；都不可用就继续等下一档退避（等待是免费的，白跑一次不是）。
+// 2026-11-08 用户裁决：新方案停用本地大模型。旧实现（本地槽位探活 + 缓存 + 开关）已整体删除——重投判据只剩云端通道。
+// 等待是免费的，白跑一次不是；本地档残留会让重投重新依赖 Lemonade，所以不留开关。
 async function requeueLane(issue, { now = Date.now() } = {}) {
   const cloud = poolHealth({ now });
   const labels = (Array.isArray(issue?.labels) ? issue.labels : []).map((l) => String(l?.name ?? l));
   const paid = labels.includes('model:paid');
-  const enabled = localLaneEnabled();
-  const local = enabled ? await localLaneHealth({ now }) : null;
-  return decideRequeue({ paid, cloud, local, localEnabled: enabled });
+  return decideRequeue({ paid, cloud });
 }
 
 async function recoverBlocked() {
@@ -1182,7 +1152,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     forcePaid = forcePaidLabel;
     usePaid = forcePaid || quotaPaid || (overlap && !freeOnly);
     if (S4_ON && (useStrong || usePaid)) {
-      log(`${tag} ⚠ 低权隔离：${usePaid ? 'model:paid' : '强模型'} 路由要 .secrets 里的 key，本次改走本地免费档（Lemonade）`);
+      log(`${tag} ⚠ 低权隔离：${usePaid ? 'model:paid' : '强模型'} 路由要 .secrets 里的 key，本地档已停用；本次不给 patch，入口按环境失败退出`);
     }
     if (usePaid && !S4_ON) {
       runEnv.DSH_HEADLESS_PATCH = PAID_PATCH;
@@ -1191,7 +1161,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       else log(`${tag} ⇄ 有其它任务在跑（免费档不能并发），本单改用 deepseek-flash（付费，约 ¥0.1/单）`);
     }
     // 只有显式升级（model:strong / model:paid 导致的 .secrets 路由）才允许入口注入真实凭据。
-    // 默认档走仓内 ci/headless-local.yml（本地 Lemonade，无 key）：agent 手里没有可外传的东西。
+    // 默认档不再有本地路由（2026-11-08 停用本地大模型）：入口未收到 patch 就 fail-closed，
+    // 由调度器把「没有可用模型路由」暴露为环境失败，而不是悄悄退回 Lemonade。
     if (runEnv.DSH_HEADLESS_PATCH) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';
 
     const modelNote = useStrong ? (forceStrong ? ', model=strong' : ', model=strong(重试升级)') : '';

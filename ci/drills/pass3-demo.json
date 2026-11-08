@@ -94,8 +94,8 @@
       "cmd": "node --test ci/ledger.test.mjs"
     },
     {
-      "id": "local-lane-ci-tests",
-      "cmd": "node --test ci/local-lane.test.mjs"
+      "id": "requeue-policy-ci-tests",
+      "cmd": "node --test ci/requeue-policy.test.mjs"
     },
     {
       "id": "lock-heartbeat-ci-tests",
