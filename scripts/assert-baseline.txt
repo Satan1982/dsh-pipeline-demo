@@ -15,6 +15,7 @@
 1 07068f04c0de0bb5 assert.match(d.reason, /仍不可用/);
 1 07168f623531300f assert.match(laneVerdict(busy).why, /排队/);
 1 0719893b41e77460 assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
+1 07cead639b56ec64 assert.equal(r.code, 'auto-merge-disabled');
 1 0a3be9a49d23d49e assert.equal(initialEntry({ now: T0, requeues: 2 }).requeues, 2);
 1 0a6c02ceb10822ff assert.equal(NEEDS_INFO_LABEL, 'needs-info');
 1 0aaaee4be0d3af09 assert.deepEqual(listModels({ models: { a: { status: 'ok' } } }), [{ id: 'a', status: 'ok' }]);
@@ -58,7 +59,7 @@
 1 15bc0df37554a0ab assert.equal(unfalsifiableReason(cmd), null, `${cmd} 不应被误拒`);
 3 160a1dc2184f87db assert.equal(runCli(['--bogus'], io), 2);
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
-15 171d4db9216880f9 assert.equal(r.ok, false);
+16 171d4db9216880f9 assert.equal(r.ok, false);
 1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
 1 1844b3157bc7303b assert.equal(result.stdout.trim(), 'income=100 expense=30 balance=70');
 1 187548b30c671b3c assert.equal(JSON.parse(lines[1]).issue, 2);
@@ -114,7 +115,6 @@
 1 26ac16007879e190 assert.equal(e.blockedAt, '2026-10-28T00:00:00.000Z');
 1 26c2fa96ce1ed671 assert.equal(modeOf('once'), 'once');
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
-1 282386a572e97dfa assert.equal(decideAutoMerge({ repo: PILOT_REPO, allowlist, labels: [] }).code, 'no-label');
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
 1 297875285b0ccd7f assert.equal(r.cmd, null, '--serve 是模式旗标，不是子命令');
 1 2a5a4fb935f6b515 assert.ok(env.DSH_WORKTREES.includes('.worktrees'));
@@ -176,6 +176,7 @@
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
 1 3c7d29cbd0e44d6e assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
+1 3d12306f105c88ad assert.equal(decideAutoMerge({ repo: PILOT_REPO, allowlist, enabled: true, labels: [] }).code, 'no-label');
 1 3d1af4b9cf45e472 assert.equal(merged.reviewers[0].tier, 'free');
 1 3d7a7c65bb01d3e0 assert.equal(headlessKind('', '', 0xc000013a), 'headless-crash');
 1 3db5c6cb6692c8ea assert.equal(again.pausedWhy, '日闸熔断');
@@ -242,6 +243,7 @@
 1 515025dcbceb5829 assert.deepEqual(llmEntries({}), []);
 1 5180226fcfd4b97f assert.equal(slugify('---'), '');
 1 51d8c9656c598cf4 assert.match(md, /## 成本报表|# 成本报表/);
+1 5202bf99b44a41df assert.equal(AUTO_MERGE_ENABLED, false);
 1 5224eb9780a4b1c8 assert.equal(lockHeld({ alive: true, ageMs: STALE, mode: 'once', staleMs: STALE }), false);
 1 5254f41d135d3464 assert.throws(() => sumRange(5, 1), RangeError);
 1 52b02ce216326c65 assert.deepEqual(parseVerdict('VERDICT: FAIL median([]) 返回 0'), { verdict: 'fail', reason: 'median([]) 返回 0' });
@@ -693,6 +695,7 @@
 1 df65a98d82c912d9 assert.ok(body.includes('it&apos;s &quot;ok&quot;'));
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
 1 e01f40e0654d641d assert.deepEqual(Object.keys(rec), ['at', 'kind', 'issue', 'why']);
+1 e114f70adab447f4 assert.match(r.why, /merge:verified/);
 1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');
 1 e130ee085f17d278 assert.equal(laneVerdict(lane).ok, true);
 1 e185c10eb4c74d49 assert.equal(backoffMs(99), 60 * MIN);

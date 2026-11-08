@@ -13,6 +13,10 @@ export const ENV_KEY = 'DSH_AUTO_MERGE_REPOS';
 // 缺省白名单 = 试点仓。真实仓要开自动合并，必须在启动调度器的环境里显式列出。
 export const PILOT_REPO = 'Satan1982/dsh-pipeline-demo';
 
+// v3 P0（docs/89 §二.1）：关闭 merge:auto。合并出口改为 `merge:verified` 标签 + 人点合并；
+// 旧判据保留（测试里显式 enabled:true 才可达），默认不可达，消除「签名者兼放行者」。
+export const AUTO_MERGE_ENABLED = false;
+
 // 解析白名单。空串 / 只含空白 → 空数组（谁都不许）。
 export function parseAllowlist(raw) {
   if (raw === undefined || raw === null) return [PILOT_REPO.toLowerCase()];
@@ -36,7 +40,11 @@ export function decideAutoMerge({
   body = '',
   ciConclusion = 'success',
   mergeState = 'clean',
+  enabled = AUTO_MERGE_ENABLED,
 } = {}) {
+  if (!enabled) {
+    return { ok: false, code: 'auto-merge-disabled', why: 'v3 P0：自动合并已关闭，改 merge:verified 标签 + 人点合并' };
+  }
   if (!autoMergeAllowed(repo, allowlist)) {
     return { ok: false, code: 'repo-not-allowed', why: `仓库 ${repo || '(空)'} 不在自动合并白名单` };
   }
