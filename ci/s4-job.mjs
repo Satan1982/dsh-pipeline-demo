@@ -11,7 +11,7 @@
 // CLI：
 //   node ci/s4-job.mjs --task-file prompts/x.md --cwd D:\code\.worktrees\issue-7 --timeout 2400
 //   node ci/s4-job.mjs --task "只回复 ok" --json
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,30 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 export const WORKTREE_ROOT = path.resolve(REPO, '..', '.worktrees');
-export const DEFAULT_JOB_DIR = path.join(WORKTREE_ROOT, '.s4', 'current');
+// v3 P0（docs/89 §3.1）：jobDir 迁出工作区，落 ProgramData 并配 ACL。
+// dsh-agent 必须能写自己的产物（done.json/headless.log 是 launcher 写的），所以目录给读写；
+// 但落盘的 job.json（任务输入）单独 Deny 写——被测方改不了「要它做什么」。
+export const JOBS_ROOT = process.env.DSH_JOBS_ROOT || 'C:\\ProgramData\\dsh-jobs';
+export const DEFAULT_JOB_DIR = process.env.DSH_JOB_DIR || path.join(JOBS_ROOT, 'current');
+const AGENT_USER = process.env.DSH_AGENT_USER || 'dsh-agent';
+
+function looksLikeJobsRoot(dir) {
+  const abs = path.resolve(dir);
+  return abs.toLowerCase().startsWith(path.resolve(JOBS_ROOT).toLowerCase());
+}
+
+// 幂等；失败返回 ok:false 供上层判断（不抛，免得一次缺管理员权限就把整单打死）。
+export function hardenJobDir(jobDir, jobFile = 'job.json') {
+  if (!looksLikeJobsRoot(jobDir)) return { ok: false, skipped: true, why: '非 ProgramData jobDir，跳过 ACL' };
+  const d = path.resolve(jobDir);
+  const a = spawnSync('icacls', [d, '/inheritance:r',
+    '/grant:r', 'Administrator:(OI)(CI)F', 'SYSTEM:(OI)(CI)F', `${AGENT_USER}:(OI)(CI)RW`],
+  { encoding: 'utf8' });
+  const target = path.join(d, jobFile);
+  const b = spawnSync('icacls', [target, '/deny', `${AGENT_USER}:(W)`], { encoding: 'utf8' });
+  const ok = a.status === 0 && b.status === 0;
+  return { ok, dir: a.status, file: b.status, err: ok ? '' : `${a.stderr || ''}${b.stderr || ''}`.trim() };
+}
 
 const STALE = ['done.json', 'headless.log', 'headless.err', 'task.txt', 'launcher.out', 'launcher.err'];
 
@@ -38,6 +61,8 @@ export function prepareJob({ task, cwd, timeoutSec = 2400, jobDir = DEFAULT_JOB_
   // 模型路由只经 job 文件传（不走继承环境变量）：低权侧自己决定要不要用别的 patch。
   if (patch) job.patch = String(patch);
   writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(job, null, 2), 'utf8');
+  // 落盘后立刻收 ACL：目录只给 Administrator/SYSTEM/agent 读写，job.json 对 agent Deny 写。
+  hardenJobDir(jobDir);
   return job;
 }
 

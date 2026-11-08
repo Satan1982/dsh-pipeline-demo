@@ -59,7 +59,7 @@
 1 15bc0df37554a0ab assert.equal(unfalsifiableReason(cmd), null, `${cmd} 不应被误拒`);
 3 160a1dc2184f87db assert.equal(runCli(['--bogus'], io), 2);
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
-16 171d4db9216880f9 assert.equal(r.ok, false);
+17 171d4db9216880f9 assert.equal(r.ok, false);
 1 17843835dd4ed1e7 assert.equal(readFileSync(path.join(dir, 'ci', 'policy.mjs'), 'utf8'), 'export const v = 1;\n');
 1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
 1 1844b3157bc7303b assert.equal(result.stdout.trim(), 'income=100 expense=30 balance=70');
@@ -126,6 +126,7 @@
 1 2bb08e3e0e043227 assert.match(DISPATCH, /env: \{ \.\.\.winEnv\(\), \.\.\.scrubbedEnv\(\)/u, 'headless 的 clean env 没带上 winEnv');
 1 2bb4b3f54297a93d assert.match(d.detail, /verdict:strict/);
 1 2c1007c2f797ae76 assert.equal(res.after, 3);
+1 2c527320d295a2c4 assert.equal(r.skipped, true);
 1 2ca29d9c5184cb7b assert.equal(body.includes('x'.repeat(3000)), false);
 1 2cd718af3cff5855 assert.equal(idle.busy, false);
 1 2cfb393bd3e97f25 assert.equal(r.cmd, null);
@@ -316,6 +317,7 @@
 1 692a5820dd520fa2 assert.ok(Math.abs(spend.cny - 1.3) < 1e-9);
 1 698af44bab3510e1 assert.equal(bad.ok, false);
 1 69f48a76140f793c assert.deepEqual(splitCommands(' npm test\r\n\r\n# 说明\necho ok '), ['npm test', 'echo ok']);
+1 6a71b435530b4f01 assert.match(r.why, /跳过 ACL/);
 1 6a7ee59b19c28f88 assert.equal(laneVerdict(undefined).ok, false);
 1 6aaa0f0d6a08f455 assert.equal(excerpt('abcdef', 0), '');
 1 6ac131abda23be3b assert.deepEqual(plan.skippedKindIds, ['Z-Image-Turbo']);
@@ -377,6 +379,7 @@
 1 7b4e36c677f8bb3b assert.equal(DISPATCH.includes("if (runEnv.DSH_HEADLESS_PATCH) runEnv.DSH_HEADLESS_ALLOW_CREDS = '1';"), true);
 1 7b57bbc4cf4a2ddd assert.equal(isPalindrome(''), true);
 1 7bf08c527e3baaa8 assert.ok(m, 'semantic-review.mjs 里找不到 PAID_REVIEW_MODELS 默认值');
+1 7cefd6d7174b59cb assert.equal(path.resolve(DEFAULT_JOB_DIR).toLowerCase().startsWith(path.resolve(JOBS_ROOT).toLowerCase()), true);
 1 7d4da2570f24aea9 assert.deepEqual([...a.issues].sort(), [27, 44]);
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e223ffe4a7bf66d assert.equal(lockHeld({ alive: true, ageMs: 11 * MIN, mode: 'serve', staleMs: STALE, beatStaleMs: 10 * MIN }), false);
@@ -440,6 +443,7 @@
 1 923b98e0a068a735 assert.ok(!out.includes('node:internal'));
 1 92d500da4225716b assert.deepEqual(pickFreeModels({}, FREE_STRONG_MODELS, 1), ['deepseek-ai/DeepSeek-V4.1-Flash-1017']);
 1 93ab4b55cab147ff assert.equal(merged.freeModel, FREE_REVIEW_MODEL);
+1 93ff978a68f2812d assert.equal(DEFAULT_JOB_DIR.includes('.worktrees'), false);
 1 94689f14ae303042 assert.match(formatUsage(u), /统计不到/);
 1 946c15de2dc9b8f6 assert.equal(entries.length, 1);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
