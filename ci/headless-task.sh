@@ -37,15 +37,10 @@ export PNPM_CLI="${PNPM_CLI:-$BUNDLE/pnpm/bin/pnpm.cjs}"
 
 export DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"
 
-# worktree 的 owner 是 Administrator，低权 agent 跑 git 会报 dubious ownership（2026-11-08
-# 实测 p3-01 第一次就因此「未产生任何改动」）。只在本入口进程内放开，不改 dsh-agent 的用户级
-# 配置（那个文件当前进程也没写权限）。
-# COUNT 必须恒定写成 1：若外层残留 GIT_CONFIG_COUNT=2，git 会去找 KEY_1，报
-# `unable to parse command-line config`，agent 的 verify 首次就红（2026-11-08 实测 #128）。
-export GIT_CONFIG_COUNT=1
-unset GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 2>/dev/null || true
-export GIT_CONFIG_KEY_0="safe.directory"
-export GIT_CONFIG_VALUE_0="*"
+# worktree 的 owner 是 Administrator，低权 agent 跑 git 会报 dubious ownership。修复放在
+# dsh-agent 的用户级 .gitconfig（[safe] directory=*，由提权通道写入），**不要**用 GIT_CONFIG_* env：
+# 2026-11-08 实测 DSH 起工具子进程时会滤掉名字含 KEY 的变量——GIT_CONFIG_KEY_0 丢失，
+# 只剩 COUNT/VALUE_0，git 报 `missing config key GIT_CONFIG_KEY_0`，所有 git 命令全红（#128/#132）。
 
 ALLOW_CREDS="${DSH_HEADLESS_ALLOW_CREDS:-0}"
 if [ "$ALLOW_CREDS" = "1" ]; then
