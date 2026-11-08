@@ -67,3 +67,36 @@ export function laneVerdict(lane) {
     why: `本地 LLM 槽位被 ${lane.holder} 占用（${lane.status || '?'}；单槽，Hindsight 会周期性唤醒它）`,
   };
 }
+
+// 2026-11-08 用户裁决（会话 m00538：「这个新方案以后都停用本地大模型了」）：
+// 默认停用本地 Lemonade 档——dispatch 不再探活 /health，也不再把「本地槽位可用」
+// 当作 agent:blocked 重投的依据。DSH_LOCAL_LANE=1 只留给旧流程或本机测试临时恢复。
+export const LOCAL_LANE_SWITCH = 'DSH_LOCAL_LANE';
+
+/** 本地大模型档是否启用：默认 false，只有显式 DSH_LOCAL_LANE=1 才开。 */
+export function localLaneEnabled(env = process.env) {
+  return String(env?.[LOCAL_LANE_SWITCH] ?? '').toLowerCase() === '1';
+}
+
+/** 停用态的统一答复，与 poolHealth 的 { ok, why } 形状一致。 */
+export function disabledLaneVerdict() {
+  return {
+    ok: false,
+    disabled: true,
+    why: '本地大模型档已停用（新方案不依赖本地模型；DSH_LOCAL_LANE=1 才启用）',
+  };
+}
+
+/**
+ * 重投判据（纯函数，方便单测）：任一条通道可用就重投，都不行就等下一档退避。
+ * 本地档停用后只剩云端（付费档 / 免费池）一条判据。
+ */
+export function decideRequeue({ paid, cloud, local, localEnabled }) {
+  if (paid && cloud?.ok) return { ok: true, why: `付费档可用（${cloud.why}）` };
+  if (!localEnabled) {
+    if (cloud?.ok) return { ok: true, why: `云端可用（${cloud?.why}）；本地大模型档已停用` };
+    return { ok: false, why: `云端：${cloud?.why ?? '未知'}；本地大模型档已停用` };
+  }
+  if (local?.ok) return { ok: true, why: paid ? `本地槽位可用（${local.why}）` : local.why };
+  return { ok: false, why: `云端：${cloud?.why ?? '未知'}；本地：${local?.why ?? '未知'}` };
+}

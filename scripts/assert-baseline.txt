@@ -16,6 +16,7 @@
 1 05edc66d6d686fad assert.deepEqual(ok.unknown, [], '带值的旗标不该把值本身当未知旗标');
 1 067649496a471540 assert.deepEqual(splitCommands(''), []);
 1 06ac2aac5475ec27 assert.match(body, /### 验收命令/);
+1 06febcf943b1f542 assert.equal(decideRequeue({ paid: false, cloud: cloudBad, local: { ok: false, why: '被占' }, localEnabled: true }).ok, false);
 1 07068f04c0de0bb5 assert.match(d.reason, /仍不可用/);
 1 07168f623531300f assert.match(laneVerdict(busy).why, /排队/);
 1 0719893b41e77460 assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
@@ -84,6 +85,7 @@
 1 1a4310201679f9ed assert.equal(finalText([ev({ type: 'text', text: 'a' }), ev({ type: 'text', text: 'b' })].join('\n')), 'ab');
 1 1a6b7e16abfa4bd0 assert.match(parseRepos([]).errors[0], /空/);
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
+1 1a9ce181ea2bfc04 assert.equal(decideRequeue({ paid: true, cloud: cloudBad, local: { ok: true, why: '槽位空闲' }, localEnabled: true }).ok, true);
 1 1ac79781a2ab86d3 assert.equal(sumRange(1, 5), 15);
 1 1b2309d38f6d1534 assert.equal(docsRun, EXIT_OK);
 1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
@@ -253,6 +255,7 @@
 1 47eaccd553bce5ff assert.deepEqual(parseAllowlist(' '), []);
 1 4802f69573f6c2be assert.throws(() => isPalindrome(123), TypeError);
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
+1 488a2bd630d58ecd assert.equal(localLaneEnabled({}), false);
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
 1 4890e2372ffb5a02 assert.deepEqual(llmEntries({ all_models_loaded: [EMB] }), []);
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
@@ -333,6 +336,7 @@
 1 60ad515fc2e7555f assert.equal(fib(0), 0);
 1 60b6c6b3c613cdd7 assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
 1 6107689f9c33d685 assert.throws(() => topoLevels(parseTasks(cyclic)), /依赖成环/);
+1 613d0ff38a70a3b6 assert.equal(localLaneEnabled({ DSH_LOCAL_LANE: '0' }), false);
 1 615c91b68d5d6b95 assert.equal(isFreePoolDown('no available model for this route'), true);
 1 61a099abd63aec29 assert.equal(SCRIPT.includes('PATCH="${DSH_HEADLESS_PATCH:-$ROOT/ci/headless-local.yml}"'), true);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
@@ -375,6 +379,7 @@
 1 6c9771005f2ebe81 assert.equal(formatPriorFailures('Error: 全新错误', file), '');
 1 6cb4c0e4995411a1 assert.equal(typeof mod, 'object');
 1 6d0df013d9b189db assert.deepEqual(statsByCause(path.join(dir, 'nope.jsonl')), []);
+1 6d22aaee7e06fc9b assert.equal(decideRequeue({ paid: true, cloud: cloudOk, localEnabled: false }).ok, true);
 1 6d2428f97fa55287 assert.match(logs.join('\n'), /无需 witness/);
 1 6d388e6bd2288a5f assert.deepEqual(d.orphanLabels, [12]);
 1 6d3b11f0a563d6dc assert.equal(readCredential(file), 'fake-value-for-test');
@@ -423,6 +428,7 @@
 1 78bfb93b331bb408 assert.deepEqual(missingLabels([...REQUIRED_LABELS, 'dep-on:T1']), []);
 1 7938e09a686e9691 assert.equal(formatFirstError({ found: false }), '（未解析到失败测试）');
 1 7966810fe8a9ce49 assert.deepEqual(mixed.gate, ['ci/x.mjs']);
+1 7977f92a60e91473 assert.equal(blocked.ok, false);
 1 7978bcfd36da7752 assert.equal(isPositive(0), false);
 1 797a8f01312a4ab3 assert.equal(d.entry.requeues, 1);
 1 7a09ee8f22406f3a assert.equal(high.requireAcceptance, true);
@@ -514,6 +520,7 @@
 1 92d500da4225716b assert.deepEqual(pickFreeModels({}, FREE_STRONG_MODELS, 1), ['deepseek-ai/DeepSeek-V4.1-Flash-1017']);
 1 93ab4b55cab147ff assert.equal(merged.freeModel, FREE_REVIEW_MODEL);
 1 93ff978a68f2812d assert.equal(DEFAULT_JOB_DIR.includes('.worktrees'), false);
+1 941303031dfe5ef1 assert.equal(decideRequeue({ paid: false, cloud: cloudBad, local: { ok: true, why: '槽位空闲' }, localEnabled: true }).ok, true);
 1 94689f14ae303042 assert.match(formatUsage(u), /统计不到/);
 1 946c15de2dc9b8f6 assert.equal(entries.length, 1);
 1 946c74abad07c9fa assert.throws(() => fib(-1), TypeError);
@@ -534,6 +541,7 @@
 1 97151d445d92ccb5 assert.equal(typo.lane, LANE.highRisk);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
 1 975ea2c125aa5fca assert.deepEqual(r.unknown, [], '--serve 被当成未知旗标会让 startResident() 拉起的进程 exit 2，常驻永远起不来');
+1 97aff216511a45d6 assert.match(off.why, /已停用/);
 1 97dac011e31a8d24 assert.equal(statsExpired(now - 9 * 60 * 1000, now, 5 * 60 * 1000), true, 'TTL 可覆盖');
 1 98049eeb7cb20b4f assert.equal(parsed.kind, 'tap');
 1 981cfef14769a936 assert.ok(interval < 3 * 60 * 1000, `心跳间隔 ${interval}ms 不小于判陈旧阈值 180000ms，跑单期间仍会被接管`);
@@ -636,6 +644,7 @@
 1 b052d4385ef5a273 assert.throws(() => addEntry([], { date: '2026-02-30', amount: 100, note: '工资' }), TypeError);
 1 b0798b8e78ec6e89 assert.equal(st.corrupt, true);
 1 b099d95d7fb18c01 assert.match(r.findings[0].message, /空输入/);
+1 b0ad911b5f02c705 assert.match(blocked.why, /已停用/);
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
 1 b2379d4f9dbce23b assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
@@ -697,6 +706,7 @@
 1 c26b97a863acafd2 assert.deepEqual(files, ['scripts/verify.sh', 'ci/dispatch.mjs']);
 1 c2922946bf57a58b assert.match(formatSemantic(merged), /评审团 2\/2 有效/);
 1 c2b4e7589a8a5ef1 assert.equal(lanePolicy('unknown').tier, 3);
+1 c30a8a09f1e11f61 assert.match(decideRequeue({ paid: false, cloud: cloudOk, localEnabled: false }).why, /云端可用/);
 1 c34f2e331bacde66 assert.equal(back.kind, 'blocked-manual');
 1 c376b10368dc6b02 assert.deepEqual(args, { date: '2026-10-01', amount: 100, note: 'salary', file: 'ledger.json' });
 1 c40e7d1ce2bd630b assert.equal(autoMergeAllowed(PILOT_REPO, parseAllowlist('')), false);
@@ -785,6 +795,8 @@
 1 d82b6d13ce145b89 assert.equal(powOf(2, 3), 8);
 1 d89c47ab8c174f62 assert.equal(recoveryDecision({ entry: null, now: T0 }).action, 'skip');
 1 d8aa09c79dc94680 assert.equal(DISPATCH.includes('function winEnv()'), true, '缺少 winEnv()');
+1 d907abe22f30533a assert.equal(localLaneEnabled({ DSH_LOCAL_LANE: '1' }), true);
+1 d98a7074446b8d2a assert.equal(off.ok, false);
 1 d9fba3ccf2190da3 assert.equal(slugify(' A B '), 'a-b');
 1 da00f34046543dc7 assert.equal(d.entry.gaveUp, true);
 1 da0ccd20f18ed91b assert.ok(r.errors.some((e) => e.includes('写事件失败')));
@@ -871,6 +883,7 @@
 1 f125fcb297933f94 assert.equal(classifyConflicts(undefined).kind, 'none');
 1 f1c718d5d3e5f8e7 assert.equal(typeof body.description, 'string');
 1 f27c6af079a31a5b assert.match(body.text, /\[流水线 #88\] 任务失败/);
+1 f2e291b74ec3990c assert.equal(off.disabled, true);
 1 f30bc43c7cfb62c3 assert.equal(merged.reviewers.length, 2);
 1 f35432dba5cefc42 assert.match(payload.color, /^[0-9a-f]{6}$/);
 1 f42af9ac5c8186ad assert.equal(LABEL_META[NEEDS_INFO_LABEL].color, payload.color);

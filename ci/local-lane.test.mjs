@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_LOCAL_MODEL, llmEntries, laneState, laneVerdict } from '../ci/local-lane.mjs';
+import { DEFAULT_LOCAL_MODEL, llmEntries, laneState, laneVerdict, localLaneEnabled, disabledLaneVerdict, decideRequeue } from '../ci/local-lane.mjs';
 
 const EMB = { model_name: 'Qwen3-Embedding-0.6B-GGUF', type: 'embedding', status: 'ready', pid: 25068 };
 // 目标模型 = 默认档（2026-11-07 起常驻 Qwen3-Coder-30B；9B 已退场）。
@@ -56,4 +56,30 @@ test('laneVerdict 对未知输入不抛错，按不可用处理', () => {
   assert.equal(laneVerdict(null).ok, false);
   assert.equal(laneVerdict(undefined).ok, false);
   assert.equal(laneVerdict({}).ok, false);
+});
+
+
+test('本地大模型档默认停用：只有 DSH_LOCAL_LANE=1 才启用', () => {
+  assert.equal(localLaneEnabled({}), false);
+  assert.equal(localLaneEnabled({ DSH_LOCAL_LANE: '0' }), false);
+  assert.equal(localLaneEnabled({ DSH_LOCAL_LANE: '1' }), true);
+  const off = disabledLaneVerdict();
+  assert.equal(off.ok, false);
+  assert.equal(off.disabled, true);
+  assert.match(off.why, /已停用/);
+});
+
+test('重投判据：停用本地后只看云端；开启本地时两通道任一可用', () => {
+  const cloudOk = { ok: true, why: '有 2 个 ok 模型' };
+  const cloudBad = { ok: false, why: '无 ok 模型' };
+  // 停用本地：付费档走云端；普通档也只看云端。
+  assert.equal(decideRequeue({ paid: true, cloud: cloudOk, localEnabled: false }).ok, true);
+  assert.match(decideRequeue({ paid: false, cloud: cloudOk, localEnabled: false }).why, /云端可用/);
+  const blocked = decideRequeue({ paid: false, cloud: cloudBad, localEnabled: false });
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.why, /已停用/);
+  // 开启本地：旧行为保留。
+  assert.equal(decideRequeue({ paid: false, cloud: cloudBad, local: { ok: true, why: '槽位空闲' }, localEnabled: true }).ok, true);
+  assert.equal(decideRequeue({ paid: true, cloud: cloudBad, local: { ok: true, why: '槽位空闲' }, localEnabled: true }).ok, true);
+  assert.equal(decideRequeue({ paid: false, cloud: cloudBad, local: { ok: false, why: '被占' }, localEnabled: true }).ok, false);
 });

@@ -43,7 +43,7 @@ import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
 import { freePoolDecision, blockReason } from './pool-block.mjs';
 import { recoveryDecision, initialEntry, isDue, parseBackoff, pruneState, MAX_AUTO_REQUEUE } from './blocked-recovery.mjs';
-import { laneState, laneVerdict, DEFAULT_LOCAL_MODEL } from './local-lane.mjs';
+import { laneState, laneVerdict, DEFAULT_LOCAL_MODEL, localLaneEnabled, disabledLaneVerdict, decideRequeue } from './local-lane.mjs';
 import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
@@ -909,7 +909,8 @@ function poolHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
   return value;
 }
 
-// 本地免费档的槽位探活（Lemonade /health）。理由见 ci/local-lane.mjs 顶部：
+// 本地免费档的槽位探活（Lemonade /health）。2026-11-08 起默认停用（DSH_LOCAL_LANE=1 才开）：
+// 新方案不再依赖本地大模型，重投只看云端通道。旧理由保留在此，供临时启用时对照：
 // 云端池「有 ok 模型」不代表这张单真能跑——低权隔离把密钥挡掉后，任务实际落到本地
 // Lemonade，而它的 LLM 槽位只有 1 个，Hindsight 的 Qwen3.5-9B 会周期性把槽位占了。
 // 只看云端就重投，等于让工单必然再挂一次（0 token），一晚上的重投预算（3 次）很快烧完。
@@ -918,6 +919,8 @@ const LOCAL_MODEL = process.env.DSH_LOCAL_MODEL || DEFAULT_LOCAL_MODEL;
 let LANE_PROBE = { at: 0, value: null };
 
 async function localLaneHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {}) {
+  // 2026-11-08 用户裁决：新方案停用本地大模型；默认不探活、不把本地槽位当重投依据。
+  if (!localLaneEnabled()) return disabledLaneVerdict();
   if (LANE_PROBE.value && now - LANE_PROBE.at < ttl) return LANE_PROBE.value;
   let value;
   try {
@@ -931,18 +934,18 @@ async function localLaneHealth({ now = Date.now(), ttl = POOL_PROBE_TTL_MS } = {
   return value;
 }
 
-// 这张单重投出去能不能真的跑？两条通道各自独立：
+// 这张单重投出去能不能真的跑？2026-11-08 起只走云端通道（本地大模型档默认停用）：
 //   model:paid 走云端付费档 —— 云端池有 ok 模型就行；
-//   其余（含 model:strong）在低权通道里落到本地 Lemonade —— 本地槽位可用才行。
+//   其余走云端免费池 —— 同样以 poolHealth 为准。
+// 本地档只在 DSH_LOCAL_LANE=1 时参与判断（旧流程/本机测试）；判据本身是纯函数，见 local-lane.mjs。
 // 任一条可用就重投；都不可用就继续等下一档退避（等待是免费的，白跑一次不是）。
 async function requeueLane(issue, { now = Date.now() } = {}) {
   const cloud = poolHealth({ now });
   const labels = (Array.isArray(issue?.labels) ? issue.labels : []).map((l) => String(l?.name ?? l));
   const paid = labels.includes('model:paid');
-  if (paid && cloud.ok) return { ok: true, why: `付费档可用（${cloud.why}）` };
-  const local = await localLaneHealth({ now });
-  if (local.ok) return { ok: true, why: paid ? `本地槽位可用（${local.why}）` : local.why };
-  return { ok: false, why: `云端：${cloud.why}；本地：${local.why}` };
+  const enabled = localLaneEnabled();
+  const local = enabled ? await localLaneHealth({ now }) : null;
+  return decideRequeue({ paid, cloud, local, localEnabled: enabled });
 }
 
 async function recoverBlocked() {
