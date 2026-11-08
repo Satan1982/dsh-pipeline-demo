@@ -31,6 +31,8 @@ const RUNS = Math.max(1, Number(opt('--runs', '3')));
 const ONLY = opt('--only', '').split(',').map((s) => s.trim()).filter(Boolean);
 const KEEP = argv.includes('--keep');
 const DRY = argv.includes('--dry');
+// 付费档：免费池限流时用 --paid 让每张单走 deepseek-flash（约 ¥0.1/单），保证全量测试速度。
+const PAID = argv.includes('--paid');
 const TIMEOUT_MS = Number(opt('--timeout', String(45 * 60 * 1000)));
 
 function log(msg) { console.log(`[pass3-issues ${new Date().toISOString().slice(11, 19)}] ${msg}`); }
@@ -117,7 +119,7 @@ async function main() {
       for (let r = 1; r <= RUNS; r++) {
         const title = `[${task.id} r${r}] ${task.title}`;
         const issue = await api('POST', `/repos/${REPO}/issues`, {
-          title, body: issueBody(task), labels: ['agent:ready', 'lane:standard'],
+          title, body: issueBody(task), labels: ['agent:ready', 'lane:standard', ...(PAID ? ['model:paid'] : [])],
         });
         log(`#${issue.number} 已创建：${title}`);
         const code = await runDispatch(['--once', '--issue', String(issue.number)]);
