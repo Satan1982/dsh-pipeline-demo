@@ -10,13 +10,14 @@
 ## Rules
 
 - Never weaken or delete a test to make the gate pass. If a test is wrong, fix the test *and* the code in the same PR with a reason in the description.
-- **Test baseline is enforced, not advised.** `scripts/test-baseline.txt` holds `<tests> <asserts>`. `verify.sh` refuses to pass when either number *drops* (delete-to-green), and also refuses when either number *grows* without the baseline being updated — so adding tests requires `bash scripts/verify.sh --bless` in the same PR. Lowering the baseline in the same PR that deletes tests is rejected by the CI step "Test baseline must not shrink".
+- **Test baseline is enforced, not advised.** `scripts/test-baseline.txt` holds `<tests> <asserts>`. `verify.sh` refuses to pass when either number *drops* (delete-to-green), and also refuses when either number *grows* without the baseline being updated — so adding tests requires `bash scripts/verify.sh --bless` in the same PR. Lowering the baseline in the same PR that deletes tests is rejected by the CI step "Test baseline must not shrink". **v3 P1（2026-11-08）：`--bless` 不再进自动流程**——调度器和解冲突 agent 都不会跑它；基线冲突/需重算一律转人工，人确认后作为独立步骤重算。
 - **Assertion *content* is fingerprinted too.** `scripts/assert-baseline.txt` stores `<count> <sha256-16> <normalized line>` for every `assert.*` line. Locally, rewriting an assertion (even `2` -> `2.0`), deleting one, **or adding one without blessing** fails `assert guard` — a new assertion that is not fingerprinted is unprotected, so additions must be blessed in the same PR. The CI step "Assertion content must not be rewritten" runs the same script against the base branch with `--allow-additions`: additions are fine there (the PR's own baseline already covers them), rewrites and deletions are not. Re-blessing therefore cannot hide a rewritten assertion. To legitimately change an assertion: fix the code first, then run `bash scripts/verify.sh --bless` and say why in the PR.
 - Never edit `.github/workflows/*` unless the task is explicitly about CI.
 - Do not add a dependency without a license check and a human approval.
 - One PR = one vertical slice = runnable end to end.
 - Commit subject: short imperative line, no AI attribution, no body unless needed.
-- **Land changes with `bash ci/land.sh "<subject>"`.** It runs the gate, commits, pushes (https first, SSH endpoint when https is down) and mirrors to Gitee in one call. Do not hand-run `verify` + `add` + `commit` + `push` + `mirror` as separate rounds.
+- **Land changes with `bash ci/land.sh "<subject>"`.** It runs the gate, commits, verifies the witness chain (源文件改动没有签名证据就拒绝 push), pushes (https first, SSH endpoint when https is down) and mirrors to Gitee in one call. Do not hand-run `verify` + `add` + `commit` + `push` + `mirror` as separate rounds.
+- **Every issue carries a lane label**: `lane:docs` / `lane:standard` / `lane:high-risk`. Missing, conflicting or misspelled labels make the task high-risk (T3) and count toward an unknown-rate target of ≤5%. high-risk never accepts `acceptance:optional` and always requires a `VERDICT:` line.
 - **Wait with `bash ci/watch.sh <seconds> [pattern]`**, not with repeated `sleep` + `tail` rounds: run it as a background job and collect it once.
 
 ## Layout
@@ -55,7 +56,7 @@ bash /d/code/.secrets/gh-push.sh v0.1.1     # main + tag -> triggers release.yml
 
 - 工单必须有 `### 验收命令` 段：调度器自己 `bash -lc` 执行它，`exit 0` 才允许开 PR；确实不需要就加 `acceptance:optional`。
 - 验收命令最后一行打印 `VERDICT: PASS` 或 `VERDICT: FAIL <原因>`：`FAIL` 一律失败，`PASS` 但 `exit != 0` 也失败；工单打了 `verdict:strict` 则没有 VERDICT 行直接失败。
-- 红线不靠提示词：worktree 的 `core.hooksPath` 指向 `.githooks`，`commit` 时由 `ci/precommit.mjs` 跑机械评审（禁止改 `.github/workflows/`、禁止调试占位符、禁止删测试/断言；改门禁需 `DSH_ALLOW_GATE=1` 且工单带 `allow:gate`）。
+- 红线不靠提示词：worktree 的 `core.hooksPath` 指向 `.githooks`，`commit` 时由 `ci/precommit.mjs` 跑机械评审（禁止改 `.github/workflows/`、禁止调试占位符、禁止删测试/断言；改门禁脚本不再有本地放行开关，本仓约定用 `git commit --no-verify`，push 时由 `ci/trust/verify.mjs` 验签，只对「仅门禁脚本改动」且显式 `DSH_LAND_GATE_UPDATE=1` 放行并留痕）。
 - 失败指纹落在 `docs/failures.jsonl`（上限 500 行，超出淘汰最早的），重试时同一指纹的历史修法会回灌给 agent。
 
 ## Cloud model access (shared free pool — never hardcode model names)
