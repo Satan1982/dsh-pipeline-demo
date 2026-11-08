@@ -35,6 +35,8 @@ import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { overlayOriginGate } from './gate-snapshot.mjs';
+import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
+import { HIGH_RISK_LABEL, defaultLaneStatsFile, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
 import { classifyConflicts } from './rebase-conflict.mjs';
 import { decideAcceptance } from './verdict.mjs';
@@ -275,6 +277,12 @@ const LOG_DIR = process.env.DSH_LOG_DIR || path.join(REPO_DIR, '.logs');
 // 换行常量：本文件里避免在模板字符串中写转义（历史上被脚本改坏过两次）。
 const NL = String.fromCharCode(10);
 const LOG_FILE = path.join(LOG_DIR, 'dispatch.log');
+// v3 P1（docs/89 §3.1）：证据链单独一条 append-only JSONL，和运行日志分开——
+// 日志会轮转覆盖，证据不能（链一断，所有已签的 witness 就作废了）。
+const WITNESS_FILE = process.env.DSH_WITNESS_FILE || defaultChainFile(REPO_DIR);
+const LANE_STATS_FILE = defaultLaneStatsFile(REPO_DIR);
+// 进程启动时从落盘记录恢复样本；之后每张单追加一条。重启不清零（目标 ≤5% 才有意义）。
+const LANE_RECORDS = loadLaneStats(LANE_STATS_FILE);
 // 本地时间带日期：旧格式是 UTC 的 [HH:MM:SS]、不带日期，跨天翻日志会把昨天的行当成「刚才」。
 const stamp = () => {
   const d = new Date();
@@ -1031,7 +1039,11 @@ async function verifyWorktree(wt) {
     cwd: wt, timeout: 15 * 60 * 1000,
     env: { PATH: CHILD_PATH, PNPM_CLI },
   });
-  if (v.code === 0) return { ok: true, gate_bytes_sha256: gate.sha256, gate_ref: gate.ref };
+  if (v.code === 0) {
+    // stdout 一起带回去：witness 的 stdout_sha256 要绑「这次门禁到底吐了什么」，
+    // 只记 gate 字节哈希证明不了门禁的输出没有在记录前后被换掉。
+    return { ok: true, gate_bytes_sha256: gate.sha256, gate_ref: gate.ref, stdout: `${v.out}\n${v.err}` };
+  }
   // 78 = EX_CONFIG：门禁自己判定「这台机器现在跑不了子进程」，不是代码问题。
   // code -1 / 带 error：连 bash 都没起来（PATH 错、WSL 抢了 bash.exe），同样是环境不是代码。
   // 记成普通失败会让同一张工单白烧三次重试预算（红线：环境失败不消耗重试预算）。
@@ -1062,6 +1074,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
   const tag = `[issue #${n}]${attempt > 1 ? `(第 ${attempt} 次)` : ''}`;
   const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
   log(`${tag} 领取：${issue.title}`);
+
+  // v3 P1（docs/89 §3.4）：lane 决定验证强度。没声明/冲突 → high-risk（fail-closed），
+  // 并把决策写回 issue 标签：人能看到「机器按最严档处理了」，unknown-rate 也不会被静默洗掉。
+  const lane = parseLane(labels);
+  const lp = lanePolicy(lane.lane);
+  recordLane(LANE_STATS_FILE, { issue: n, lane: lane.lane, unknown: lane.unknown, declared: lane.declared, why: lane.why });
+  LANE_RECORDS.push({ unknown: lane.unknown });
+  log(`${tag} ${formatLaneLine(lane, laneStats(LANE_RECORDS))}`);
+  if (lane.unknown) {
+    await api('POST', `/repos/${REPO}/issues/${n}/labels`, { labels: [HIGH_RISK_LABEL] })
+      .catch((e) => log(`${tag} ⚠ 回写 ${HIGH_RISK_LABEL} 失败（不影响任务）：${e.message}`));
+  }
 
   const sections = parseSections(issue.body);
   const goal = pick(sections, '目标');
@@ -1268,8 +1292,12 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     if (!acceptanceCmds) {
       // P0-6：没有验收命令的工单不进交付流程 —— 否则「做完了」全靠 agent 自述。
       // 例外：确实写不出可执行验收的工单，打 `acceptance:optional` 明确豁免。
-      if (!labels.includes('acceptance:optional')) {
-        const detail = 'issue 缺少 `### 验收命令` 段：调度器没有可执行的验收，不生成 PR（确需豁免请打 `acceptance:optional` 标签）';
+      // v3 P1（docs/89 §3.4）：high-risk（含 unknown）不允许这个例外 —— 高风险单没有
+      // 可执行验收等于没有裁判，必须补 `### 验收命令`。
+      if (!labels.includes('acceptance:optional') || !lp.allowOptionalAcceptance) {
+        const detail = (lp.forceStrictVerdict && labels.includes('acceptance:optional'))
+          ? 'high-risk lane 不接受 `acceptance:optional` 豁免：请补 `### 验收命令`（高风险永远 T3）'
+          : 'issue 缺少 `### 验收命令` 段：调度器没有可执行的验收，不生成 PR（确需豁免请打 `acceptance:optional` 标签）';
         recordFailure({ text: detail, issue: n, attempt, reason: 'missing acceptance command' }, FAIL_STORE);
         throw new Error(detail);
       }
@@ -1281,7 +1309,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         cwd: wt, timeout: 300_000, env: { PATH: CHILD_PATH, PNPM_CLI },
       });
       // 退出码 0 只说明「命令没崩」，不说明「验收过了」：有 VERDICT 行就以它为准。
-      const decision = decideAcceptance(res, { strict: labels.includes('verdict:strict') });
+      // high-risk lane 强制 strict：没有 VERDICT 行即失败（docs/89 §3.4 → 永远 T3）。
+      const decision = decideAcceptance(res, { strict: labels.includes('verdict:strict') || lp.forceStrictVerdict });
       acceptanceVerdict = decision.verdict;
       const output = `${res.out ?? ''}\n${res.err ?? ''}`.trim();
       if (!decision.ok) {
@@ -1302,6 +1331,16 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
         'commit', '-m', `agent: issue #${n}`], { cwd: wt });
       if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
     }
+
+    // v3 P1（docs/89 §3.1/§3.2）：门禁通过 + 本次提交签发一条 witness。
+    // 签发点放在「提交之后」：§3.1 要求工作树干净才签，而 overlay 快照门禁是在 agent 的脏
+    // 工作树上跑的；提交后 HEAD/tree 才是合并判据（L2：合并树哈希 == witness.tree_after）
+    // 能引用的那个。工作树不干净时 attestCommit 直接拒绝（fail-closed）。
+    const att = attestCommit({
+      repoDir: wt, issue: n, stdout: gate.stdout, gateBytes: gate.gate_bytes_sha256, chainFile: WITNESS_FILE,
+    });
+    if (!att.ok) throw new Error(`证据签发失败（不 push 未签名证据）：${att.why}`);
+    log(`${tag} witness ${att.witness.hash.slice(0, 12)}：commit ${att.witness.commit.slice(0, 8)} tree ${att.witness.tree_after.slice(0, 8)}`);
 
     // 2) 评审层：机械判定，push 之前拦
     const review = reviewAfterCommit(wt, 'origin/main', { allowGate });
@@ -1530,6 +1569,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 // github.com 的 git 通道会间歇性重置连接（实测 push 报 `Recv failure: Connection was reset`，
 // 几秒后重试就成功），所以 push 也要退避重试，不能一次失败就把整轮 rebase 判死。
 async function pushWithRetry(cwd, refspec, extraArgs = []) {
+  // v3 P1（docs/89 §3.1）：push 前断言。链必须完整，且要推的 HEAD 被某条 witness 覆盖
+  // （commit + tree_after 双匹配，§3.2 L2）。放在退避重试之前判一次：网络失败可以重试，
+  // 证据缺失重试也补不出来；这条不通过就绝不 push。
+  const proof = assertHeadWitnessed({ repoDir: cwd, chainFile: WITNESS_FILE });
+  if (!proof.ok) throw new Error(`push 前断言失败（拒推未签名证据）：${proof.why}`);
   const backoff = [3000, 7000, 15000, 30000];
   let last = null;
   for (let i = 0; i <= backoff.length; i += 1) {
@@ -1807,34 +1851,19 @@ ${logText.slice(-8000)}
 
 // 分支落后 main 且真的冲突时，CI 那套修不了（推送前就 405）。自动 rebase 一次：
 // 干净 rebase → force-with-lease 推回分支，CI 会重跑；真冲突 → 评论 + agent:failed 转人工。
-// 冲突只落在基线文件时，正确解法不是挑一边：先取 main 的基线把 rebase 走完，
-// 再在合并后的测试文件上跑 --bless 重算，最后把结果折进最后一个提交。
-// 这样并行的 agent PR 不会因为「基线的数字不一样」互相卡死。
+// 冲突只落在基线文件时，以前是在合并后的测试上自动跑 `--bless` 重算再折进提交。
+// v3 P1（docs/89 §3.1）：`--bless` 已移出自动流程——改基线等于改门禁判据，不能让调度器
+// 或 agent 自证；只能人工确认后作为独立步骤重算。所以这里直接转人工，不再自动改基线。
 async function resolveBaselineOnlyRebase(wt, files) {
-  const ours = await run(GIT, ['checkout', '--ours', '--', ...files], { cwd: wt });
-  if (ours.code !== 0) return { ok: false, reason: `checkout --ours 失败：${ours.err.trim().slice(0, 200)}` };
-  const add = await run(GIT, ['add', '--', ...files], { cwd: wt });
-  if (add.code !== 0) return { ok: false, reason: `git add 失败：${add.err.trim().slice(0, 200)}` };
-  const cont = await run(GIT, ['rebase', '--continue'], { cwd: wt, env: { ...process.env, GIT_EDITOR: 'true' } });
-  if (cont.code !== 0) return { ok: false, reason: `rebase --continue 失败：${(cont.err || cont.out).trim().slice(0, 300)}` };
-  const bless = await run(BASH, ['scripts/verify.sh', '--bless'], {
-    cwd: wt,
-    timeout: 15 * 60 * 1000,
-    env: { PATH: CHILD_PATH, PNPM_CLI },
-  });
-  if (bless.code !== 0) {
-    return { ok: false, reason: `重算基线时门禁未通过：${(bless.out + bless.err).trim().slice(-600)}` };
-  }
-  const status = await worktreeStatus(wt);
-  if (status) {
-    await run(GIT, ['add', '-A'], { cwd: wt });
-    const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
-    if (amend.code !== 0) return { ok: false, reason: `基线重算后 amend 失败：${amend.err.trim().slice(0, 200)}` };
-  }
-  return { ok: true };
+  return {
+    ok: false,
+    needHuman: true,
+    reason: `基线文件冲突（${files.join(', ')}）：--bless 已移出自动流程，需人工执行 `
+      + '`bash scripts/verify.sh --bless` 并提交基线后重新 rebase',
+  };
 }
 
-// 源码文件真冲突时，让 agent 来解一次：两边功能都要保留、基线重算、门禁通过。
+// 源码文件真冲突时，让 agent 来解一次：两边功能都要保留、门禁通过（基线只报告、不重算）。
 // 只有它解不了才转人工——这样并行 PR 改同一个文件不会永远卡在人手上。
 async function resolveConflictsWithAgent(wt, issueN, files) {
   const prompt = `分支 rebase 到最新 main 时发生了冲突，你只负责解决冲突，不要做别的功能改动。
@@ -1845,7 +1874,7 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
 1. 先读仓库根目录的 AGENTS.md，了解门禁和禁止事项。
 2. 运行 \`git rebase origin/main\`。冲突时逐个文件手工合并：**两边的功能都要保留**（main 上已有的函数/测试，本分支新增的函数/测试，一个都不许丢），不许为了让冲突消失而删掉任何一侧。
 3. 解决后 \`git add <文件>\`，再 \`git -c core.editor=true rebase --continue\`；如果又出现冲突，继续同样处理，直到 rebase 完成。
-4. rebase 完成后跑 \`bash scripts/verify.sh --bless\` 让基线跟上合并后的测试，再跑一次 \`bash scripts/verify.sh\` 确认通过。
+4. rebase 完成后跑一次 \`bash scripts/verify.sh\` 确认通过。**不要跑 \`--bless\`**：基线是门禁判据，调度器和 agent 都不能自证（v3 P1，docs/89 §3.1）。如果失败原因只是基线数字变了（scripts/test-baseline.txt / assert-baseline.txt），停下来，在输出里列出需要人工重算的基线项，不要自己改基线。
 5. 不要 \`git push\`、不要开 PR，调度器会处理。
 6. 如果保留两边功能后确实无法解决，停下来，在输出里说明是哪个文件、为什么，不要硬删代码。
 
@@ -1913,19 +1942,20 @@ async function rebaseAgentBranch(pr, issueN) {
       const conflictsRaw = (await run(GIT, ['diff', '--name-only', '--diff-filter=U'], { cwd: wt })).out;
       const cls = classifyConflicts(conflictsRaw.split('\n'));
 
-      // 只有基线文件冲突时，可以按合并后的测试重算，不需要人。
+      // v3 P1（docs/89 §3.1）：基线文件冲突也不再自动修 —— `--bless` 已移出自动流程，
+      // 改基线等于改门禁判据，只能人工确认后作为独立步骤重算再 rebase。
       if (cls.kind === 'baseline-only') {
-        log(`${tag} 冲突只在基线文件（${cls.files.join(', ')}），按合并后的测试重算`);
+        log(`${tag} 冲突只在基线文件（${cls.files.join(', ')}），不自动 --bless，转人工`);
         const resolved = await resolveBaselineOnlyRebase(wt, cls.files);
         if (resolved.ok) {
           log(`${tag} 基线已重算，继续跑门禁`);
         } else {
           await run(GIT, ['rebase', '--abort'], { cwd: wt }).catch(() => {});
           await api('POST', `/repos/${REPO}/issues/${issueN}/comments`, {
-            body: `⚠️ 分支 ${branch} 自动 rebase 时基线重算失败（${resolved.reason}），需人工处理。\n\n<!-- auto-rebase:${pr.head.sha} -->`,
+            body: `⚠️ 分支 ${branch} 自动 rebase 时遇到基线冲突，需人工处理：${resolved.reason}\n\n<!-- auto-rebase:${pr.head.sha} -->`,
           }).catch(() => {});
           await api('POST', `/repos/${REPO}/issues/${issueN}/labels`, { labels: ['agent:failed'] }).catch(() => {});
-          log(`${tag} 基线重算失败，转人工：${resolved.reason.replace(/\n/g, ' ')}`);
+          log(`${tag} 基线冲突转人工：${resolved.reason.replace(/\n/g, ' ')}`);
           return;
         }
       } else {
@@ -1953,6 +1983,14 @@ async function rebaseAgentBranch(pr, issueN) {
       if (gate.env) err.env = true; // 环境问题不该被记成「这个 PR 坏了」，外层据此挂起而不是判红
       throw err;
     }
+
+    // v3 P1：rebase 后的 HEAD 是新提交（rebase/amend 改写了 commit），旧 witness 不再覆盖它，
+    // 所以必须在 push 前重新签发，否则 pushWithRetry 的断言会拒推。
+    const proof = attestCommit({
+      repoDir: wt, issue: issueN, stdout: gate.stdout, gateBytes: gate.gate_bytes_sha256, chainFile: WITNESS_FILE,
+    });
+    if (!proof.ok) throw new Error(`证据签发失败（不 push 未签名证据）：${proof.why}`);
+    log(`${tag} witness ${proof.witness.hash.slice(0, 12)}：commit ${proof.witness.commit.slice(0, 8)} tree ${proof.witness.tree_after.slice(0, 8)}`);
 
     await pushWithRetry(wt, `${tmpBranch}:${branch}`, ['--force-with-lease']);
 
