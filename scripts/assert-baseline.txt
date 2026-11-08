@@ -35,6 +35,7 @@
 1 0cf650fea6451fc8 assert.ok(raw.includes('流水线 #1 任务失败'));
 2 0db41d7cec133d16 assert.deepEqual(probeArgv(plan.picked), []);
 1 0db71beb6fff4e84 assert.equal(typo.declared, null);
+1 0dce3f568280a822 assert.equal(up.seen[0].auth, 'Bearer test');
 1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f0f914bb5c7f41d assert.equal(eventRecord({ kind: 'x' }).issue, undefined);
@@ -530,7 +531,6 @@
 1 967ab5ab1d569aac assert.equal(d.on, true);
 1 968dd987b0576778 assert.equal(stdoutEchoes.length, 5, `干跑 stdout 行数应恒为 5，实际 ${stdoutEchoes.length}`);
 1 96a9c76c6b5260f6 assert.match(formatSemantic(merged), /m-bad=block/);
-1 9702078e09f6ba0e assert.equal(up.seen[0].auth, 'Bearer real-key');
 1 9712a1134a9e84ca assert.equal(truncateWords('a b', 5), 'a b');
 1 97151d445d92ccb5 assert.equal(typo.lane, LANE.highRisk);
 1 972bb885ae620b8d assert.deepEqual(rec.issues, [1, 2]);
