@@ -40,15 +40,12 @@ const files = names.map((filename) => ({
   patch: git(['diff', '--cached', '--unified=3', '--', filename]).stdout,
 }));
 
-// 放行门禁修改：必须带理由（DSH_ALLOW_GATE_REASON），且每次都要在 gate-override.jsonl 留痕。
-// 拦不住「有权限的人」，但事后能查出「什么时候、谁、为什么」放行了门禁改动。
-const override = overrideDecision(process.env);
-if (override.on && !override.ok) {
-  console.error(`✗ ${override.error}`);
-  process.exit(1);
-}
+// v3 P0（docs/89 §3.1）：删除 DSH_ALLOW_GATE 本地放行。
+// 门禁脚本改动不再能靠环境变量自证（谁都能 export 一下）；只能走独立步骤 + 人确认。
+// 确需提交时用 git commit --no-verify，并在 PR 里说明原因。
+const override = { on: false, ok: false, reason: '' };
 
-const result = reviewDiff({ files, allowGate: override.ok });
+const result = reviewDiff({ files, allowGate: false });
 
 // baseline-unsynced 只是「改了测试文件却没动基线」的形迹判据：改了测试文件的**断言内容**
 // 但计数与指纹都没变时（比如只动 fixture 字符串），它其实不该挡提交。所以真拿门禁说一次话：
@@ -95,5 +92,5 @@ if (result.ok) {
 console.error('✗ 提交被红线规则挡下（机械评审，与 push 前评审同一套规则）：');
 console.error(formatFindings(result));
 console.error('');
-console.error('确需提交：用 git commit --no-verify（并在 PR 里说明原因）；改门禁脚本另加 DSH_ALLOW_GATE=1 DSH_ALLOW_GATE_REASON="<为什么>"。');
+console.error('确需提交：用 git commit --no-verify（并在 PR 里说明原因）；改门禁脚本不再可由环境变量放行（v3 P0），必须走独立步骤 + 人确认。');
 process.exit(1);

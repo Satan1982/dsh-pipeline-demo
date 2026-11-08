@@ -55,12 +55,8 @@ fi
 if "$GIT" diff --cached --quiet; then
   echo "没有待提交的改动，跳过提交"
 else
-  if [ -n "${DSH_ALLOW_GATE:-}" ]; then
-    echo "（DSH_ALLOW_GATE=$DSH_ALLOW_GATE：按 allow:gate 放行门禁脚本改动，合并前仍请人工确认）"
-    DSH_ALLOW_GATE="$DSH_ALLOW_GATE" "$GIT" commit -q -m "$MSG"
-  else
-    "$GIT" commit -q -m "$MSG"
-  fi
+  # v3 P0（docs/89 §3.1）：已删除 DSH_ALLOW_GATE 本地放行，门禁脚本改动由 pre-commit 钩子直接拒。
+  "$GIT" commit -q -m "$MSG"
 fi
 HEAD_SHA=$("$GIT" rev-parse --short HEAD)
 echo "已提交 $HEAD_SHA"
