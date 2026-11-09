@@ -37,6 +37,7 @@ import { writeGateLog } from './gate-log.mjs';
 import { probeWorktree, testPathFor } from './mutate.mjs';
 import { takeSnapshot, compareSnapshots, formatRepoDrift, verifyCleanVerdict } from './drift-guard.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
+import { parseBaseline, countAssertions, findNewExports, checkAssertDelta, checkSymbolBinding, checkEvidence, summarize as summarizeFalsifier, TEST_FILE_RE } from './falsifier.mjs';
 import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates, BASELINE_FILES } from './gate-snapshot.mjs';
 import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
 import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage } from './s4-coverage.mjs';
@@ -1477,6 +1478,9 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       log(`${tag} 没有验收命令，但工单标了 acceptance:optional，继续`);
     }
     let acceptanceVerdict = 'none';
+    // #237：证据一致性判据要读验收的实际 exit/输出（声明 PASS 但实际红 = 伪绿）。
+    let acceptanceOut = '';
+    let acceptanceCode = 0;
     if (acceptanceCmds) {
       const pol = commandPolicy(acceptanceCmds);
       if (!pol.ok) {
@@ -1509,6 +1513,8 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       // high-risk lane 强制 strict：没有 VERDICT 行即失败（docs/89 §3.4 → 永远 T3）。
       const decision = decideAcceptance(res, { strict: labels.includes('verdict:strict') || lp.forceStrictVerdict });
       acceptanceVerdict = decision.verdict;
+      acceptanceOut = `${res.out ?? ''}\n${res.err ?? ''}`;
+      acceptanceCode = Number(res.code ?? 0);
       const output = `${res.out ?? ''}\n${res.err ?? ''}`.trim();
       if (!decision.ok) {
         const detail = `验收未通过（${decision.detail}）：\n${acceptanceCmds}\n\n${output.slice(-2000)}`;
@@ -1632,6 +1638,41 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
           throw new Error(v.why);
         }
         log(`${tag} verify-clean 通过（HEAD 可复算）`);
+      }
+    }
+
+    // #237 P7.5：质疑者三判据（机械、不跑模型）。语义评审判「是否满足验收」，
+    // 这里复算可数事实：断言数 ↔ 基线、新符号是否有测试引用、证据与退出码是否一致。
+    // 只在 high-risk lane 硬闸（fail），普通工单记 warn——机械判据有近似误差，不值得为此丢单。
+    if (status) {
+      const falDiff = (await run(GIT, ['diff', '--unified=0', 'origin/main...HEAD'], { cwd: wt })).out || '';
+      const baseBl = parseBaseline((await run(GIT, ['show', 'origin/main:scripts/test-baseline.txt'], { cwd: wt })).out || '');
+      let headBl = null;
+      try { headBl = parseBaseline(readFileSync(path.join(wt, 'scripts/test-baseline.txt'), 'utf8')); } catch { /* 基线文件可缺 */ }
+      const delta = countAssertions(falDiff);
+      const testFiles = ((await run(GIT, ['ls-files'], { cwd: wt })).out || '').split(/\r?\n/).filter((f) => TEST_FILE_RE.test(f));
+      let testSource = '';
+      for (const f of testFiles) { try { testSource += readFileSync(path.join(wt, f), 'utf8'); } catch { /* 读不到按无引用处理 */ } }
+      const falChecks = [
+        checkAssertDelta({ base: baseBl, head: headBl, ...delta }),
+        checkSymbolBinding({ exports: findNewExports(falDiff), testSource }),
+        checkEvidence({ declared: acceptanceVerdict === 'pass' ? 'pass' : acceptanceVerdict === 'unknown' ? 'unknown' : 'none', code: acceptanceCode, out: acceptanceOut }),
+      ];
+      const falVerdict = summarizeFalsifier(falChecks);
+      try {
+        writeFileSync(path.join(LOG_DIR, `falsifier-issue-${n}-attempt-${attempt}.json`),
+          JSON.stringify({ issue: n, attempt, at: new Date().toISOString(), verdict: falVerdict, checks: falChecks }, null, 2));
+      } catch { /* 报告写不了不影响判定 */ }
+      const failed = falChecks.filter((c) => c.result !== 'pass');
+      if (failed.length) {
+        const detail = `falsifier（P7.5）${falVerdict}：\n` + failed.map((c) => `- [${c.rule}] ${c.result}：${c.detail}`).join('\n');
+        if (lp.lane === 'high-risk') {
+          recordFailure({ text: detail, issue: n, attempt, reason: 'falsifier failed' }, FAIL_STORE);
+          throw new Error(detail);
+        }
+        log(`${tag} ⚠ ${detail}`);
+      } else {
+        log(`${tag} falsifier（P7.5）通过：${falChecks.map((c) => c.rule).join('、')}`);
       }
     }
 
