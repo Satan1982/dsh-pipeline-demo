@@ -33,6 +33,7 @@ import { headlessKind } from './headless-kind.mjs';
 import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_UNIT_CNY } from './usage.mjs';
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
+import { writeGateLog } from './gate-log.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates } from './gate-snapshot.mjs';
 import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
@@ -1401,6 +1402,18 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
 
     // 1) 独立门禁：不接受作者自评
     const gate = await verifyWorktree(wt);
+    // P6「日志落盘」：门禁的完整输出留一份（docs/88 #8）。以前只有失败的尾部进失败库，
+    // 成功的门禁只剩一个 sha，事后无法回答「这次跑了哪些用例」。
+    {
+      const gl = writeGateLog(LOG_DIR, {
+        issue: n, attempt,
+        code: gate.ok ? 0 : (gate.env ? 'env' : 1),
+        stdout: gate.stdout ?? gate.raw ?? gate.detail,
+        sha: gate.gate_bytes_sha256,
+      });
+      if (!gl.ok) log(`${tag} ⚠ 门禁日志落盘失败（不影响判定）：${gl.why}`);
+      else log(`${tag} 门禁输出落盘：${path.basename(gl.file)}`);
+    }
     if (!gate.ok) {
       // v3 P2（docs/89 §3.5）：门禁失败时把第一个失败的测试钉出来。只看尾部 25 行
       // 经常看不到 TAP 的 not ok（它更靠前），所以用 verifyWorktree 带回来的完整输出。
