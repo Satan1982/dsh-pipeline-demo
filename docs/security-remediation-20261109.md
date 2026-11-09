@@ -45,11 +45,17 @@
 - 需管理员 → 走 broker（`C:\ProgramData\dsh-broker\queue\`）。
 - 验收：以 `dsh-agent` 写 `D:\dsh\default-workspace\docs\x` 拒绝；读 `docs` 成功。
 
+- **状态：已落地（2026-11-09 20:20–20:25，本机实测）**
+  - `D:\dsh`、`D:\dsh\default-workspace` 已 `/inheritance:r`，根上只余 `Administrator:(OI)(CI)F`、`SYSTEM:(OI)(CI)F`、`dsh-agent:(OI)(CI)RX`；子树以 `icacls … /reset /t` 回落到该继承集（`presets` 归 Administrators 组所有、非提权改不动，由 broker 以 SYSTEM 补正；收尾扫描顶层目录缺 agent 授权者：0）。
+  - `.worktrees\.secrets` 实测 `ENOENT`（残留已不存在），无需删除。
+  - 验收走**真实低权通道**（`ci/s4-exec.mjs` → `s4-as-agent.ps1` → dsh-agent）：读 `docs/INDEX.md` → `READ_OK`；写 `docs/_acl_probe.txt` → `Permission denied`（exit 1，文件未生成）；正对照写 `D:\code\.worktrees\acl-probe\_w.txt` → `CWD_WRITE_OK`。
+  - 回滚点：`D:\code\dsh-pipeline-demo\.logs\acl-20261109\{dsh,dsh-dw}.acl`（`icacls "D:\" /restore <file>`）；变更后 `bash scripts/verify.sh` 仍 `VERDICT: PASS`。
+
 ## 三、P1（收口，约 1 人日）
 
 | # | 项 | 改法 | 验收 |
 |---|---|---|---|
-| P1-5 | 出网白名单 | 防火墙按用户：`dsh-agent` 出站默认 block，放行 127.0.0.1（+ registry 若 verify 需要） | `curl` 外网失败；`verify.sh` 低权仍绿 |
+| P1-5 | 出网白名单 | 防火墙按用户：`dsh-agent` 出站默认 block，放行 127.0.0.1（+ registry 若 verify 需要） | **BLOCKED**：Windows 防火墙规则无用户维度（2026-11-09 实测 `netsh advfirewall firewall add rule ?` 仅 program/protocol/端口/rmtcomputergrp）；按用户过滤需 WFP 自定义过滤器或容器网络隔离 → 另立 P2 |
 | P1-6 | 回退 fail-closed | `dispatch.mjs:2167-2179` 默认失败；`DSH_S4_FALLBACK=admin` 才回退，回退时 `notifyEvent` 告警 | 断开 launcher → 单子 fail 而不是静默以 Admin 跑 |
 | P1-7 | 只读工单输出脱敏 | `dispatch.mjs:1343-1349` 发公开评论前：绝对路径/`D:\`/token 形状替换、截断 | drill 输出含 `D:\code\.secrets` → 评论里打码 |
 | P1-8 | CI 权限收紧 | `ci.yml` 加 `permissions: contents: read`；actions 固定到 SHA | `grep permissions ci.yml`；CI 仍绿 |
@@ -92,10 +98,13 @@
 
 已知残余（不阻塞恢复跑单，记入 P2）：
 - `done.json` 仍由低权进程写：nonce 挡住「命令自己写一份结果」，但同一登录会话仍可从 runner 内存读 nonce；彻底隔离要等 P2 的独立取码/OS 级隔离。launcher 退出码 0 与 nonce 双条件是为了避免把它降级成单点。
-- 低权通道的出网仍不受限（P1-5 防火墙白名单未做），`DSH_PERMISSION_MODE` 只影响该通道 spawn 的 DSH 子进程，`verify.sh` 本身不经 DSH 沙箱。
+- 低权通道的出网仍不受限（P1-5 防火墙白名单改判 BLOCKED，见 §三 P1-5 结论），`DSH_PERMISSION_MODE` 只影响该通道 spawn 的 DSH 子进程，`verify.sh` 本身不经 DSH 沙箱。
 
-未做（按分类表 SKIPPED，不阻塞 P0 止血）：P0-4 ACL 断继承 / 删 `.worktrees\.secrets` 残留；P1-5 防火墙出网白名单；P2 全部（P1-7/P1-8 已于 2026-11-09 落地，见下）。
-原因：均是系统级配置或需 broker 提权，改的是机器而不是仓库；且 P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
+未做 / 改判（2026-11-09 20:30 复核）：
+- P0-4：**已完成**，证据见 §二 P0-4「状态」。
+- P1-5：**BLOCKED**——Windows 防火墙不支持按用户过滤（规则维度只有程序/端口/协议/远程地址/远程组）；按用户出网需 WFP 过滤器或容器网络隔离，不在现网改。替代缓解＝低权通道命令策略（`ci/s4-exec.mjs`）+ 只读工单内容围栏（`ci/prompt-fence.mjs`）。
+- P2 其余：P1-7/P1-8/P2 围栏已于 2026-11-09 落地；PAT 换 fine-grained 需人工在 GitHub 建 token，**SKIPPED**（不动凭据）。
+原因：剩余项改的是机器而不是仓库；P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
 
 已补验（2026-11-09 13:50，`bash scripts/verify.sh` → 425/1106 PASS）：
 - 断 launcher drill：`node ci/drills/launcher.mjs` → 12/12 通过，`VERDICT: PASS`（伪造 done.json 被 nonce 拒、断 launcher 判 fail 且 `code=-1`、`s4FallbackAction` 默认/空串都 fail-closed、只有 admin 才回退、`git log` 无 Administrator 提交）。这是通道级复现（与 `.logs/exec-audit.jsonl` 里 `actor=manual-regression` 同手法），不是「新建一张真实 issue」；首张真实单开跑时再按 §八 门禁观察。
