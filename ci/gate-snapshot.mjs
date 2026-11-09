@@ -13,6 +13,8 @@ import path from 'node:path';
 
 export const DEFAULT_REF = 'origin/main';
 export const GATE_PATHS = ['scripts', 'ci'];
+// 门禁路径里唯一的"数据"例外：--bless 基线。它们不是可执行代码，agent 必须能同步。
+export const BASELINE_FILES = ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt'];
 export const DEFAULT_GIT = process.env.DSH_GIT
   || (existsSync('C:/Program Files/Git/cmd/git.exe') ? 'C:/Program Files/Git/cmd/git.exe' : 'git');
 
@@ -57,9 +59,13 @@ export function overlayOriginGate({ repoDir, ref = DEFAULT_REF, gitBin = DEFAULT
 //   1) 跑之前工作树就是干净的，agent 事后改文件影响不到这次判定；
 //   2) 门禁字节与工作树状态解耦，同一候选树可重放；
 //   3) 不再把 origin 门禁 checkout 进 agent 的工作树（历史上会把它写脏，和「脏树拒签」打架）。
-export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_REF, gitBin = DEFAULT_GIT, paths = GATE_PATHS, keep = false } = {}) {
+export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_REF, gitBin = DEFAULT_GIT, paths = GATE_PATHS, keep = false, root = os.tmpdir(), prefix = 'dsh-gate-' } = {}) {
   if (!repoDir) throw new Error('缺 repoDir');
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'dsh-gate-'));
+  // root：门禁要能以低权用户跑，而低权进程穿不过管理员的 %TEMP%。
+  // 调用方传 C:\ProgramData\dsh-gate（见 ci/s4-exec.mjs ensureCandidateRoot）时，候选树才在
+  // dsh-agent 可达的位置；默认仍留 os.tmpdir() 给纯本地调用。
+  mkdirSync(root, { recursive: true });
+  const tmp = mkdtempSync(path.join(root, prefix));
   const cleanup = () => {
     try {
       execFileSync(gitBin, ['worktree', 'remove', '--force', tmp], { cwd: repoDir, stdio: 'pipe' });
@@ -87,8 +93,20 @@ export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_
       copyFileSync(from, to);
     }
     // 3) 门禁字节仍取 gateRef（默认 origin/main）：agent 改不动裁判。
+    // 例外：两个基线 txt 是 --bless 数据（不是可执行门禁代码，另受 assert-guard 指纹保护），
+    // agent 必须能在 PR 里同步它们；若被一起 checkout 回 origin，任何「加/改测试」的工单都会在
+    // 调度器门禁里被判「基线未更新」（review.mjs 也已对这两个文件豁免 gate-modified）。
+    // 顺序：先取哈希（证明跑的就是 origin 门禁字节），再把候选树的基线数据放回来。
+    // 候选树里的基线数据先留存，overlay 之后再放回（见下方说明）。
+    const blessed = new Map();
+    for (const rel of BASELINE_FILES) {
+      const abs = path.join(tmp, rel);
+      if (existsSync(abs)) blessed.set(rel, readFileSync(abs));
+    }
     execFileSync(gitBin, ['checkout', gateRef, '--', ...paths], { cwd: tmp, stdio: 'pipe' });
-    return { dir: tmp, ref, gateRef, gate: gateBytesSha256(tmp, paths), cleanup };
+    const gate = gateBytesSha256(tmp, paths);
+    for (const [rel, buf] of blessed) writeFileSync(path.join(tmp, rel), buf);
+    return { dir: tmp, ref, gateRef, gate, cleanup };
   } catch (e) {
     cleanup();
     throw e;

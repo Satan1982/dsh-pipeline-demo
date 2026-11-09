@@ -15,6 +15,7 @@
 1 03c87d9dc05da7e8 assert.deepEqual(job.env, { DSH_PROXY_TOKEN: 'abc' });
 1 041e053e2115c5d5 assert.throws(() => initials(''), TypeError);
 1 044971a6cb999b93 assert.deepEqual(parseBackoff(''), REQUEUE_BACKOFF_MS);
+1 0466b13bf5b3b0ef assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'test-baseline.txt'), 'utf8'), '22 50\n',
 1 05edc66d6d686fad assert.deepEqual(ok.unknown, [], '带值的旗标不该把值本身当未知旗标');
 1 067649496a471540 assert.deepEqual(splitCommands(''), []);
 1 06ac2aac5475ec27 assert.match(body, /### 验收命令/);
@@ -244,6 +245,7 @@
 1 411b04110872e33a assert.equal(sumUsage('').steps, 0);
 1 4130087e065aeee8 assert.throws(() => chunk('abc', NaN), RangeError);
 1 4212ad4eb367644e assert.equal(average([1, 2, 3]), 2);
+1 424adecfbf29f264 assert.equal(cand.gate.sha256, originHash, 'gate 哈希只能代表 origin 门禁字节，不能掺进基线数据');
 1 424f1cd584fa0d29 assert.match(v.why, /全部 down/);
 1 426ee41ee2cc0255 assert.equal(ok.n, 2);
 1 4428a33b332800b8 assert.match(md, /ZhipuAI\/GLM-5\.2=down/);
@@ -360,6 +362,7 @@
 1 6474dd0dbd9905fd assert.equal(rec.count, 2);
 1 64ccd5cbe6962aaf assert.deepEqual(stale.map((s) => s.n), [1, 3]);
 1 64cdcffce2e8d55b assert.ok(r.findings.some((f) => f.rule === 'debug-residue'));
+1 64ea6a7f20174924 assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'verify.sh'), 'utf8'), 'echo origin-gate\n');
 1 64f0f67e824ba257 assert.equal(autoMergeAllowed('Satan1982/FOO', list), true);
 1 64f17bd41b8dce2e assert.equal(negate(0), 0);
 1 650de28edaf09791 assert.ok(body.includes('#42'));

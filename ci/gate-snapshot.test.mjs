@@ -84,3 +84,28 @@ test('prepareCandidateTree：已跟踪改动 + 未跟踪新文件进候选树，
   }
   assert.equal(existsSync(cand.dir), false, 'cleanup 要删临时目录');
 });
+
+// 2026-11-09：overlay 曾把 --bless 基线 txt 一起 checkout 回 origin，导致「加/改测试」的工单
+// 在调度器门禁里被判「基线未更新」（review 层却已豁免）。基线是数据不是门禁代码：
+// 候选树必须保留 agent bless 后的内容，而 gate 哈希仍只代表 origin 的门禁字节。
+test('prepareCandidateTree：--bless 基线留在候选树，门禁哈希仍按 origin 字节', () => {
+  const dir = makeRepo();
+  writeFileSync(path.join(dir, 'scripts', 'test-baseline.txt'), '21 49\n');
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'origin baseline']);
+  git(dir, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  const originHash = gateBytesSha256(dir).sha256;
+
+  // agent 加了测试并 --bless：基线数字前进（未提交）。
+  writeFileSync(path.join(dir, 'scripts', 'test-baseline.txt'), '22 50\n');
+
+  const cand = prepareCandidateTree({ repoDir: dir });
+  try {
+    assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'verify.sh'), 'utf8'), 'echo origin-gate\n');
+    assert.equal(readFileSync(path.join(cand.dir, 'scripts', 'test-baseline.txt'), 'utf8'), '22 50\n',
+      'bless 后的基线必须留在候选树（否则门禁判基线未更新）');
+    assert.equal(cand.gate.sha256, originHash, 'gate 哈希只能代表 origin 门禁字节，不能掺进基线数据');
+  } finally {
+    cand.cleanup();
+  }
+});

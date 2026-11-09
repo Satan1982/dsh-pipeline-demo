@@ -35,6 +35,7 @@ import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree } from './gate-snapshot.mjs';
+import { runAsAgentCommand, commandPolicy, isTrustedAuthor, ensureCandidateRoot, grantDir } from './s4-exec.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
@@ -83,6 +84,10 @@ function token() {
   return TOKEN_CACHE;
 }
 const GIT = process.env.DSH_GIT || 'C:/Program Files/Git/cmd/git.exe';
+// 提交钩子隔离（P0-2b）：调度器以 Administrator 提交时，不能让 worktree 里 agent 可写的
+// .githooks（core.hooksPath 指向它）执行 Administrator 权限的脚本。这个目录不存在，git 视作无钩子；
+// agent 自己的提交仍走 worktree 的 .githooks（那时是低权身份，改了也只影响自己）。
+const SAFE_HOOKS = ['-c', 'core.hooksPath=C:/ProgramData/dsh-gate/.no-hooks'];
 const BASH = process.env.DSH_BASH || path.join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@dsh-ops', 'bash-win32-x64', 'bin', 'bash.exe');
 const ASKPASS = process.env.DSH_ASKPASS || path.join(SECRETS_DIR, 'askpass.sh');
 const REPO_DIR = REPO_DIR_RAW;
@@ -764,7 +769,8 @@ function writePlan(wt, { n, title, goal, acceptance, constraints, cmds }) {
     '',
     '## 硬性红线（pre-commit 钩子会挡）',
     '- 不许删/改已有测试与断言来凑绿；基线必须 `bash scripts/verify.sh --bless` 同步。',
-    '- 不许改 `.github/workflows/`、`scripts/verify.sh`、`scripts/assert-guard.mjs`、`ci/*`（需要时在 issue 打 `allow:gate`）。',
+    '- 不许改 `.github/`、`.githooks/`、`scripts/`、`ci/`（需要时在 issue 打 `allow:gate` 并人工复核）；',
+    '- 例外：`scripts/test-baseline.txt`、`scripts/assert-baseline.txt` 必须同 PR `--bless` 同步（它们是数据不是代码）。',
     '- 不许留调试占位符、断点语句、只跑单个用例的标记或调试日志（评审层会逐条列出具体行）。',
     '- 不许加依赖；一 PR 一个垂直切片。',
   ].join(NL);
@@ -1084,15 +1090,37 @@ async function verifyWorktree(wt) {
   // 生成失败就 fail-closed——宁可拒单，也不拿「agent 改过的工作树」当裁判。
   let cand;
   try {
-    cand = prepareCandidateTree({ repoDir: wt, gitBin: GIT });
+    const s4 = process.env.DSH_S4_EXEC !== '0';
+    const root = s4 ? ensureCandidateRoot() : undefined;
+    cand = prepareCandidateTree({ repoDir: wt, gitBin: GIT, ...(root ? { root, prefix: 'cand-' } : {}) });
+    if (s4) {
+      // 授权失败就别硬着头皮以低权跑（那样只会得到一堆权限错误，还会被误判成"代码不合格"）。
+      const g = grantDir(cand.dir, 'M');
+      if (!g.ok) {
+        try { cand.cleanup(); } catch { /* ignore */ }
+        return { ok: false, env: true, detail: `ENV_FAIL: 无法给低权用户授予候选树权限（${g.why}）` };
+      }
+    }
   } catch (e) {
     return { ok: false, detail: `候选树生成失败（fail-closed，未执行工作树门禁）：${e.message}` };
   }
   try {
-    const v = await run(BASH, ['scripts/verify.sh'], {
-      cwd: cand.dir, timeout: 15 * 60 * 1000,
-      env: { PATH: CHILD_PATH, PNPM_CLI },
-    });
+    let v;
+    if (process.env.DSH_S4_EXEC !== '0') {
+      const r = await runAsAgentCommand({ cmd: 'bash scripts/verify.sh', cwd: cand.dir, timeoutSec: 900, actor: 'gate' });
+      if (!r.done) return { ok: false, env: true, detail: 'ENV_FAIL: 低权门禁通道不可用；拒绝用 Administrator 跑 agent 代码' };
+      // 同验收侧：runner 自检失败（exit 2 且零输出）是环境问题，不是代码不合格。
+      if (r.code === 2 && !String(r.out || '').trim()) {
+        return { ok: false, env: true, detail: 'ENV_FAIL: 低权门禁通道内部错误（exit 2，无输出）' };
+      }
+      v = { code: r.code, out: r.out, err: '' };
+    } else {
+      log('[s4-warn] DSH_S4_EXEC=0：门禁改由 Administrator 执行（降权被关闭，仅限调试；不可用于对外仓）');
+      v = await run(BASH, ['scripts/verify.sh'], {
+        cwd: cand.dir, timeout: 15 * 60 * 1000,
+        env: { PATH: CHILD_PATH, PNPM_CLI },
+      });
+    }
     if (v.code === 0) {
       // stdout 一起带回去：witness 的 stdout_sha256 要绑「这次门禁到底吐了什么」，
       // 只记 gate 字节哈希证明不了门禁的输出没有在记录前后被换掉。
@@ -1389,9 +1417,33 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     }
     let acceptanceVerdict = 'none';
     if (acceptanceCmds) {
-      const res = await run(BASH, ['-lc', acceptanceCmds], {
-        cwd: wt, timeout: 300_000, env: { PATH: CHILD_PATH, PNPM_CLI },
-      });
+      const pol = commandPolicy(acceptanceCmds);
+      if (!pol.ok) {
+        recordFailure({ text: pol.reason, issue: n, attempt, reason: 'unsafe acceptance command' }, FAIL_STORE);
+        throw new Error(pol.reason);
+      }
+      let res;
+      if (process.env.DSH_S4_EXEC !== '0') {
+        const r = await runAsAgentCommand({ cmd: acceptanceCmds, cwd: wt, timeoutSec: 300, actor: 'acceptance', issue: n });
+        if (!r.done) {
+          // 通道不可用属环境故障：与门禁同口径（env 标记，不烧重试预算、不进失败指纹库）。
+          const e = new Error('ENV_FAIL: 低权验收通道不可用（' + (r.error || '没有 done.json') + '）；拒绝以 Administrator 执行验收命令');
+          e.env = true;
+          throw e;
+        }
+        if (r.code === 2 && !String(r.out || '').trim()) {
+          // runner 自检失败（cwd 被拒/icacls 没生效）也会写 done.json exit=2，但不会有任何输出。
+          const e = new Error('ENV_FAIL: 低权验收通道内部错误（exit 2，无输出）');
+          e.env = true;
+          throw e;
+        }
+        res = { code: r.code, out: r.out, err: '' };
+      } else {
+        log('[s4-warn] DSH_S4_EXEC=0：验收命令改由 Administrator 执行（降权被关闭，仅限调试；不可用于对外仓）');
+        res = await run(BASH, ['-lc', acceptanceCmds], {
+          cwd: wt, timeout: 300_000, env: { PATH: CHILD_PATH, PNPM_CLI },
+        });
+      }
       // 退出码 0 只说明「命令没崩」，不说明「验收过了」：有 VERDICT 行就以它为准。
       // high-risk lane 强制 strict：没有 VERDICT 行即失败（docs/89 §3.4 → 永远 T3）。
       const decision = decideAcceptance(res, { strict: labels.includes('verdict:strict') || lp.forceStrictVerdict });
@@ -1410,12 +1462,30 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     // 契约由 issue 的 `### 高风险验证` 给出 spec 目录；适配器只传参、解析 0/2/3/4/5/6、回写证据，
     // 不自己造 spec 格式。默认 auto：有段才跑；required：缺段即 fail-closed。
     if (lp.lane === 'high-risk') {
-      const specDir = stripFence(pick(sections, '高风险验证')).split('\n')[0].trim();
+      // 注：下面三处（门禁/验收/高风险）都以 Administrator 之外的身份或固定命令执行，
+      // 见 docs/security-remediation-20261109.md 与 ci/s4-exec.mjs。
+      const specRaw = stripFence(pick(sections, '高风险验证')).split('\n')[0].trim();
+      // 规范化后再判范围：适配器以 Administrator 执行 issue 指定的目录，相对路径必须先落到仓根，
+      // 否则 `..\..\.worktrees\x`（agent 可写）能被当成"仓内相对路径"混过去。
+      const specAbs = specRaw ? path.resolve(path.isAbsolute(specRaw) ? specRaw : path.join(REPO_DIR, specRaw)) : '';
+      const insideRepo = Boolean(specAbs) && specAbs.toLowerCase().startsWith(REPO_DIR.toLowerCase() + '\\');
+      const allowSpecs = Boolean(specAbs) && specAbs.toLowerCase().startsWith('d:\\code\\.pipeline-specs');
+      const specDir = specAbs && (insideRepo || allowSpecs) ? specAbs : '';
+      if (specAbs && !(insideRepo || allowSpecs)) {
+        // fail-closed：适配器以 Administrator 跑，目录由 issue 正文给出 → 仓外/UNC/驱动器的路径一律拒绝执行，
+        // 不能"忽略后当没给"（那会让 high-risk 工单静默降级成普通门禁）。
+        const detail = '高风险验证目录规范化后不在允许范围（仓内或 d:\\code\\.pipeline-specs）：' + specRaw + ' → ' + specAbs;
+        recordFailure({ text: detail, issue: n, attempt, reason: 'unsafe high-risk spec dir' }, FAIL_STORE);
+        throw new Error(detail);
+      }
       const mode = process.env.DSH_HIGH_RISK_ADAPTER || 'auto';
       if (specDir) {
         const runJs = findRunJs(REPO_DIR);
+        // verify 只能是固定命令：run.mjs 用 shell:true 执行它，而原来这里回放的是 issue 正文里的
+        // `### 验收命令` → 等于把外部文本交给 Administrator shell。验收段已在上一步单独以低权跑过，
+        // 适配器这里只需要一个可信的复跑命令。
         const hr = await runHighRiskAdapter({
-          runJs, specDir, repoDir: REPO_DIR, verify: acceptanceCmds || 'bash scripts/verify.sh',
+          runJs, specDir, repoDir: REPO_DIR, verify: 'bash scripts/verify.sh',
         });
         recordLane(LANE_STATS_FILE, { issue: n, kind: 'high-risk-adapter', ok: hr.ok, code: hr.code, why: hr.reason });
         if (!hr.ok) {
@@ -1436,7 +1506,7 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       // 那是内部笔记：从索引里摘掉，别让它进 PR，也别让评审团把它算成越界改动。
       await run(GIT, ['rm', '-r', '--cached', '--quiet', '.dsh'], { cwd: wt });
       await run(GIT, ['add', '-A'], { cwd: wt });
-      const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
+      const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local', ...SAFE_HOOKS,
         'commit', '-m', `agent: issue #${n}`], { cwd: wt });
       if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
     }
@@ -1809,7 +1879,13 @@ async function pollOnce() {
     : (await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`)).data;
   let issues = (Array.isArray(raw) ? raw : [raw]).filter(
     (i) => i && !i.pull_request && !(i.labels ?? []).some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
-  );
+  ).filter((i) => {
+    // 2026-11-09 作者闸：贴 agent:ready 需要 triage 权限，但仍接受「被骗一次贴标」。
+    // 只领 OWNER/MEMBER/COLLABORATOR 的工单（或 DSH_TRUSTED_AUTHORS 白名单），其余不领。
+    const a = isTrustedAuthor(i);
+    if (!a.ok) log('[author-gate] #' + i.number + ' 跳过：' + a.why);
+    return a.ok;
+  });
   if (FORCE_ISSUE) {
     issues = issues.filter((i) => i.state === 'open' && (i.labels ?? []).some((l) => l.name === 'agent:ready'));
     if (!issues.length) {
@@ -1923,7 +1999,7 @@ ${logText.slice(-8000)}
     }
 
     await run(GIT, ['add', '-A'], { cwd: wt });
-    const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local',
+    const c = await run(GIT, ['-c', 'user.name=dsh-agent', '-c', 'user.email=agent@dsh.local', ...SAFE_HOOKS,
       'commit', '-m', `agent: fix CI for issue #${issueN}`], { cwd: wt });
     if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
 
@@ -2041,7 +2117,7 @@ async function resolveConflictsWithAgent(wt, issueN, files) {
   const status = await worktreeStatus(wt);
   if (status) {
     await run(GIT, ['add', '-A'], { cwd: wt });
-    const amend = await run(GIT, ['commit', '--amend', '--no-edit'], { cwd: wt });
+    const amend = await run(GIT, [...SAFE_HOOKS, 'commit', '--amend', '--no-edit'], { cwd: wt });
     if (amend.code !== 0) return { ok: false, tail, reason: `解冲突后的改动 amend 失败：${amend.err.trim().slice(0, 200)}` };
   }
   return { ok: true };
@@ -2176,7 +2252,15 @@ export async function runHeadless(cwd, prompt, env, timeout) {
       else log(`[s4] 低权 run 完成 user=${r.done.user || '?'} ${r.done.durationSec ?? '?'}s`);
       return { code: r.code, out: finalText(r.out), raw: r.out, usage, s4: true, err: r.error || '' };
     }
-    log(`[s4] 低权通道不可用，回退 bash：${r.error || '没有 done.json'}`);
+    // 2026-11-09 审计：这里的静默回退就是"隔离装坏了 → 全部以 Administrator 跑 agent"，等于洞原地复活。
+    // 默认 fail-closed（按环境失败计，不耗重试预算）；只有显式 DSH_S4_FALLBACK=admin 才回退，且留告警。
+    log(`[s4] 低权通道不可用：${r.error || '没有 done.json'}`);
+    if (process.env.DSH_S4_FALLBACK !== 'admin') {
+      const e = new Error('ENV_FAIL: 低权执行通道不可用，拒绝以 Administrator 跑 agent（要临时回退请设 DSH_S4_FALLBACK=admin）');
+      e.env = true;
+      throw e;
+    }
+    log('[s4] ⚠ DSH_S4_FALLBACK=admin：显式回退 bash（隔离失效，等同全权执行 agent 内容）');
   }
   let last = null;
   for (let i = 1; i <= 3; i += 1) {

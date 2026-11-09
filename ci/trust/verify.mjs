@@ -24,7 +24,9 @@ import { MARKER, buildWitness, sha256, signWitness, verifyChain } from './witnes
 export const CHAIN_BASENAME = 'witness.jsonl';
 export const EXIT_OK = 0;
 export const EXIT_FAIL = 2; // docs/89 §3.1：验签失败 exit 2
-export const GATE_PREFIXES = ['ci/', 'scripts/', '.github/'];
+// .githooks/ 必须算门禁：pre-commit 由 Administrator 身份执行，agent 改钩子 = 任意代码执行
+// （与 review.mjs 的 BLOCK_PREFIX 对齐，2026-11-09 审计）。
+export const GATE_PREFIXES = ['ci/', 'scripts/', '.github/', '.githooks/'];
 export const META_PREFIXES = ['docs/', '.dshwolf/', '.logs/', 'dist/'];
 export const META_FILES = new Set(['AGENTS.md', 'CHANGELOG.md', 'LICENSE', 'LICENSE.md', '.gitignore', '.gitattributes']);
 

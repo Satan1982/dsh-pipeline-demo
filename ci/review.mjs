@@ -21,7 +21,12 @@ const DEBUG_RESIDUE = [
 ];
 
 const BLOCK_PREFIX = [
-  { prefix: '.github/workflows/', why: '禁止改 CI 定义（需要人工改动时单独开 PR）' },
+  // 2026-11-09 审计：整目录而不只是 workflows/ —— .github/ 下还有 composite action、
+  // dependabot/CODEOWNERS 等会影响执行的配置；一律当门禁代码，需 allow:gate + 人工复核。
+  { prefix: '.github/', why: '禁止改 CI 定义（需要人工改动时单独开 PR）' },
+  // 2026-11-09 审计：提交钩子由 .githooks/pre-commit 调进 worktree 里的 ci/precommit.mjs，
+  // 而 commit 是 Administrator 身份跑的 → agent 改钩子 = Admin 任意代码执行。钩子一律不许改。
+  { prefix: '.githooks/', why: '禁止改 git 钩子（提交时以 Administrator 身份执行）' },
 ];
 
 function addedLines(patch) {
@@ -45,6 +50,8 @@ const BASELINES = ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt'];
  * @param {{files: Array<{filename: string, status?: string, patch?: string}>}} diff
  */
 const GATE_FILES = ['scripts/verify.sh', 'scripts/assert-guard.mjs', 'ci/dispatch.mjs', 'ci/review.mjs'];
+// 目录级保护（2026-11-09 审计）：scripts/ 与 ci/ 下的一切都会被门禁/调度器以 Administrator 执行。
+const GATE_PREFIXES = ['scripts/', 'ci/'];
 
 export function reviewDiff(diff) {
   const files = diff?.files ?? [];
@@ -91,7 +98,13 @@ export function reviewDiff(diff) {
     }
 
     // 门禁脚本本身是保护对象：默认阻断。确需改门禁的工单打 allow:gate label 放行。
-    if (GATE_FILES.includes(f.filename)) {
+    // 2026-11-09：白名单化 —— 只保护 4 个文件永远漏（审计实测 ci/precommit.mjs、ci/gate-snapshot.mjs、
+    // ci/land.sh 都能被 agent 改，而它们都会在 Administrator 身份下被执行）。改为整目录保护：
+    // 任何 ci/、scripts/ 下的改动都算「改门禁」，要么人工单独开 PR，要么 allow:gate 显式放行并人工复核。
+    // 例外：两个基线文件必须由 agent 自己 --bless 才能同步（它们由 assert-guard 的指纹校验保护，
+    // 不在"门禁脚本可被改写"的威胁面里）。2026-11-09：不加这条例外会误伤所有合法的用例增删。
+    const inGateDir = GATE_PREFIXES.some((p) => f.filename.startsWith(p)) && !BASELINES.includes(f.filename);
+    if (GATE_FILES.includes(f.filename) || inGateDir) {
       add(allowGate ? 'warn' : 'block', 'gate-modified',
         allowGate
           ? '修改了门禁脚本（已按 allow:gate 放行，合并前仍请人工确认没有放宽标准）'
