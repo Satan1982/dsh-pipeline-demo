@@ -148,3 +148,14 @@
 - **改动**：`ci/trust/verify.mjs` 新增 `--mirror <ref> [--base <提交>]` 与 `mirrorCheck()`（复用 `landChangedFiles`/`classifyPaths`，另加 `newestCoveredAncestor()` 作无基线时的后退选项）；`ci/mirror-gitee.sh` 把 `--head $SRC` 换成上述动态判据，失败文案同步改。
 - **验证**：`node --test ci/trust-verify.test.mjs` → 11 pass / 0 fail（新增 3 例：docs-only 放行+源码拒推、无基线退回 witness 祖先、基线提交不存在 fail-closed）；`bash scripts/verify.sh --bless` → 432/1127 PASS（基线 `432 1127 17c0fbc629cef31f`）。
 - **live 证据（本提交）**：修复提交 `33aa51a` 本身含门禁脚本改动，落 Gitee 时仍显式放行一次并留痕（`.logs/gitee-unverified.jsonl`，符合「镜像口不复制 gateOnly 例外」的决定）。本条**纯文档**提交随后走 `bash ci/land.sh`——`--land` 判 PASS、镜像**没有**设 `DSH_GITEE_ALLOW_UNVERIFIED` 也成功推上 Gitee，证明 docs-only 同步不再需要人工 attest。
+
+## 十二、首张 docs-only 真实单 #233 与镜像判据的端到端复核（2026-11-09 17:1x）
+
+**做法**：不用 `ci/pass3-issues.mjs` 批量（它会 pause 常驻调度器并覆盖 `ci/drills/pass3-issues-result.json`），而是手工建一张 docs-only 工单，交给**常驻调度器**按真实生产路径领取——只有 docs-only 提交能判别 `--mirror` 判据是否生效。
+
+- **建单**：#233 `[docs] manual.md 补记 Gitee 镜像自动同步（无需人工 attest）`，验收命令 `grep -q "无需人工 attest" docs/manual.md`；先建单再贴 `agent:ready, lane:docs`（创建即带 label 会被贴标人双闸拒）。
+- **领取与路由**：免费池 modelscope 首次路由返回 `429 insufficient balance (code=QUOTA)`（欠费不是限流），三次尝试后任务 FAILED；补 `model:paid` 标签后重新投放，改走 deepseek-flash，`估算成本 ¥0.18`（在日闸 ¥5 内）。
+- **产出**：`headless 结束 exit=0 67s`、`69919 tokens（in 63251 / out 6668）`、`verify.sh → VERDICT: PASS`、`witness 896f0d89f8ef` 覆盖 `78d30127`、语义评审团 1/1 有效（XingChenAGI/Xing4.0-29B=pass）、PR #234（`ci` 上 `verify=success`）。
+- **合并**：v3 P0 关掉了 `merge:auto`（`ci/merge-policy.mjs:46`），按 PR #232 先例打 `merge:verified` 后 squash 合并 → `merge_commit_sha=3cab6afde2268d9d6672e415749bfe07e4bb498d`，本地 `merge --ff-only` 跟到 `3cab6af`（`docs/manual.md +6`）。
+- **镜像（关键证据）**：`bash ci/mirror-gitee.sh` **没有**设 `DSH_GITEE_ALLOW_UNVERIFIED` → `To gitee.com:Satan1982/dsh-pipeline-demo.git 1a2390a..3cab6af`，`EXIT=0`；事后 `git ls-remote gitee refs/heads/main` 与本地 HEAD 同为 `3cab6af…`，`.logs/gitee-unverified.jsonl` **仍是 2 行**（无新增放行记录）。
+- **结论**：`--base <Gitee TIP>` + docs-only 分类这套判据在**真实流水线产出**的提交上成立——docs-only 同步 Gitee 不再需要人工 attest，也不再需要环境变量旁路。
