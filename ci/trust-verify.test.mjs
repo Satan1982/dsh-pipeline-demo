@@ -210,3 +210,71 @@ test('main --land：门禁脚本自更新需显式放行，且写审计留痕', 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('main --mirror：自 Gitee 基线起仅文档改动放行，源码改动拒推（与 --land 同判据）', () => {
+  const dir = makeRepo();
+  try {
+    const file = chainOf(dir);
+    const base = g(dir, ['rev-parse', 'HEAD']);
+    writeFileSync(path.join(dir, 'docs', 'b.md'), '# b\n');
+    g(dir, ['add', '-A']);
+    g(dir, ['commit', '-q', '-m', 'docs']);
+    const ref = 'refs/remotes/origin/main'; // mirror-gitee.sh 的 SRC 就是这么传的
+    g(dir, ['update-ref', ref, 'HEAD']);
+
+    const logs = [];
+    const docsRun = main(['--chain', file, '--repo', dir, '--mirror', ref, '--base', base], {}, (m) => logs.push(m), (m) => logs.push(m));
+    assert.equal(docsRun, EXIT_OK);
+    assert.match(logs.join('\n'), /仅文档\/元数据改动/);
+
+    writeFileSync(path.join(dir, 'src', 'b.js'), 'export const b = 2;\n');
+    g(dir, ['add', '-A']);
+    g(dir, ['commit', '-q', '-m', 'code']);
+    g(dir, ['update-ref', ref, 'HEAD']);
+    const codeRun = main(['--chain', file, '--repo', dir, '--mirror', ref, '--base', base], {}, () => {}, () => {});
+    assert.equal(codeRun, EXIT_FAIL);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('main --mirror：无远端基线时退回最近 witness 覆盖祖先；链里没有祖先则拒', () => {
+  const dir = makeRepo();
+  try {
+    const file = chainOf(dir);
+    const att = attestCommit({ repoDir: dir, issue: '1', stdout: 'ok\n', gateBytes: 'g'.repeat(64), chainFile: file });
+    assert.equal(att.ok, true);
+    writeFileSync(path.join(dir, 'docs', 'b.md'), '# b\n');
+    g(dir, ['add', '-A']);
+    g(dir, ['commit', '-q', '-m', 'docs']);
+
+    const logs = [];
+    const run = main(['--chain', file, '--repo', dir, '--mirror', 'HEAD'], {}, (m) => logs.push(m), (m) => logs.push(m));
+    assert.equal(run, EXIT_OK);
+    assert.match(logs.join('\n'), /最近 witness 覆盖提交/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const bare = makeRepo();
+  try {
+    const run = main(['--chain', chainOf(bare), '--repo', bare, '--mirror', 'HEAD'], {}, () => {}, () => {});
+    assert.equal(run, EXIT_FAIL);
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+test('main --mirror：基线提交本地不存在 → fail-closed', () => {
+  const dir = makeRepo();
+  try {
+    const file = chainOf(dir);
+    writeFileSync(path.join(dir, 'docs', 'b.md'), '# b\n');
+    g(dir, ['add', '-A']);
+    g(dir, ['commit', '-q', '-m', 'docs']);
+    const run = main(['--chain', file, '--repo', dir, '--mirror', 'HEAD', '--base', 'deadbeef'.repeat(5)], {}, () => {}, () => {});
+    assert.equal(run, EXIT_FAIL);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

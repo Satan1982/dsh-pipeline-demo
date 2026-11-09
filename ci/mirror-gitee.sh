@@ -40,12 +40,22 @@ if ! "$GIT" fetch origin main --quiet 2>/dev/null; then
 fi
 # v3 P1（docs/89 §六-2）：镜像也是出口，推送前必须验签。
 # land.sh 在 push GitHub 前已经验过一次；这里覆盖「单独跑 mirror-gitee.sh」的旁路。
-# 链不存在/不覆盖 $SRC → fail-closed；跨机无链时只能用显式开关放行并留痕。
+# 2026-11-09 修：判据与 land.sh 对齐（--land），基线是「Gitee 上已有的 main」。
+# 原来这里用 --head（HEAD 的 commit+tree 必须被某条 witness 覆盖），比 land.sh 严：
+# docs-only 提交永远没有 witness → 每次同步 Gitee 都要手动 attest 或
+# DSH_GITEE_ALLOW_UNVERIFIED=1。现在自 Gitee 当前 tip 起只有文档/元数据改动就放行；
+# 拿不到 tip（首次镜像/网络不通）退回 --head，仍 fail-closed。
+# 链不存在/不覆盖 $SRC 且改动含非文档文件 → fail-closed；跨机无链时只能用显式开关放行并留痕。
 VERIFY="$ROOT/ci/trust/verify.mjs"
 CHAIN="$ROOT/.logs/witness.jsonl"
 KEY_ARGS=""
 if [ -d "$ROOT/governance/keys" ]; then KEY_ARGS="--keys $ROOT/governance/keys"; fi
-if ! node "$VERIFY" --chain "$CHAIN" --repo "$ROOT" --head "$SRC" $KEY_ARGS >/dev/null 2>&1; then
+GITEE_TIP=$("$GIT" ls-remote "$REMOTE" refs/heads/main 2>/dev/null | cut -f1 | head -n 1)
+VERIFY_ARGS=(--head "$SRC")
+if [ -n "$GITEE_TIP" ] && "$GIT" rev-parse --verify -q "$GITEE_TIP^{commit}" >/dev/null 2>&1; then
+  VERIFY_ARGS=(--mirror "$SRC" --base "$GITEE_TIP")
+fi
+if ! node "$VERIFY" --chain "$CHAIN" --repo "$ROOT" "${VERIFY_ARGS[@]}" $KEY_ARGS >/dev/null 2>&1; then
   if [ "${DSH_GITEE_ALLOW_UNVERIFIED:-0}" = "1" ]; then
     echo "Gitee 镜像：$SRC 验签未通过，但 DSH_GITEE_ALLOW_UNVERIFIED=1，放行并留痕" >&2
     mkdir -p "$ROOT/.logs"
@@ -53,7 +63,7 @@ if ! node "$VERIFY" --chain "$CHAIN" --repo "$ROOT" --head "$SRC" $KEY_ARGS >/de
       "$(date -Iseconds)" "$SRC" "${DSH_GITEE_ALLOW_UNVERIFIED_REASON:-手动放行}" \
       >> "$ROOT/.logs/gitee-unverified.jsonl" 2>/dev/null || true
   else
-    echo "Gitee 镜像：$SRC 未被 witness 覆盖，拒绝推送；如确认要推，设 DSH_GITEE_ALLOW_UNVERIFIED=1 并写理由" >&2
+    echo "Gitee 镜像：$SRC 既没有被 witness 覆盖，也不满足「自 Gitee 基线起仅文档改动」，拒绝推送；如确认要推，设 DSH_GITEE_ALLOW_UNVERIFIED=1 并写理由" >&2
     exit 2
   fi
 fi

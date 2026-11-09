@@ -97,7 +97,7 @@
 1 1a728c59c8143b07 assert.equal(add(2, 3), 5);
 1 1a8b0ec3841c5013 assert.equal(res.status, 401);
 1 1ac79781a2ab86d3 assert.equal(sumRange(1, 5), 15);
-1 1b2309d38f6d1534 assert.equal(docsRun, EXIT_OK);
+2 1b2309d38f6d1534 assert.equal(docsRun, EXIT_OK);
 1 1b3988be2f80a2a0 assert.equal(merged.ok, true);
 1 1b8cdc8589e2391a assert.equal(new Set(lines.map((r) => r.fp)).size, 1);
 1 1c0c5b59a648b57d assert.equal(repeatText('ab', -2), '');
@@ -153,6 +153,7 @@
 1 26ac16007879e190 assert.equal(e.blockedAt, '2026-10-28T00:00:00.000Z');
 1 26c2fa96ce1ed671 assert.equal(modeOf('once'), 'once');
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
+2 2782517a4c65f558 assert.equal(run, EXIT_FAIL);
 1 2836807e46ca1537 assert.equal('env' in JSON.parse(readFileSync(path.join(jobDir, 'job.json'), 'utf8')), false);
 1 287cc0430a62b5f2 assert.equal(summary.n, 36);
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
@@ -275,7 +276,7 @@
 1 472e9472f37f0ad2 assert.equal(negate(3), -3);
 1 473903b36856a7aa assert.equal(d.action, 'giveup');
 1 476f3fc59b20cf0b assert.equal(ids.size, DEFECTS.length);
-1 4783c56639f2adf5 assert.equal(att.ok, true);
+2 4783c56639f2adf5 assert.equal(att.ok, true);
 1 47b3e82b7894f535 assert.equal(fingerprint(a), fingerprint(c));
 1 47c0440baa018033 assert.equal(partial.valid, 1);
 1 47e1bce7fe014a74 assert.equal(dirty.ok, false);
@@ -483,11 +484,13 @@
 1 7d4da2570f24aea9 assert.deepEqual([...a.issues].sort(), [27, 44]);
 1 7db80c51c71a331e assert.equal(subtract(-1, -4), 3);
 1 7e223ffe4a7bf66d assert.equal(lockHeld({ alive: true, ageMs: 11 * MIN, mode: 'serve', staleMs: STALE, beatStaleMs: 10 * MIN }), false);
+1 7e236a22347fd844 assert.match(logs.join('\n'), /最近 witness 覆盖提交/);
 1 7e7e6400c18b9999 assert.ok(withRows.includes('任务失败'));
 1 7e859038f7eefa0a assert.equal(isPositive(1), true);
 1 7e8aa94a3ce44c83 assert.equal(toCelsius(212), 100);
 1 7e91e73ae2abe574 assert.match(line, /20\.0%/);
 1 7f1005bbdd172666 assert.equal(truncateWords('a b c d', 2), 'a b');
+1 7f720d3619def8f1 assert.equal(run, EXIT_OK);
 1 7fbf7f3324fdb3c5 assert.equal(s.kept.length, 2);
 1 7fd188bb9a5e0383 assert.ok(allowed.has(model), `评审升级档用了规范外的模型：${model}`);
 1 7fd284517b831ab7 assert.throws(() => chunk(123, 2), TypeError);
@@ -681,7 +684,7 @@
 1 ad4f036383b46f89 assert.deepEqual(parseFirstError('VERDICT: PASS\n'), { found: false });
 1 ad95bdc7fbf45242 assert.equal(calls.length, 1);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
-1 add12dbb4401decb assert.equal(codeRun, EXIT_FAIL);
+2 add12dbb4401decb assert.equal(codeRun, EXIT_FAIL);
 2 adf8acb56bdf7fbe assert.equal(runCli(['--file', file], io), 0);
 1 ae77f5abeca664ea assert.equal(plan.skippedKind, 2);
 1 ae85d8b6ddf843cf assert.equal(fingerprint(a), fingerprint(a2));
@@ -838,6 +841,7 @@
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
 1 d3996b5ca688d037 assert.deepEqual(tasks.map((t) => t.id), ['T1', 'T2', 'T3', 'T4']);
 1 d3e6eccab5c1f8cb assert.deepEqual(plan.picked, ['chat/a']);
+1 d3ece7997635b713 assert.match(logs.join('\n'), /仅文档\/元数据改动/);
 1 d440119b22c70268 assert.match(line, /tier=T3/);
 1 d4c44f96b689cef2 assert.equal(a.cause, '环境');
 1 d4e0ef3b94cd0001 assert.equal(lines.length, 1);

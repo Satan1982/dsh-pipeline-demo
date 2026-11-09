@@ -9,6 +9,10 @@
 //     （docs/89 §3.1）。三条判据：①链完整（marker/hash/prev_hash/nonce 全对）
 //     ②pushes 的 HEAD 必须被某条 witness 覆盖（commit + tree_after 双匹配，§3.2 L2）
 //     ③仅文档/元数据改动可无 witness；门禁脚本自更新的第一次 push 走显式人工放行并留痕。
+//   - CLI 模式：--land <基线>（push 判据，基线通常是 origin/main）；
+//     --mirror <ref> [--base <提交>]（镜像判据：基线是 Gitee 当前 main，判据同 --land，
+//     2026-11-09 修 mirror-gitee.sh 比 land.sh 严导致 docs-only 提交必须手动 attest）；
+//     --head <ref>（只要 ref 被见证，最严）。
 //
 // 为什么 commit + tree 双匹配：commit 可被 amend/rebase 改写，tree_after 是内容哈希；
 // 只比 commit 会漏掉「同一 commit 内容被换」的篡改，只比 tree 又会把不同提交混为一谈。
@@ -198,8 +202,33 @@ export function classifyPaths(changed) {
   return { files, code, gate, source, gateOnly: code.length > 0 && source.length === 0 };
 }
 
-export function landChangedFiles(repoDir, base = 'origin/main') {
-  return git(repoDir, ['diff', '--name-only', `${base}...HEAD`]).split('\n').map((s) => s.trim()).filter(Boolean);
+export function landChangedFiles(repoDir, base = 'origin/main', ref = 'HEAD') {
+  return git(repoDir, ['diff', '--name-only', `${base}...${ref}`]).split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+// 链上最近一条「commit 本地存在、tree 与当时一致、且是 ref 祖先」的 witness。
+// 用于镜像时没有远端基线可查（离线/首次）的兜底：从这条已验内容往后只放行文档改动。
+export function newestCoveredAncestor(repoDir, entries, ref = 'HEAD') {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const w = entries[i];
+    if (!w || !w.commit) continue;
+    let tree;
+    try {
+      tree = git(repoDir, ['rev-parse', `${w.commit}^{tree}`]);
+    } catch {
+      continue; // 别的机器签的 witness：本地没这个提交对象
+    }
+    if (tree !== w.tree_after) continue; // 提交被改写/内容不符，不能当基线
+    try {
+      execFileSync(GIT_BIN, ['-c', 'credential.helper=', 'merge-base', '--is-ancestor', w.commit, ref], {
+        cwd: repoDir, stdio: 'ignore', timeout: 60_000, windowsHide: true,
+      });
+    } catch {
+      continue; // 不是 ref 的祖先
+    }
+    return w;
+  }
+  return null;
 }
 
 function landCheck({ repoDir, chainFile, base, env, keyring = null }) {
@@ -249,12 +278,64 @@ function landCheck({ repoDir, chainFile, base, env, keyring = null }) {
   };
 }
 
+// 镜像判据（2026-11-09）：与 land.sh 对齐，基线是「Gitee 上已经有什么」而不是
+// 「HEAD 必须被 witness 覆盖」。原来 mirror-gitee.sh 用 --head（commit+tree 双匹配）
+// 比 land.sh 严格：docs-only 提交永远没有 witness，于是每次同步 Gitee 都要手动
+// attest 或 DSH_GITEE_ALLOW_UNVERIFIED=1。
+// 现在：ref 被覆盖 → 放行；否则自基线起只有文档/元数据改动 → 放行。
+// 基线优先用调用方给的 --base（mirror-gitee.sh 取 Gitee 当前 main）；拿不到时退回
+// 「链上最近的 witness 覆盖祖先」（离线可用），两者都不成立就 fail-closed。
+function mirrorCheck({ repoDir, chainFile, base = null, ref, keyring = null }) {
+  const chain = verifyChainFile(chainFile, { keys: keyring, requireSignature: !!keyring });
+  if (!chain.ok) return { ok: false, why: `witness 链无效：${chain.why}` };
+  let ids;
+  try {
+    ids = headIds(repoDir, ref);
+  } catch (e) {
+    return { ok: false, why: `读不到 ${ref}：${e.message}` };
+  }
+  const hit = findCover(chain.entries, ids);
+  if (hit) return { ok: true, note: `${ref} 已被 witness 覆盖（${hit.hash.slice(0, 12)}）` };
+
+  let from = null;
+  let label;
+  if (base) {
+    try {
+      from = git(repoDir, ['rev-parse', '--verify', `${base}^{commit}`]);
+    } catch {
+      return { ok: false, why: `给定的镜像基线 ${base} 在本地不存在，无法判定改动了什么` };
+    }
+    label = `基线 ${from.slice(0, 8)}`;
+  } else {
+    const w = newestCoveredAncestor(repoDir, chain.entries, ref);
+    if (!w) {
+      return { ok: false, why: `${ref} 未被 witness 覆盖，且链里没有可作基线的、被覆盖的祖先提交` };
+    }
+    from = w.commit;
+    label = `最近 witness 覆盖提交 ${from.slice(0, 8)}`;
+  }
+
+  let changed;
+  try {
+    changed = landChangedFiles(repoDir, from, ref);
+  } catch (e) {
+    return { ok: false, why: `拿不到 ${from.slice(0, 8)}...${ref} 的改动（${e.message}）` };
+  }
+  const cls = classifyPaths(changed);
+  if (cls.code.length === 0) return { ok: true, note: `自${label} 起仅文档/元数据改动，无需 witness（与 --land 判据一致）` };
+  return {
+    ok: false,
+    why: `${ref} 未被 witness 覆盖，且自${label} 起改动了非文档文件：${cls.code.slice(0, 6).join(', ')}`,
+  };
+}
+
 // ---------- CLI ----------
 function parseArgs(argv) {
   const out = { flags: new Set(), opts: new Map() };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--chain' || a === '--repo' || a === '--land' || a === '--head' || a === '--keys') {
+    if (a === '--chain' || a === '--repo' || a === '--land' || a === '--head' || a === '--keys'
+      || a === '--mirror' || a === '--base') {
       const v = argv[i + 1];
       if (v === undefined) throw new Error(`${a} 缺参数`);
       out.opts.set(a, v);
@@ -286,13 +367,28 @@ export function main(argv = process.argv.slice(2), env = process.env, log = cons
   log(`chain=${chainFile} n=${chain.n}${chain.missing ? '（文件不存在，视为空链）' : ''}${keyring ? ` keys=${keyring.size}（ed25519 验签）` : '（哈希链 L2，未启用 ed25519）'}`);
 
   if (args.opts.has('--land')) {
-    const r = landCheck({ repoDir, chainFile, base: args.opts.get('--land'), env, keyring });
+    const r = landCheck({
+      repoDir, chainFile, base: args.opts.get('--land'), env, keyring,
+    });
     if (!r.ok) {
       errLog(`VERDICT: FAIL｜${r.why}`);
       return EXIT_FAIL;
     }
     if (r.warn) errLog(`⚠ ${r.note}`);
     else log(`✓ ${r.note}`);
+    log('VERDICT: PASS');
+    return EXIT_OK;
+  }
+
+  if (args.opts.has('--mirror')) {
+    const r = mirrorCheck({
+      repoDir, chainFile, ref: args.opts.get('--mirror'), base: args.opts.get('--base') ?? null, keyring,
+    });
+    if (!r.ok) {
+      errLog(`VERDICT: FAIL｜${r.why}`);
+      return EXIT_FAIL;
+    }
+    log(`✓ ${r.note}`);
     log('VERDICT: PASS');
     return EXIT_OK;
   }

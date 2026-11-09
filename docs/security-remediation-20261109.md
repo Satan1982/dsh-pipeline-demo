@@ -138,3 +138,12 @@
 - **push**：走 `bash ci/land.sh`（verify → 验签 → push → 镜像 Gitee），GitHub `f32d244..8538e58`、Gitee 同范围，一次成功。远端对 required check 的提示不影响推送（管理员旁路）。
 - **PR #232**：打 `merge:verified` 标签后合并（`merge_commit_sha=fb615fba`），只改 `docs/manual.md +9`；本地 `merge --ff-only` 跟到 `fb615fb`。
 - **结论**：「先补门禁再开单」这条路径已经完整走通一次——**门禁绿 → witness 签名 → push → PR 合并**，后续 `agent:ready` 真实单可以按同一节奏跑。
+
+## 十一、镜像判据与 land 判据对齐（2026-11-09 15:5x）
+
+**问题**：`land.sh` push GitHub 前的判据是「HEAD 被 witness 覆盖，或自基线起只有文档/元数据改动」；而 `mirror-gitee.sh` 用的是 `--head`（HEAD 的 commit+tree 必须被某条 witness 覆盖）。docs-only 提交永远不会有 witness（witness 由调度器在过完门禁的提交上签发），于是每次纯文档提交同步 Gitee 都要人工 attest 或设 `DSH_GITEE_ALLOW_UNVERIFIED=1`——同一个出口两套宽严不一的判据。
+
+- **基线取「Gitee 当前 main」**：镜像脚本先 `git ls-remote "$REMOTE" refs/heads/main` 拿 TIP，本地有该提交就传 `--mirror <ref> --base <TIP>`；判据与 `--land` 一致（自基线起只有文档/元数据改动即放行）。不取「最近 witness 覆盖祖先」：中间夹一个未见证的门禁提交就会把后续 docs 提交一起拒掉（poisoning），仍要人工放行。
+- **兜底**：拿不到 TIP（首次镜像/断网）退回 `--head`，仍然 fail-closed；`DSH_GITEE_ALLOW_UNVERIFIED=1` 的显式放行路径保留并写 `.logs/gitee-unverified.jsonl`。门禁脚本自更新的 `DSH_LAND_GATE_UPDATE=1` 例外**没有**复制进镜像口——镜像仍必须显式放行，避免在镜像口开第二条仅凭环境变量的放行路。
+- **改动**：`ci/trust/verify.mjs` 新增 `--mirror <ref> [--base <提交>]` 与 `mirrorCheck()`（复用 `landChangedFiles`/`classifyPaths`，另加 `newestCoveredAncestor()` 作无基线时的后退选项）；`ci/mirror-gitee.sh` 把 `--head $SRC` 换成上述动态判据，失败文案同步改。
+- **验证**：`node --test ci/trust-verify.test.mjs` → 11 pass / 0 fail（新增 3 例：docs-only 放行+源码拒推、无基线退回 witness 祖先、基线提交不存在 fail-closed）；`bash scripts/verify.sh --bless` → 432/1127 PASS（基线 `432 1127 17c0fbc629cef31f`）。
