@@ -2528,8 +2528,13 @@ async function maybeDistill() {
       cwd: REPO_DIR, timeout: 300000,
       env: { ...scrubbedEnv(), PATH: CHILD_PATH },
     });
-    const lastLine = (r.out || '').trim().split(NL).filter(Boolean).slice(-1)[0] || '';
-    log(`[distill] 每日写入 Hindsight exit=${r.code} ${lastLine.slice(0, 140)}`);
+    // stdout 尾巴取两行：两次投递（失败摘要 → pipeline::failures、池子统计 → pipeline::pool）
+    // 各打一行 [distill]，只留最后一行的话「失败摘要写入」永远看不到。
+    const outTail = (r.out || '').trim().split(NL).filter(Boolean).slice(-2).join(' | ');
+    // 失败时把子进程 stderr 的尾巴一起打进日志：2026-11-01~11-08 连续 8 天 exit=1 却没留任何原因，
+    // 凭据缺失 / 服务不通 / 写入被拒三种情况完全分不清。
+    const errTail = r.code === 0 ? '' : ` stderr=${((r.err || '').trim().split(NL).filter(Boolean).slice(-2).join(' | ') || '(空)').slice(0, 300)}`;
+    log(`[distill] 每日写入 Hindsight exit=${r.code}${errTail} ${outTail.slice(0, 300)}`);
     // 顺手生成成本报表：数据就在本地 usage.jsonl，多跑一次 node 不到 0.2 秒。
     const cr = await run(process.execPath, [path.join(REPO_DIR, 'ci', 'cost-report.mjs')], {
       cwd: REPO_DIR, timeout: 120000, env: { ...scrubbedEnv(), PATH: CHILD_PATH },
