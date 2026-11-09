@@ -614,9 +614,12 @@ node ci/dispatch.mjs --pool-snapshot   # 一行 JSON 追加到 ~/.dsh/coord/log/
 ```
 
 - 输出：`{"at":…,"ok":34,"stale":114,"suspect":9,"unknown":1,"down":0,"other":0,"total":158}`（计数判据是 `ci/probe-plan.mjs` 的 `poolCounts()`）。
-- 路径可用 `DSH_POOL_SNAPSHOT_LOG` 改。常驻进程每小时自动写一行（`DSH_POOL_SNAPSHOT_EVERY_MS` 可调，0=关），
-  所以它本身就是趋势数据；**还没接进每日 digest**（TODO：`ci/distill-failures.mjs` 里读最近 N 行出曲线），
-  在那之前排查池子直接 `tail ~/.dsh/coord/log/pool-snapshot.jsonl`。
+- 路径可用 `DSH_POOL_SNAPSHOT_LOG` 改。常驻进程每小时自动写一行（`DSH_POOL_SNAPSHOT_EVERY_MS` 可调，0=关），所以它本身就是趋势数据。
+- **趋势已接进 distill**（2026-11-09，`ci/pool-trend.mjs` + `ci/distill-failures.mjs`）：默认取最近 **14 天**（`DSH_POOL_SNAPSHOT_DAYS` 可调，上限 90）出「免费模型池健康」段——每日中位 ok 与当日区间、较窗口首日的中位变化、最近一次分项。
+  - 按时间窗 + 按 UTC 日聚合，**不按行数、不判方向**：行数不等于时间（有 77.5h 断档，48 行在历史上中位对应 110.5h），ok 有强烈日内相位（UTC 小时 mean 27–95），「首尾差」同数据换窗口长度方向会乱跳。详见 `docs/98-pool-trend-20261109.md`。
+  - 池子段写独立的 Hindsight bank（`pipeline::pool`，`DSH_POOL_BANK` 可改），不混进 `pipeline::failures`：那是历史统计，不是当前可用性。
+  - **没有失败记录的日子也照样出这一段**：池子恰恰是在「没有失败」的时候悄悄变差的（10-28 中位 83 → 11-02 后长期 18–22，流水线当时没有任何信号）。
+  - 要逐行看原文还是 `tail ~/.dsh/coord/log/pool-snapshot.jsonl`。
 - 只读、不探活、不改登记表；`--dry-run` 无需特判（它本来就不写远端）。
 
 ## 状态对账（常驻进程内，每 30 轮一次）

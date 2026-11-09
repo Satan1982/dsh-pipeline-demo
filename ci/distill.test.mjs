@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clean, group, render } from './distill-failures.mjs';
+import { clean, group, render, renderPoolSection } from './distill-failures.mjs';
+import { poolTrend } from './pool-trend.mjs';
 
 test('同一个指纹的多条记录归并成一条，次数与工单都留下', () => {
   const groups = group([
@@ -33,4 +34,21 @@ test('摘要按出现次数排序，并写明来源与条数', () => {
   assert.ok(text.includes('共 2 个根因'));
   assert.ok(text.toLowerCase().includes('docs/failures.jsonl') || text.includes('failures.jsonl'));
   assert.ok(text.indexOf('## 2 次') < text.indexOf('## 1 次'));
+});
+
+test('池子健康单独成段：带截止时间与「不是当前可用性」', () => {
+  const rows = [
+    { at: '2026-11-01T00:00:00Z', atMs: Date.UTC(2026, 10, 1), ok: 20, total: 158 },
+    { at: '2026-11-02T00:00:00Z', atMs: Date.UTC(2026, 10, 2), ok: 18, total: 158 },
+  ];
+  const section = renderPoolSection(poolTrend(rows));
+  assert.match(section, /^## 免费模型池健康（近 14 天，快照截止 2026-11-02/);
+  assert.match(section, /不是当前可用性/);
+});
+
+test('池子快照坏掉时出「快照不可用」，不静默省略', () => {
+  const section = renderPoolSection(null, { problem: '快照文件读不了（EACCES）：x.jsonl' });
+  assert.match(section, /快照不可用/);
+  assert.match(section, /EACCES/);
+  assert.equal(renderPoolSection(null), '');
 });

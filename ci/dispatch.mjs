@@ -3059,13 +3059,14 @@ async function main() {
       return;
     }
     // 心跳由上面的独立定时器负责（跑单期间也要续租）；这里只确认锁还是自己的。
+    // 先写池子快照再蒸馏：distill 读的是同一份 jsonl，顺序反了会读到上一小时的窗口。
+    try { await maybePoolSnapshot(); } catch (e) { log(`[pool] 快照出错：${e.message}`); }
     await maybeDistill();
     try {
       await recoverBlocked();
       await pollOnce();
       await checkAgentPRs();
       await reconcileState();
-      await maybePoolSnapshot();
     } catch (e) { log(`轮询出错: ${e.message}`); }
   }
 }

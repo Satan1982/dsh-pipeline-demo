@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { classifyCause } from './failures.mjs';
+import { readPoolSnapshot, renderPoolTrend } from './pool-trend.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const STORE = process.env.DSH_FAILURES_STORE || path.join(ROOT, 'docs/failures.jsonl');
@@ -90,7 +91,7 @@ export function clean(text, max = 300) {
   return kept.join(' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-export function render(groups) {
+export function render(groups, { pool = null, poolBad = 0, poolProblem = null } = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const lines = [
     `# 自动化编程流水线 · 失败指纹摘要（${today}）`,
@@ -98,9 +99,13 @@ export function render(groups) {
     '来源：dsh-pipeline-demo 的 docs/failures.jsonl（调度器每次失败都会记一条，按根因归并）。',
     '用途：换机器/换仓库时先查这里，别重新踩。',
     '',
-    `共 ${groups.length} 个根因，取出现次数最多的 ${Math.min(TOP, groups.length)} 条：`,
-    '',
   ];
+  if (!groups.length) {
+    // 没有失败也要出这份摘要：池子健康恰恰是在「没有失败」的日子里悄悄变差的。
+    lines.push('过去这段时间没有失败指纹记录。', '');
+  } else {
+    lines.push(`共 ${groups.length} 个根因，取出现次数最多的 ${Math.min(TOP, groups.length)} 条：`, '');
+  }
   // 先说清「栽在哪」：环境/基线类失败改机器就能消掉，不归因到它，代码再怎么修都白修。
   // 归因取每个根因「第一次」的判定（原发失败），不用最后一次的尾巴——尾巴常被后续输出带偏。
   const byCause = new Map();
@@ -118,7 +123,30 @@ export function render(groups) {
     lines.push(`- 最近一次：${g.last || '未知'}`);
     lines.push('');
   }
+  const poolText = renderPoolSection(pool, { bad: poolBad, problem: poolProblem });
+  if (poolText) lines.push(poolText);
   return lines.join('\n').trim() + '\n';
+}
+
+/**
+ * 池子健康段（单独成文，进自己的 bank）。
+ * 独立出来是因为它写进 `pipeline::failures` 会被当成「当前可用性」检索；
+ * 而且它统计的是历史，不是失败知识。
+ */
+export function renderPoolSection(trend, { bad = 0, problem = null } = {}) {
+  const text = renderPoolTrend(trend, { bad });
+  if (text) return text;
+  if (problem) {
+    return [
+      '## 免费模型池健康（快照不可用）',
+      '',
+      '> 这是历史统计，不是当前可用性。',
+      '',
+      `- ${problem}`,
+      '',
+    ].join('\n');
+  }
+  return '';
 }
 
 async function post(text, bank) {
@@ -142,12 +170,19 @@ async function post(text, bank) {
 
 async function main() {
   const records = readStore(STORE);
-  if (!records.length) {
-    console.error(`[distill] ${STORE} 里没有记录，无事可做。`);
+  // 池子趋势与失败指纹一起发：只有失败才有信号的话，池子是「先坏很久才崩」的。
+  // 池子快照先读（调度器会先写快照再蒸馏，见 ci/dispatch.mjs），两份摘要分开发：
+  // 失败指纹 → pipeline::failures；池子统计 → pipeline::pool（历史统计，不该被当成当前可用性检索）。
+  const { trend: pool, bad: poolBad, problem: poolProblem } = readPoolSnapshot();
+  if (poolProblem) console.error(`[distill] 池子快照有问题：${poolProblem}`);
+  const failuresText = render(group(records));
+  const poolText = renderPoolSection(pool, { bad: poolBad, problem: poolProblem });
+  if (!records.length && !poolText) {
+    console.error(`[distill] ${STORE} 里没有失败记录，池子快照也没有数据，无事可做。`);
     process.exit(0);
   }
-  const text = render(group(records));
-  console.log(text);
+  if (records.length) console.log(failuresText);
+  if (poolText) console.log(poolText);
 
   if (DRY) {
     console.error('[distill] --dry：只打印，没有写入 Hindsight。');
@@ -155,16 +190,22 @@ async function main() {
   }
   // 默认写独立 bank：踩坑知识跨仓库通用，混进某个仓库的 coding bank 反而不好检索。
   const bank = pickFlag('--bank', process.env.DSH_HINDSIGHT_BANK || 'pipeline::failures');
-  if (!FORCE && !bank) {
+  const poolBank = pickFlag('--pool-bank', process.env.DSH_POOL_BANK || 'pipeline::pool');
+  if (records.length && !FORCE && !bank) {
     console.error('[distill] 没有 bank（cod-agent.json 里也没有 bankId），用 --bank 指定。');
     process.exit(1);
   }
-  const r = await post(text, bank);
-  if (r.status >= 200 && r.status < 300) {
-    console.log(`[distill] 已写入 Hindsight：bank=${bank} status=${r.status}`);
-  } else {
-    console.error(`[distill] 写入失败：status=${r.status} ${r.body}`);
-    process.exit(1);
+  const jobs = [];
+  if (records.length) jobs.push(['失败摘要', failuresText, bank]);
+  if (poolText) jobs.push(['池子统计', poolText, poolBank]);
+  for (const [label, text, target] of jobs) {
+    const r = await post(text, target);
+    if (r.status >= 200 && r.status < 300) {
+      console.log(`[distill] ${label}已写入 Hindsight：bank=${target} status=${r.status}`);
+    } else {
+      console.error(`[distill] ${label}写入失败：bank=${target} status=${r.status} ${r.body}`);
+      process.exit(1);
+    }
   }
 
 }
