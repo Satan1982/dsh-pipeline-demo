@@ -82,6 +82,15 @@ Get-Content .logs\dispatch.lock          # {"pid":...,"at":...}
 Stop-Process -Id <pid>
 ```
 
+若 `Stop-Process` 返回「拒绝访问」，说明常驻是计划任务以更高权限拉起的，当前用户停不掉；改走 broker 队列，由 SYSTEM 身份在几秒内执行（目录：`C:\ProgramData\dsh-broker\queue`、`C:\ProgramData\dsh-broker\done`、`C:\ProgramData\dsh-broker\logs`）：
+
+1. 往 `C:\ProgramData\dsh-broker\queue\` 放一个 `<id>.ps1`（`<id>` 自取，如时间戳），内容：
+   ```powershell
+   Stop-Process -Id <pid> -Force
+   ```
+2. 读 `C:\ProgramData\dsh-broker\done\<id>.json` 看结果：`exit: 0` 且进程已消失。
+3. 重启：`node ci/dispatch.mjs --ensure`，然后用 `node ci/dispatch.mjs --status` 复核 `mode: ready`、`lock: pid=<新 pid> ... 进程活着 心跳新鲜`。
+
 ---
 
 ## 4. 命令速查
