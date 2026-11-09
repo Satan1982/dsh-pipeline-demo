@@ -74,6 +74,7 @@ function issueBody(task) {
 function runDispatch(extra) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['ci/dispatch.mjs', ...extra], {
+    windowsHide: true,
       cwd: REPO_DIR,
       // 付费档全量是测试开销，不该被日常 5 元日闸挡（2026-11-08 第一轮 22 单因 ¥5.02 到顶被跳过，
       // 白跑 30 分钟）。用户显式设了 DSH_DAY_MAX_CNY 就尊重之。
@@ -169,7 +170,7 @@ async function main() {
 // Windows 上 Node 自带 CA 不含系统根证书：没有该 flag 时 fetch api.github.com 直接 "fetch failed"。
 // 与 dispatch.mjs 同一套自重启做法。
 if (!process.execArgv.includes('--use-system-ca')) {
-  const r = spawnSync(process.execPath, ['--use-system-ca', ...process.argv.slice(1)], { stdio: 'inherit' });
+  const r = spawnSync(process.execPath, ['--use-system-ca', ...process.argv.slice(1)], { stdio: 'inherit', windowsHide: true });
   process.exit(r.status ?? 1);
 }
 

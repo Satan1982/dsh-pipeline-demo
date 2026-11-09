@@ -151,6 +151,7 @@ export function formatFindings(result) {
  */
 export function reviewWorktree(cwd, base = 'origin/main', options = {}) {
   const git = (args) => spawnSync(process.env.DSH_GIT || 'git', args, {
+    windowsHide: true,
     cwd, encoding: 'utf8', timeout: 60_000,
   });
 

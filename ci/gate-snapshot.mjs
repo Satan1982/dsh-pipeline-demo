@@ -118,7 +118,7 @@ export function gateBytesSha256(root, paths = GATE_PATHS) {
 // 失败即抛（调用方 fail-closed）：拿不到 origin 字节就不该判定门禁通过。
 export function overlayOriginGate({ repoDir, ref = DEFAULT_REF, gitBin = DEFAULT_GIT, paths = GATE_PATHS } = {}) {
   if (!repoDir) throw new Error('缺 repoDir');
-  execFileSync(gitBin, ['checkout', ref, '--', ...paths], { cwd: repoDir, stdio: 'pipe' });
+  execFileSync(gitBin, ['checkout', ref, '--', ...paths], { cwd: repoDir, stdio: 'pipe', windowsHide: true });
   return { ref, ...gateBytesSha256(repoDir, paths) };
 }
 
@@ -137,23 +137,23 @@ export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_
   const tmp = mkdtempSync(path.join(root, prefix));
   const cleanup = () => {
     try {
-      execFileSync(gitBin, ['worktree', 'remove', '--force', tmp], { cwd: repoDir, stdio: 'pipe' });
+      execFileSync(gitBin, ['worktree', 'remove', '--force', tmp], { cwd: repoDir, stdio: 'pipe', windowsHide: true });
     } catch { /* 已删/未注册都不影响清理 */ }
     if (keep) return { ok: true, kept: true };
     return removeTreeSafe(tmp);
   };
   try {
-    execFileSync(gitBin, ['worktree', 'add', '--detach', '--quiet', tmp, ref], { cwd: repoDir, stdio: 'pipe' });
+    execFileSync(gitBin, ['worktree', 'add', '--detach', '--quiet', tmp, ref], { cwd: repoDir, stdio: 'pipe', windowsHide: true });
     // 1) 已跟踪但还没提交的改动：原样 patch 过去（--binary 防止图片/二进制被截断）。
-    const patch = execFileSync(gitBin, ['diff', '--binary', ref], { cwd: repoDir, maxBuffer: 64 * 1024 * 1024 });
+    const patch = execFileSync(gitBin, ['diff', '--binary', ref], { cwd: repoDir, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
     if (patch.length > 0) {
       const patchFile = path.join(tmp, '.dsh-candidate.patch');
       writeFileSync(patchFile, patch);
-      execFileSync(gitBin, ['apply', '--whitespace=nowarn', patchFile], { cwd: tmp, stdio: 'pipe' });
+      execFileSync(gitBin, ['apply', '--whitespace=nowarn', patchFile], { cwd: tmp, stdio: 'pipe', windowsHide: true });
       rmSync(patchFile, { force: true });
     }
     // 2) 未跟踪的新文件（git archive 看不到它们，但 agent 新建的源文件/测试必须进候选树）。
-    const untracked = execFileSync(gitBin, ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: repoDir, encoding: 'utf8' })
+    const untracked = execFileSync(gitBin, ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: repoDir, encoding: 'utf8', windowsHide: true })
       .split('\0').filter(Boolean);
     for (const rel of untracked) {
       const from = path.join(repoDir, rel);
@@ -173,7 +173,7 @@ export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_
       const abs = path.join(tmp, rel);
       if (existsSync(abs)) blessed.set(rel, readFileSync(abs));
     }
-    execFileSync(gitBin, ['checkout', gateRef, '--', ...paths], { cwd: tmp, stdio: 'pipe' });
+    execFileSync(gitBin, ['checkout', gateRef, '--', ...paths], { cwd: tmp, stdio: 'pipe', windowsHide: true });
     const gate = gateBytesSha256(tmp, paths);
     for (const [rel, buf] of blessed) writeFileSync(path.join(tmp, rel), buf);
     return { dir: tmp, ref, gateRef, gate, cleanup };

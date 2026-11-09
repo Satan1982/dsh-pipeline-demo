@@ -54,7 +54,7 @@ const GIT = 'C:/Program Files/Git/cmd/git.exe';
  * 于是把改动清单单独摆到它面前，让它没法凭空否定一个已经出现在清单里的文件。
  */
 export function collectDiff(cwd, base = 'origin/main') {
-  const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 };
+  const opts = { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true };
   // 永远排除 .dsh/：那是调度器写给 agent 的内部笔记，不是给人 review 的改动。
   const r = spawnSync(GIT, ['diff', '--no-color', '--unified=2', `${base}...HEAD`, '--', '.', ':(exclude).dsh'], opts);
   if (r.status !== 0) {
@@ -296,7 +296,7 @@ export function registryStats(reset = false) {
   try {
     const home = process.env.USERPROFILE || process.env.HOME || '.';
     const fm = process.env.DSH_FM_CLI || path.join(home, '.dsh', 'tools', 'free-models', 'fm.py');
-    const r = spawnSync('python', [fm, 'stats', '--json'], { encoding: 'utf8', timeout: 20000 });
+    const r = spawnSync('python', [fm, 'stats', '--json'], { encoding: 'utf8', timeout: 20000, windowsHide: true });
     if (r.status === 0 && r.stdout) {
       const parsed = JSON.parse(r.stdout);
       STATS_CACHE = flattenStats(parsed.models ?? parsed);

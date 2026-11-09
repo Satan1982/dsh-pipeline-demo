@@ -66,7 +66,7 @@ function childEnv() {
 
 function runTest(cwd, testFile, timeoutMs = 120_000) {
   return new Promise((done) => {
-    const p = spawn(process.execPath, ['--test', testFile], { cwd, env: childEnv() });
+    const p = spawn(process.execPath, ['--test', testFile], { cwd, env: childEnv(), windowsHide: true });
     p.stdout.setEncoding('utf8');
     p.stderr.setEncoding('utf8');
     let out = '';

@@ -140,7 +140,7 @@ export function ensureCandidateRoot(root = CAND_ROOT) {
 }
 
 export function grantDir(dir, rights = 'M') {
-  const r = spawnSync('icacls', [dir, '/grant', `${AGENT_USER}:(OI)(CI)${rights}`], { encoding: 'utf8' });
+  const r = spawnSync('icacls', [dir, '/grant', `${AGENT_USER}:(OI)(CI)${rights}`], { encoding: 'utf8', windowsHide: true });
   if (r.status !== 0) return { ok: false, why: (r.stderr || r.stdout || '').trim() };
   return { ok: true };
 }
@@ -156,7 +156,7 @@ export function prepareCmdJob({ cmd, cwd, timeoutSec = 900, jobDir = CMD_JOB_DIR
   mkdirSync(jobDir, { recursive: true });
   for (const f of ['done.json', 'cmd.log', 'launcher.trace', 'job.json']) {
     try { writeFileSync(path.join(jobDir, f), ''); } catch { /* ignore */ }
-    try { spawnSync('rm', ['-f', path.join(jobDir, f)]); } catch { /* ignore */ }
+    try { spawnSync('rm', ['-f', path.join(jobDir, f)], { windowsHide: true }); } catch { /* ignore */ }
   }
   // nonce：job.json 里的一次性随机串，runner 在启动命令前删掉 job.json，命令读不到它；
   // done.json 必须回带同一个 nonce 才被接受。文件通道本身无法认证（低权用户能写 jobDir 里

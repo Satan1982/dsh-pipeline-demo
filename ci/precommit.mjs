@@ -20,6 +20,7 @@ import { appendOverride, gateFilesFromFindings, overrideDecision, overrideRecord
 
 const GIT = 'C:/Program Files/Git/cmd/git.exe';
 const git = (args) => spawnSync(GIT, ['-c', 'credential.helper=', ...args], {
+  windowsHide: true,
   encoding: 'utf8',
   timeout: 60_000,
 });
@@ -60,7 +61,7 @@ if (unsynced) {
     env.PNPM_CLI = path.join(home, 'AppData', 'Local', 'Programs', 'DeepSeek Harness',
       'resources', 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.cjs');
   }
-  const gate = spawnSync(bash, ['scripts/verify.sh'], { encoding: 'utf8', timeout: 15 * 60_000, env });
+  const gate = spawnSync(bash, ['scripts/verify.sh'], { encoding: 'utf8', timeout: 15 * 60_000, env, windowsHide: true });
   if (gate.status === 0) {
     unsynced.severity = 'warn';
     unsynced.message = '改了测试文件但计数与断言指纹都没变（本地门禁已通过），无需 bless';

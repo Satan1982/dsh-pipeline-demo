@@ -40,9 +40,27 @@ foreach ($p in $required) {
     if (-not (Test-Path $p)) { throw "缺少: $p" }
 }
 
+# 每 5 分钟一次的空转不该在桌面上闪一下控制台：任务直接跑 node.exe（控制台程序）会创建黑窗。
+# 改由 wscript.exe（GUI 子系统，自身无窗口）拉起隐藏的 node；Run(cmd, 0, True) 等它跑完并
+# 把真实退出码交回任务计划程序（LastTaskResult 仍可监控）。
+$hidden = Join-Path $repo '.logs\dispatch-hidden.vbs'
+$hiddenDir = Split-Path -Parent $hidden
+if (-not (Test-Path $hiddenDir)) { $null = New-Item -ItemType Directory -Path $hiddenDir -Force }
+$vbs = @'
+Dim sh, rc
+On Error Resume Next
+Set sh = CreateObject("WScript.Shell")
+sh.CurrentDirectory = "__REPO__"
+rc = sh.Run("""__NODE__"" --use-system-ca ci/dispatch.mjs --once --unattended", 0, True)
+If Err.Number <> 0 Then
+  WScript.Quit 1
+End If
+WScript.Quit rc
+'@.Replace('__REPO__', $repo).Replace('__NODE__', $node)
+[IO.File]::WriteAllText($hidden, $vbs, (New-Object Text.UTF8Encoding($false)))
 $action = New-ScheduledTaskAction `
-    -Execute $node `
-    -Argument '--use-system-ca ci/dispatch.mjs --once --unattended' `
+    -Execute 'wscript.exe' `
+    -Argument ('//nologo "' + $hidden + '"') `
     -WorkingDirectory $repo
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
@@ -57,6 +75,7 @@ $settings = New-ScheduledTaskSettingsSet `
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Settings $settings -Force `
+    -Principal (New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited) `
     -Description "DSH agent dispatcher: poll agent:ready issues every $EveryMinutes min" | Out-Null
 
 Write-Host "已注册计划任务: $TaskName (每 $EveryMinutes 分钟一轮)"

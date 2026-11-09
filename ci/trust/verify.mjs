@@ -39,7 +39,7 @@ export function defaultChainFile(repoDir) {
 
 function git(repoDir, args) {
   return execFileSync(GIT_BIN, ['-c', 'credential.helper=', ...args], {
-    cwd: repoDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
+    cwd: repoDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000, windowsHide: true,
   }).trim();
 }
 

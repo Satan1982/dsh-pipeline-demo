@@ -30,7 +30,7 @@ function childEnv() {
 
 function runOnce(cmd, cwd, timeoutMs) {
   return new Promise((done) => {
-    const p = spawn(BASH, ['-lc', cmd], { cwd, env: childEnv() });
+    const p = spawn(BASH, ['-lc', cmd], { cwd, env: childEnv(), windowsHide: true });
     p.stdout.setEncoding('utf8');
     p.stderr.setEncoding('utf8');
     let out = '';

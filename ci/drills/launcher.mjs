@@ -81,7 +81,7 @@ check('审计落了两条执行记录', audit.length === 2, `实际 ${audit.leng
 check('审计记录都不是 ok', audit.every((r) => r.ok === false) === true, JSON.stringify(audit.map((r) => r.ok)));
 
 // ④ §六 第二条证据：git log 无 Administrator 提交。
-const git = spawnSync(GIT, ['-C', REPO, 'log', '--format=%an'], { encoding: 'utf8', timeout: 30_000 });
+const git = spawnSync(GIT, ['-C', REPO, 'log', '--format=%an'], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
 const admins = String(git.stdout || '').split('\n').filter((s) => s.trim() === 'Administrator').length;
 check('git log 无 Administrator 提交', git.status === 0 && admins === 0, `status=${git.status} admins=${admins}`);
 

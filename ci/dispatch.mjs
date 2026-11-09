@@ -66,7 +66,7 @@ import { runAsAgent } from './s4-job.mjs';
 // Windows 上 Node 自带 CA 不含系统根证书，必须 --use-system-ca，否则 api.github.com 报
 // "unable to verify the first certificate"。没有该 flag 时自重启补上。
 if (!process.execArgv.includes('--use-system-ca')) {
-  const r = spawnSync(process.execPath, ['--use-system-ca', ...process.argv.slice(1)], { stdio: 'inherit' });
+  const r = spawnSync(process.execPath, ['--use-system-ca', ...process.argv.slice(1)], { stdio: 'inherit', windowsHide: true });
   process.exit(r.status ?? 1);
 }
 
@@ -406,8 +406,8 @@ let WEBHOOK_WARNED = false;
 
 // toast 要一个已注册的 AppUserModelId 才会真的弹；注册只是写 HKCU，幂等且无副作用。
 function ensureAumid() {
-  if (spawnSync('reg', regQueryArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0) return true;
-  return spawnSync('reg', regAddArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0;
+  if (spawnSync('reg', regQueryArgs(), { timeout: 5000, stdio: 'ignore', windowsHide: true }).status === 0) return true;
+  return spawnSync('reg', regAddArgs(), { timeout: 5000, stdio: 'ignore', windowsHide: true }).status === 0;
 }
 
 function notifyEvent({ kind, issue, why, cny }) {
@@ -438,8 +438,9 @@ function notifyEvent({ kind, issue, why, cny }) {
     spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
       timeout: 15000,
       stdio: 'ignore',
+      windowsHide: true,
     });
-    const seen = spawnSync('reg', ['query', settingsKey()], { timeout: 5000, stdio: 'ignore' });
+    const seen = spawnSync('reg', ['query', settingsKey()], { timeout: 5000, stdio: 'ignore', windowsHide: true });
     log(`[notify] 已发系统通知：${title}（AUMID ${aumid ? '已注册' : '注册失败'}，送达 ${seen.status === 0 ? '确认' : '未确认'}）`);
   } catch (e) {
     log(`[notify] 弹窗失败（不影响任务）：${e.message}`);
@@ -533,7 +534,7 @@ function run(cmd, args, { cwd, env, timeout, input, clean } = {}) {
   return new Promise((resolve) => {
     // clean=true 时完全不用父进程的 env：给 agent 的子进程必须走这条，
     // 否则调度器环境里的凭据（GIT_TOKEN / 各种 API key）会随环境泄漏给模型。
-    const p = spawn(cmd, args, { cwd, env: clean ? { ...env } : { ...process.env, ...env } });
+    const p = spawn(cmd, args, { cwd, env: clean ? { ...env } : { ...process.env, ...env }, windowsHide: true });
     p.stdout.setEncoding('utf8');
     p.stderr.setEncoding('utf8');
     let out = '', err = '';
@@ -2613,7 +2614,7 @@ function freeModelsDir() {
 }
 
 function runFm(script, args, timeout) {
-  return spawnSync('python', [path.join(freeModelsDir(), script), ...args], { encoding: 'utf8', timeout });
+  return spawnSync('python', [path.join(freeModelsDir(), script), ...args], { encoding: 'utf8', timeout, windowsHide: true });
 }
 
 function readPoolStats() {
@@ -2747,6 +2748,7 @@ function ensureRepos() {
       env: childEnv(entry),
       encoding: 'utf8',
       timeout: 120000,
+      windowsHide: true,
     });
     const out = `${r.stdout || ''}${r.stderr || ''}`.trim().split('\n').filter(Boolean).slice(-1)[0] || '(无输出)';
     log(`[repos] ${entry.repo}：${out}`);
@@ -2883,7 +2885,7 @@ async function main() {
   // 是旧进程还在跑，还是改了代码没重启。sha 取仓库 HEAD，时间取本文件 mtime（UTC）。
   let codeSha = 'nogit';
   try {
-    const r = spawnSync(GIT, ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, encoding: 'utf8' });
+    const r = spawnSync(GIT, ['rev-parse', '--short', 'HEAD'], { cwd: REPO_DIR, encoding: 'utf8', windowsHide: true });
     if (r.status === 0 && r.stdout) codeSha = r.stdout.trim();
   } catch { /* 不是 git 仓库就退回 nogit */ }
   let codeAt = '?';

@@ -52,8 +52,8 @@ export function writeAlert(dir, rec) {
 }
 
 function ensureAumid() {
-  if (spawnSync('reg', regQueryArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0) return true;
-  return spawnSync('reg', regAddArgs(), { timeout: 5000, stdio: 'ignore' }).status === 0;
+  if (spawnSync('reg', regQueryArgs(), { timeout: 5000, stdio: 'ignore', windowsHide: true }).status === 0) return true;
+  return spawnSync('reg', regAddArgs(), { timeout: 5000, stdio: 'ignore', windowsHide: true }).status === 0;
 }
 
 export function sendToast(rec, { dir = path.join(homedir(), '.dsh', 'coord', 'log') } = {}) {
@@ -63,9 +63,9 @@ export function sendToast(rec, { dir = path.join(homedir(), '.dsh', 'coord', 'lo
     const script = writeToastScript(path.join(dir, 'notify-toast.ps1'), { title, message });
     const aumid = ensureAumid();
     const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
-      timeout: 15000, stdio: 'ignore',
+      timeout: 15000, stdio: 'ignore', windowsHide: true,
     });
-    const seen = spawnSync('reg', ['query', settingsKey()], { timeout: 5000, stdio: 'ignore' });
+    const seen = spawnSync('reg', ['query', settingsKey()], { timeout: 5000, stdio: 'ignore', windowsHide: true });
     return { ok: r.status === 0, aumid, delivered: seen.status === 0 };
   } catch (e) {
     return { ok: false, error: String(e?.message ?? e) };
