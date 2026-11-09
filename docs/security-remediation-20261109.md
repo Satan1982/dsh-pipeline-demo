@@ -86,12 +86,14 @@
 - **作者/贴标人双闸**：`isTrustedAuthor()` 不再单凭 `author_association` 放行 MEMBER/COLLABORATOR，改为「OWNER + 协作者表里有 admin/maintain/write/push 的登录 + `DSH_TRUSTED_AUTHORS`」；新增 `isTrustedLabeler()` 读 `GET /repos/{repo}/issues/{n}/events`，要求最新一条 `agent:ready` labeled 事件的 actor 也在同一可信集合。协作者表 10 分钟缓存，读不到时退化为只信任所有者/白名单（fail-closed）；`--issue N` 强推路径同样过双闸。
 - **建单流程配合**：`ci/pass3-issues.mjs`、`ci/plan.mjs` 改为先建单再 POST labels —— 创建时带 label 不产生 labeled 事件，会被贴标人闸拒；人工建单若在创建时就勾了 `agent:ready`，需去掉重贴一次。
 - **单测**：`ci/s4-exec.test.mjs`（8 测试 / 27 断言）把作者/协作者/贴标人/`validateDone` 的判定钉进断言基线。
+- **P1-7 公开出口脱敏**（2026-11-09，PR #243）：新增 `ci/redact.mjs`，在唯一出口 `api()`（`dispatch.mjs:477`）对 `POST .../comments` 与 `POST .../pulls` 的 `body` 做替换——私钥块、`gh[pousr]_`、`github_pat_`、`sk-`、AKIA、`xox[baprs]-`、JWT、`Bearer`、盘符/UNC/MSYS/POSIX 绝对路径，超 6000 字符截断；`ci/redact.test.mjs` 11 测试 / 32 断言，含「URL 里的 /home 不动」「commit sha 不动」负例。
+- **P1-8 CI 权限收紧**（2026-11-09，PR #244）：`ci.yml` 加顶层 `permissions: contents: read`；两个工作流的 4 处 `uses:` 固定到提交 SHA（checkout/setup-node 均 v4.4.0，行尾标注版本）；新增 `ci/workflows.test.mjs` 6 测试守卫（浮动 tag、缺版本注释、ci.yml 缺只读权限都会红）。
 
 已知残余（不阻塞恢复跑单，记入 P2）：
 - `done.json` 仍由低权进程写：nonce 挡住「命令自己写一份结果」，但同一登录会话仍可从 runner 内存读 nonce；彻底隔离要等 P2 的独立取码/OS 级隔离。launcher 退出码 0 与 nonce 双条件是为了避免把它降级成单点。
 - 低权通道的出网仍不受限（P1-5 防火墙白名单未做），`DSH_PERMISSION_MODE` 只影响该通道 spawn 的 DSH 子进程，`verify.sh` 本身不经 DSH 沙箱。
 
-未做（按分类表 SKIPPED，不阻塞 P0 止血）：P0-4 ACL 断继承 / 删 `.worktrees\.secrets` 残留；P1-5 防火墙出网白名单；P1-7 输出脱敏；P1-8 `ci.yml permissions`；P2 全部。
+未做（按分类表 SKIPPED，不阻塞 P0 止血）：P0-4 ACL 断继承 / 删 `.worktrees\.secrets` 残留；P1-5 防火墙出网白名单；P2 全部（P1-7/P1-8 已于 2026-11-09 落地，见下）。
 原因：均是系统级配置或需 broker 提权，改的是机器而不是仓库；且 P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
 
 已补验（2026-11-09 13:50，`bash scripts/verify.sh` → 425/1106 PASS）：
