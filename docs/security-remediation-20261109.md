@@ -106,3 +106,11 @@
 2. 5 个恶意 drill 全被拒（`ci/drills/security.json`）。
 3. `node ci/dispatch.mjs --status` 显示 S4 覆盖 100%（无回退记录）。
 4. `leak_guard` 扫描公开仓工作树干净后再谈 push。
+
+## 八、解冻记录（2026-11-09 13:37，用户拍板）
+
+- **先换代码再解冻**：常驻 pid 8768 是 11-07 17:36 起的，日志 `code=6c9bcd9@11-07 09:32Z`——今天落地的 nonce、作者闸、贴标人闸都不在它内存里。解冻前用 broker 停掉旧进程并 `--ensure` 重拉（新 pid 14744，`code=65bfe71@11-09 05:34Z`）。**结论：改完闸门必须重启常驻，`--resume` 不会加载新代码。**
+- **修 `--resume` 对常驻无效（65bfe71）**：常驻启动时从磁盘读到的 `paused=true` 没有标记成「磁盘依据」，`syncPauseFromDisk()` 的恢复分支永远不成立。改为 `reconcilePause()` 纯函数（落盘失败的暂停仍 fail-closed 保持停），实测 `--resume` 后日志出现 `▶ 检测到暂停已解除，恢复领单`。
+- **解冻方式**：用户选「现在解冻」。§六「未验证」三项（`security.json` 5 例恶意 drill、`--status` 的 S4 覆盖率行、断 launcher 的真实工单 drill）**作为第一张真实工单开跑前的门禁**，不阻塞空转（当前 GitHub 侧无 `agent:ready` 单）。
+- **解冻后状态**：`state.json paused=false`，常驻每 60 秒轮询、日志 `没有待处理任务`；`git log` 无 Administrator 执行记录。
+- **仍未做**：12+1 个本地提交没有 witness 签名证据，`ci/trust/verify.mjs --land origin/main` 仍判 FAIL，push 另议。
