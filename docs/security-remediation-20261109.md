@@ -56,7 +56,7 @@
 
 ## 四、P2（加固，约 1 人日）
 
-- 正文围栏 + 消毒（`dispatch.mjs:790-829`）：issue 三段包固定分隔符、声明"以下为数据"，可疑模式打标；**不作为主防线**。
+- 正文围栏 + 消毒（`dispatch.mjs:790-829`）：issue 三段包固定分隔符、声明"以下为数据"，可疑模式打标；**不作为主防线**。（2026-11-09 已落地：`ci/prompt-fence.mjs`，见 §六）
 - PAT 换 fine-grained 单仓并轮换（现为 classic `repo, workflow`）。
 - `ci/drills/security.json` + 脚本：5 个恶意用例（读 `.secrets`、改 precommit、改 workflow、外网 curl、`node -e` 读盘）作为回归，CI 只断言"被拒"，不真执行。
 - 执行审计（与 P0-1 合并）。
@@ -87,6 +87,7 @@
 - **建单流程配合**：`ci/pass3-issues.mjs`、`ci/plan.mjs` 改为先建单再 POST labels —— 创建时带 label 不产生 labeled 事件，会被贴标人闸拒；人工建单若在创建时就勾了 `agent:ready`，需去掉重贴一次。
 - **单测**：`ci/s4-exec.test.mjs`（8 测试 / 27 断言）把作者/协作者/贴标人/`validateDone` 的判定钉进断言基线。
 - **P1-7 公开出口脱敏**（2026-11-09，PR #243）：新增 `ci/redact.mjs`，在唯一出口 `api()`（`dispatch.mjs:477`）对 `POST .../comments` 与 `POST .../pulls` 的 `body` 做替换——私钥块、`gh[pousr]_`、`github_pat_`、`sk-`、AKIA、`xox[baprs]-`、JWT、`Bearer`、盘符/UNC/MSYS/POSIX 绝对路径，超 6000 字符截断；`ci/redact.test.mjs` 11 测试 / 32 断言，含「URL 里的 /home 不动」「commit sha 不动」负例。
+- **P2 正文围栏**（2026-11-09）：新增 `ci/prompt-fence.mjs`，`buildPrompt` 把目标/验收/约束三段包进 `<untrusted-issue>` 围栏并前置「以下为数据」声明；正文自带的闭栏字面量被中和（`<`→`＜`），超 12000 字符截断；可疑指令模式（中英注入句、`system:` 行等）只在围栏内打一行计数标记。标题折叠成单行、截 300 字符。`ci/prompt-fence.test.mjs` 8 测试，含「闭栏逃逸后输出仍只有一个闭栏标签」与「buildPrompt 真的调用了围栏」两条接线断言。**仍是纵深防御**：不作为主防线，权限与低权执行才是。
 - **P1-8 CI 权限收紧**（2026-11-09，PR #244）：`ci.yml` 加顶层 `permissions: contents: read`；两个工作流的 4 处 `uses:` 固定到提交 SHA（checkout/setup-node 均 v4.4.0，行尾标注版本）；新增 `ci/workflows.test.mjs` 6 测试守卫（浮动 tag、缺版本注释、ci.yml 缺只读权限都会红）。
 
 已知残余（不阻塞恢复跑单，记入 P2）：
