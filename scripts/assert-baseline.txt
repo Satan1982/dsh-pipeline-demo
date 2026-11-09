@@ -81,7 +81,7 @@
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
 1 16ec195903c961b6 assert.equal(r.paused, true);
 1 1715ec86b662cf91 assert.throws(() => wilsonInterval(3, 2), RangeError);
-18 171d4db9216880f9 assert.equal(r.ok, false);
+19 171d4db9216880f9 assert.equal(r.ok, false);
 1 17843835dd4ed1e7 assert.equal(readFileSync(path.join(dir, 'ci', 'policy.mjs'), 'utf8'), 'export const v = 1;\n');
 1 17bd17892d7d9e3e assert.equal(s.rate, 0.25);
 1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
@@ -181,12 +181,13 @@
 1 2fa052c9e2f94fc1 assert.deepEqual(staleTargets(stats), ['s1', 's2', 'u1']);
 1 2fdce820d8095e9f assert.equal(formatFirstError({ found: true, test: 'add', file: 'src/index.test.js', line: 5 }), 'add @ src/index.test.js:5');
 1 3010d3c18cbd90b4 assert.equal(miss.length, REQUIRED_LABELS.length);
+1 30ab284c62966499 assert.equal(r.via, undefined);
 1 30af490d6752d4aa assert.equal(lines.length, 2);
 1 31922bf5ba0a3532 assert.equal(a.last, '2026-10-25T02:00:00Z');
 1 31f69f9de78e409b assert.equal(rec.why.length, 300);
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
 1 32345cc3fbfa21aa assert.equal(missing.ok, false);
-9 32364602f0692844 assert.equal(r.ok, true);
+11 32364602f0692844 assert.equal(r.ok, true);
 1 3249acb73d4e7f97 assert.match(v.why, /没有 ok 模型/);
 1 327c3361b5f5987e assert.equal(keys.size, 1);
 1 329671b9aa29b36a assert.match(formatSemantic(partial), /需人工复核/);
@@ -283,6 +284,7 @@
 1 4882197bc0d314e6 assert.equal(repeatText('ab', 3), 'ababab');
 1 488b2b04bc2a9bf9 assert.throws(() => excerpt(123, 3), TypeError);
 1 4899f9c6e326f0e8 assert.equal(verifyWitness(signed, { publicKey: after.get('k1'), revokedKeys: after.revoked, requireSignature: true }).code, 'key-revoked');
+1 48e7e41f0de3d43f assert.equal(removed.includes('other-old'), false, '非 cand- 前缀一律不碰');
 1 4928ac38f386fd16 assert.throws(() => repeatText(1, 2), TypeError);
 1 493ae59437c4bfa9 assert.equal(b.cause, '写错');
 1 4999988d975c90e1 assert.match(formatAudit(stale)[0], /不自动删/);
@@ -475,6 +477,7 @@
 1 7bab105d2576272a assert.equal(allowed, EXIT_OK);
 1 7bf08c527e3baaa8 assert.ok(m, 'semantic-review.mjs 里找不到 PAID_REVIEW_MODELS 默认值');
 1 7cefd6d7174b59cb assert.equal(path.resolve(DEFAULT_JOB_DIR).toLowerCase().startsWith(path.resolve(JOBS_ROOT).toLowerCase()), true);
+1 7cfee2181b6d7e1f assert.deepEqual(r.removed, ['cand-old']);
 1 7d01d9028c6ec6ca assert.match(bad.error, /不是 JSON/);
 1 7d33bb1405a9f736 assert.equal(DISPATCH.includes('laneVerdict'), false, 'dispatch 仍残留本地槽位判据');
 1 7d4da2570f24aea9 assert.deepEqual([...a.issues].sort(), [27, 44]);
@@ -493,6 +496,7 @@
 1 808c3ba1206c0d2f assert.equal(capitalizeWords('hello world'), 'Hello World');
 1 80a959ec1f571450 assert.equal(e.attempt, 1);
 1 81232886f8687cf5 assert.deepEqual(byCause['写错'].issues, [2]);
+1 82265537409b8258 assert.equal(r.kept.sort().join(','), 'cand-new,cand-stuck');
 1 825ddd6d48b0e4fd assert.deepEqual(summary.incomplete, ['short']);
 1 827b29edaca7e3d8 assert.ok(models.length > 0, '付费 patch 里没解析出模型');
 1 82f6d14266dc3dd6 assert.throws(() => summarize([], '2026-1'), TypeError);
@@ -506,6 +510,7 @@
 1 84c9b449764b1a73 assert.match(summary.verdict, /Wilson 95%/);
 1 85025ff8016492fa assert.ok(rec.why.endsWith('…'));
 1 852eee1aac5af5ff assert.deepEqual(got, [{ n: 12, dir: 'issue-12' }]);
+1 85324757616a98cd assert.equal(r.via, 'acl');
 1 85781e5434cfbe19 assert.match(bad.reason, /验收/);
 2 85bdf007afe0cc42 assert.equal(merged.paidUsed, true);
 1 85d617813ce7cbad assert.equal(mixed.gateOnly, false);
@@ -594,6 +599,7 @@
 1 998e4125bdb02dcd assert.equal(countVowels('AEIOU'), 5);
 1 99909fd4e8bbec05 assert.match(p, /已经被之前的合并实现/);
 1 99df3c6b41bffe84 assert.ok(readFileSync(pubPath, 'utf8').includes('PUBLIC KEY'));
+1 99f25159cadf975d assert.deepEqual(grants, ['x']);
 1 9a08d45fdcd52fdb assert.equal(single.needsHuman, undefined);
 1 9a344dad24cc24de assert.throws(() => shortHash(123), TypeError);
 1 9a3bb20366a478d4 assert.equal(cand.gate.sha256, gateBytesSha256(cand.dir).sha256);
@@ -673,6 +679,7 @@
 1 acd7a849a2f20a7f assert.equal(conflict.lane, LANE.highRisk);
 1 ad4c3143b972b9b4 assert.equal(spend.unitCny, 0.5);
 1 ad4f036383b46f89 assert.deepEqual(parseFirstError('VERDICT: PASS\n'), { found: false });
+1 ad95bdc7fbf45242 assert.equal(calls.length, 1);
 1 adce8209fc43017b assert.ok(normalize(a).includes('<path>'));
 1 add12dbb4401decb assert.equal(codeRun, EXIT_FAIL);
 2 adf8acb56bdf7fbe assert.equal(runCli(['--file', file], io), 0);
@@ -731,6 +738,7 @@
 1 b97601f10f2c6c66 assert.match(p, /reverseWords\(""\) 返回 ""/);
 1 b9e18d9858dbb718 assert.deepEqual(r.unknown, []);
 1 b9e334ae8ab6253f assert.equal(roundTo(2.5, 0), 3);
+1 b9f6d70e1786e7d4 assert.match(r.why, /EPERM/);
 1 ba0091d5449410b6 assert.deepEqual(toastText({ kind: 'failed', issue: 88, why: 'boom' }), { title: '流水线 #88 任务失败', message: 'boom' });
 1 ba342f3fe10539a8 assert.equal(plan.candidates, 0);
 1 ba7e8e2604057020 assert.equal(a, b);
@@ -877,6 +885,7 @@
 1 df65a98d82c912d9 assert.ok(body.includes('it&apos;s &quot;ok&quot;'));
 1 df993c6087cf32da assert.equal(r.diskBacked, true);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
+1 e0076ad1ee168ca7 assert.match(r.why, /icacls/);
 1 e01f40e0654d641d assert.deepEqual(Object.keys(rec), ['at', 'kind', 'issue', 'why']);
 1 e114f70adab447f4 assert.match(r.why, /merge:verified/);
 1 e124c110cc606292 assert.equal(reverseEachWord('ab cd'), 'ba dc');

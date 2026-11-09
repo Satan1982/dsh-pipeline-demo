@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_GIT, gateBytesSha256, overlayOriginGate, prepareCandidateTree } from '../ci/gate-snapshot.mjs';
+import { DEFAULT_GIT, gateBytesSha256, overlayOriginGate, prepareCandidateTree, removeTreeSafe, sweepCandidates } from '../ci/gate-snapshot.mjs';
 
 function git(cwd, args) {
   return execFileSync(DEFAULT_GIT, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
@@ -108,4 +108,67 @@ test('prepareCandidateTree：--bless 基线留在候选树，门禁哈希仍按 
   } finally {
     cand.cleanup();
   }
+});
+
+// 2026-11-09 真实单 #231：候选树里的产物由低权用户 dsh-agent 建，管理员组的 ACE 在 UAC
+// 过滤令牌里是 deny-only，调度器自己删不掉 → EPERM 把「门禁全绿」的尝试整单判失败。
+test('removeTreeSafe：直删成功不加 ACL', () => {
+  const calls = [];
+  const r = removeTreeSafe('x', {
+    rm: (dir, opts) => { calls.push(opts); },
+    grant: () => { throw new Error('不该补 ACL'); },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.via, undefined);
+  assert.equal(calls.length, 1);
+});
+
+test('removeTreeSafe：首删 EPERM → 补 ACL 后成功（via=acl）', () => {
+  let n = 0;
+  const grants = [];
+  const r = removeTreeSafe('x', {
+    rm: () => { n += 1; if (n === 1) throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); },
+    grant: (dir) => { grants.push(dir); return { ok: true }; },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.via, 'acl');
+  assert.deepEqual(grants, ['x']);
+});
+
+test('removeTreeSafe：两次都删不掉 → ok:false 且不抛出（清理失败不判任务失败）', () => {
+  const r = removeTreeSafe('x', {
+    rm: () => { throw Object.assign(new Error('EPERM, Permission denied: x/dist'), { code: 'EPERM' }); },
+    grant: () => ({ ok: false, why: 'icacls 非零退出' }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /EPERM/);
+  assert.match(r.why, /icacls/);
+});
+
+test('sweepCandidates：只扫 cand-*，只删旧的，删不掉的进 kept', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'gate-sweep-'));
+  const now = 1_700_000_000_000;
+  const mk = (name, ageMs) => {
+    const abs = path.join(root, name);
+    mkdirSync(abs, { recursive: true });
+    utimesSync(abs, new Date(now - ageMs), new Date(now - ageMs));
+    return abs;
+  };
+  const oldCand = mk('cand-old', 2 * 60 * 60 * 1000);
+  const newCand = mk('cand-new', 5 * 60 * 1000);
+  const oldOther = mk('other-old', 2 * 60 * 60 * 1000);
+  const oldStuck = mk('cand-stuck', 3 * 60 * 60 * 1000);
+  const removed = [];
+  const r = sweepCandidates(root, {
+    now,
+    remove: (dir) => {
+      if (path.basename(dir) === 'cand-stuck') return { ok: false, why: 'EPERM' };
+      removed.push(path.basename(dir));
+      return { ok: true };
+    },
+  });
+  assert.deepEqual(r.removed, ['cand-old']);
+  assert.equal(r.kept.sort().join(','), 'cand-new,cand-stuck');
+  assert.equal(removed.includes('other-old'), false, '非 cand- 前缀一律不碰');
+  for (const p of [oldCand, newCand, oldOther, oldStuck]) assert.ok(existsSync(p), '注入的 remove 不真删');
 });

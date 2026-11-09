@@ -34,7 +34,7 @@ import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_U
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
-import { prepareCandidateTree } from './gate-snapshot.mjs';
+import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates } from './gate-snapshot.mjs';
 import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
 import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage } from './s4-coverage.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
@@ -1093,8 +1093,21 @@ async function verifyWorktree(wt) {
   try {
     const s4 = process.env.DSH_S4_EXEC !== '0';
     const root = s4 ? ensureCandidateRoot() : undefined;
+    // 顺手清掉上次删不掉的候选树（>1h，避开并发在跑的那两棵）。
+    if (root) {
+      const sw = sweepCandidates(root);
+      if (sw.removed.length) log(`[cleanup] 清掉残留候选树 ${sw.removed.length} 棵`);
+      if (sw.kept.length) log(`[cleanup] 仍有 ${sw.kept.length} 棵残留候选树（下次再清）`);
+    }
     cand = prepareCandidateTree({ repoDir: wt, gitBin: GIT, ...(root ? { root, prefix: 'cand-' } : {}) });
     if (s4) {
+      // 先给「当前的自己」完全控制：候选树里的产物是低权用户建的，管理员组的 ACE 在
+      // UAC 过滤令牌里是 deny-only，删不掉（EPERM）。见 gate-snapshot.mjs 的注释。
+      const own = grantTreeForCurrentUser(cand.dir);
+      if (!own.ok) {
+        try { cand.cleanup(); } catch { /* ignore */ }
+        return { ok: false, env: true, detail: `ENV_FAIL: 无法给调度器自己授予候选树权限（清理会失败）：${own.why}` };
+      }
       // 授权失败就别硬着头皮以低权跑（那样只会得到一堆权限错误，还会被误判成"代码不合格"）。
       const g = grantDir(cand.dir, 'M');
       if (!g.ok) {
@@ -1146,7 +1159,9 @@ async function verifyWorktree(wt) {
       raw: `${v.out}\n${v.err}`,
     };
   } finally {
-    cand.cleanup();
+    // 临时物清不掉不能判任务失败：一次 EPERM 曾让「门禁全绿」的第 3 次尝试整单失败（#231）。
+    const c = cand.cleanup();
+    if (c && c.ok === false) log(`[s4-warn] 候选树清理失败（不影响本次判定，留待巡检）：${c.why}`);
   }
 }
 

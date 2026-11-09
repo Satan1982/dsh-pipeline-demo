@@ -5,7 +5,7 @@
 // 为什么：门禁脚本取自 agent 工作树是缺口（agent 改得动裁判）。这里在执行前先用 origin 的字节
 // 覆盖工作树里的 scripts/ 与 ci/，再跑 verify.sh——跑的就是 origin 的那份，同时把字节哈希带回去，
 // 让上方证据能证明「是哪份门禁判的」。
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -17,6 +17,75 @@ export const GATE_PATHS = ['scripts', 'ci'];
 export const BASELINE_FILES = ['scripts/test-baseline.txt', 'scripts/assert-baseline.txt'];
 export const DEFAULT_GIT = process.env.DSH_GIT
   || (existsSync('C:/Program Files/Git/cmd/git.exe') ? 'C:/Program Files/Git/cmd/git.exe' : 'git');
+
+// 候选树的删除权限（2026-11-09 真实单 #231 实测的 P0）：
+// 候选树里的 dist/ 等产物是低权用户 dsh-agent 建的；它的 ACL 只把 FullControl 给了
+// BUILTIN\Administrators，而调度器跑在「UAC 过滤后的管理员」令牌里——Administrators 是
+// deny-only SID，那条 ACE 不生效，于是调度器自己删不掉 dsh-agent 建的文件（EPERM）。
+// 这不是「偶发句柄占用」：attempt 2/3 每次都复现，且 `rm` 手删同样 Permission denied。
+// 修法两件：①建树时给「当前登录用户」(OI)(CI)F，子文件继承后调度器才删得动；
+// ②删不掉也不能判任务失败（候选树是临时物），交给巡检清扫。
+export function currentUserSpec(env = process.env) {
+  const user = env.USERNAME;
+  if (!user) return '';
+  return env.USERDOMAIN ? `${env.USERDOMAIN}\\${user}` : user;
+}
+
+// 递归给当前用户完全控制（/T 覆盖已存在的子文件，新建的子文件靠 (OI)(CI) 继承）。
+export function grantTreeForCurrentUser(dir, { spec = currentUserSpec(), run = spawnSync } = {}) {
+  if (!spec) return { ok: false, why: '拿不到当前用户名（USERNAME 为空）' };
+  const r = run('icacls', [dir, '/grant', `${spec}:(OI)(CI)F`, '/T', '/Q'], { encoding: 'utf8' });
+  if (r.status !== 0) return { ok: false, why: (r.stderr || r.stdout || '').trim().slice(-300) || 'icacls 非零退出' };
+  return { ok: true };
+}
+
+// 删一棵临时树：先直删，EPERM/EACCES 就先补 ACL 再删一次；仍失败就如实报出来，
+// 但**永远不抛**——清理失败是「留下垃圾」，不是「任务失败」。
+export function removeTreeSafe(dir, { rm = rmSync, grant = grantTreeForCurrentUser } = {}) {
+  const opts = { recursive: true, force: true, maxRetries: 3, retryDelay: 150 };
+  try {
+    rm(dir, opts);
+    return { ok: true };
+  } catch (e1) {
+    let why = e1.message;
+    try {
+      const g = grant(dir);
+      if (!g.ok) why = `${why}；补 ACL 失败：${g.why}`;
+    } catch (e) {
+      why = `${why}；补 ACL 异常：${e.message}`;
+    }
+    try {
+      rm(dir, opts);
+      return { ok: true, via: 'acl' };
+    } catch (e2) {
+      return { ok: false, why: `${e2.message}（首次：${why}）` };
+    }
+  }
+}
+
+// 清扫上次留下来、删不掉的候选树（按 mtime 判新，避免误删并发在跑的）。
+export function sweepCandidates(root, { olderThanMs = 60 * 60 * 1000, now = Date.now(), remove = removeTreeSafe } = {}) {
+  const removed = [];
+  const kept = [];
+  if (!existsSync(root)) return { removed, kept };
+  for (const name of readdirSync(root)) {
+    if (!name.startsWith('cand-')) continue;
+    const abs = path.join(root, name);
+    let age;
+    try {
+      age = now - statSync(abs).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (age < olderThanMs) {
+      kept.push(name);
+      continue;
+    }
+    const r = remove(abs);
+    (r.ok ? removed : kept).push(name);
+  }
+  return { removed, kept };
+}
 
 export function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex');
@@ -70,7 +139,8 @@ export function prepareCandidateTree({ repoDir, ref = 'HEAD', gateRef = DEFAULT_
     try {
       execFileSync(gitBin, ['worktree', 'remove', '--force', tmp], { cwd: repoDir, stdio: 'pipe' });
     } catch { /* 已删/未注册都不影响清理 */ }
-    if (!keep) rmSync(tmp, { recursive: true, force: true });
+    if (keep) return { ok: true, kept: true };
+    return removeTreeSafe(tmp);
   };
   try {
     execFileSync(gitBin, ['worktree', 'add', '--detach', '--quiet', tmp, ref], { cwd: repoDir, stdio: 'pipe' });
