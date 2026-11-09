@@ -39,6 +39,7 @@
 1 0db71beb6fff4e84 assert.equal(typo.declared, null);
 1 0dce3f568280a822 assert.equal(up.seen[0].auth, 'Bearer test');
 1 0de250558f453296 assert.deepEqual(summarize(entries, '2026-10'), { income: 120, expense: 30, balance: 90 });
+1 0e3f4b41b3620208 assert.equal(r.transition, 'paused');
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f0f914bb5c7f41d assert.equal(eventRecord({ kind: 'x' }).issue, undefined);
 1 0f98f04241274434 assert.equal(square(-3), 9);
@@ -77,6 +78,7 @@
 3 160a1dc2184f87db assert.equal(runCli(['--bogus'], io), 2);
 1 165c4b0cd0e6613f assert.equal(isTrustedLabeler([], new Set(['writer']), '', true).ok, false);
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
+1 16ec195903c961b6 assert.equal(r.paused, true);
 1 1715ec86b662cf91 assert.throws(() => wilsonInterval(3, 2), RangeError);
 18 171d4db9216880f9 assert.equal(r.ok, false);
 1 17843835dd4ed1e7 assert.equal(readFileSync(path.join(dir, 'ci', 'policy.mjs'), 'utf8'), 'export const v = 1;\n');
@@ -246,6 +248,7 @@
 1 40a4830f8d6f8300 assert.deepEqual(stats.map((s) => s.cause), ['环境', '基线', '写错']);
 1 40e8795221375421 assert.match(formatSemantic(single), /单模型免费档/);
 1 40f4a1ccbd5dbb75 assert.equal(seen[0].init.method, 'POST');
+2 410af0495277267e assert.equal(r.transition, null);
 1 411b04110872e33a assert.equal(sumUsage('').steps, 0);
 1 411f30fa2ad66f6f assert.equal(set.has('ghost'), false);
 1 4130087e065aeee8 assert.throws(() => chunk('abc', NaN), RangeError);
@@ -253,6 +256,7 @@
 1 424adecfbf29f264 assert.equal(cand.gate.sha256, originHash, 'gate 哈希只能代表 origin 门禁字节，不能掺进基线数据');
 1 424f1cd584fa0d29 assert.match(v.why, /全部 down/);
 1 426ee41ee2cc0255 assert.equal(ok.n, 2);
+1 44183f395487ed5d assert.equal(r.paused, true, '内存暂停没落盘时，磁盘的「未暂停」不能把它解除');
 1 4428a33b332800b8 assert.match(md, /ZhipuAI\/GLM-5\.2=down/);
 1 44355f93774fa1c2 assert.deepEqual(words('a b c'), ['a', 'b', 'c']);
 1 44d7d76d0f3c0d68 assert.notEqual(unfalsifiableReason(cmd), null, `${cmd} 应被判为不可判负`);
@@ -342,6 +346,7 @@
 1 58053018b14c8457 assert.equal(SCRIPT.includes('DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"'), true);
 1 5814ec28f96508cf assert.throws(() => initials(123), TypeError);
 1 582eaed1126adbf8 assert.equal(parseRunExit(0).ok, true);
+1 5a1fe9c0d69d7e92 assert.equal(r.paused, false);
 1 5a4d2ef6d4bb8955 assert.equal(formatLabelList(['a', 'b', 'c', 'd', 'e', 'f', 'g']), 'a、b、c、d、e、f 等 7 个');
 1 5aaa31426238ae1c assert.throws(() => parseSumArgs(['--month', '2026-13']), TypeError);
 1 5b0dd0eae15a8bd8 assert.equal(entries[1].amount, 100);
@@ -526,6 +531,7 @@
 1 8bc4119f27703423 assert.throws(() => parseSumArgs(['--month', '2026-10', '--date', '2026-10-01']), TypeError);
 1 8c9e6a4f166cfe6e assert.equal(summary.meetsTarget, true);
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
+1 8cf133c49d764337 assert.equal(boot.paused, true);
 1 8d595e1d46b2e251 assert.equal(parseRunExit(3).reason, '合并冲突');
 1 8da09694c70517a8 assert.equal(runCli(['--file', f2, '--json'], { ...io, now: new Date('2026-11-06T10:00:00.000Z') }), 0);
 1 8da4818dd41a4462 assert.equal(byCause['环境'].records, 2);
@@ -682,6 +688,7 @@
 1 b0bb91277a239cfa assert.equal(toCelsius(32), 0);
 1 b0c66f70ef7b2a13 assert.ok(out.includes('恢复断言并改代码'));
 1 b136f6c21e689028 assert.equal(/本地/.test(v.why), false);
+1 b1bf73604c4aa14d assert.equal(boot.diskBacked, true, '启动时从磁盘读到的暂停必须算磁盘依据，否则 --resume 永远对不上账');
 1 b2379d4f9dbce23b assert.deepEqual(left.map((r) => r.issue), [4, 5], '保留最新的两条');
 1 b237a6ac3f2272e2 assert.equal(isWorkingTreeClean(dir), true);
 1 b2e854d6f191c965 assert.equal(blockReason({ text: 'insufficient balance', zeroTries: 0 }), '免费池报额度/余额不可用');
@@ -857,6 +864,7 @@
 1 defa86134ece3799 assert.equal(parseRunExit(99).ok, false);
 1 df14ebe2fbc172bd assert.equal(fib(10), 55);
 1 df65a98d82c912d9 assert.ok(body.includes('it&apos;s &quot;ok&quot;'));
+1 df993c6087cf32da assert.equal(r.diskBacked, true);
 1 dfd33dea35e173fc assert.equal(powOf(3, 2), 9);
 1 e01f40e0654d641d assert.deepEqual(Object.keys(rec), ['at', 'kind', 'issue', 'why']);
 1 e114f70adab447f4 assert.match(r.why, /merge:verified/);
@@ -906,10 +914,12 @@
 1 ec109741ecffdee7 assert.throws(() => parseAddArgs(['--date', '2026-10-01', '--amount', ' ']), TypeError);
 1 ec51b4aebfd727fd assert.equal(left.length, 2);
 1 ec8fad14994a57f8 assert.equal(isTrustedAuthor({ author_association: 'OWNER', user: { login: 'o' } }, '', new Set()).ok, true);
+1 ec9ab144afbee681 assert.equal(boot.transition, null, '启动时已经在停，不该再打一次「检测到暂停」');
 1 ed284af615983216 assert.deepEqual(tasks[2].deps, ['T1', 'T2']);
 1 ed55559488f166f3 assert.match(p, /\+export function reverseWords/);
 1 ed765c86244640aa assert.equal(absValue(-5), 5);
 1 eda67453dd7063ba assert.throws(() => addEntry([], { date: '2026-10-01', amount: Number.NaN, note: '工资' }), TypeError);
+1 edbd04d29b293965 assert.equal(afterResume.transition, 'resumed');
 1 edd3f0d24b6ec435 assert.equal(seen.length, 1);
 1 edf47d04cfdc6dc9 assert.equal(subtract(-1, 1), -2);
 1 ee407d61d04734ae assert.equal(statsExpired(now - 60_000, now), false, '1 分钟前抓的还有效');
@@ -958,6 +968,7 @@
 1 f79333dd3788daf7 assert.deepEqual(words(''), []);
 1 f84004ba8d945187 assert.deepEqual(r.files, ['scripts/test-baseline.txt', 'src/strings.js']);
 1 f843a67ea1e7bc19 assert.equal(fingerprint('agent 未产生任何改动（exit=0）'), fingerprint('agent 未产生任何改动（exit=1）'));
+1 f8c0de1d50bec62a assert.equal(afterResume.paused, false);
 1 f8e25bf74e59e06d assert.equal(s.target, UNKNOWN_RATE_TARGET);
 1 f91b94d9432c0945 assert.throws(() => addEntry([], { date: '2026-10-01', amount: '100', note: '工资' }), TypeError);
 1 f9ca563d01133b30 assert.match(p, /#42/);

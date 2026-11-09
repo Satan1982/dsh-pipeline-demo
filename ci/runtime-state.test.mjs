@@ -15,7 +15,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { clearPaused, formatStatus, parseRuntime, readState, setPaused, stateFile, writeState, KNOWN_FLAGS } from './runtime-state.mjs';
+import { clearPaused, formatStatus, parseRuntime, readState, reconcilePause, setPaused, stateFile, writeState, KNOWN_FLAGS } from './runtime-state.mjs';
 
 const withDir = (fn) => {
   const d = mkdtempSync(path.join(tmpdir(), 'dsh-rt-'));
@@ -100,4 +100,35 @@ test('--unattended 是合法旗标（计划任务动作里带它，不能被 exi
   const r = parseRuntime(['node', 'ci/dispatch.mjs', '--once', '--unattended']);
   assert.deepEqual(r.unknown, [], '--unattended 被当成未知旗标会让计划任务每轮 exit 2，无人值守永远不生效');
   assert.equal(KNOWN_FLAGS.includes('--unattended'), true);
+});
+
+// 暂停对账（2026-11-09 修）：常驻进程停在「启动时从磁盘读到的 paused=true」时，
+// `--resume` 只改磁盘，内存里 PAUSE_DISK_OK 一直是假 → 永远恢复不了。对账必须认这个状态。
+test('启动时就是暂停的：对账把它标记为磁盘依据，随后 --resume 才能恢复', () => {
+  const boot = reconcilePause(true, false, { paused: true, corrupt: false });
+  assert.equal(boot.paused, true);
+  assert.equal(boot.diskBacked, true, '启动时从磁盘读到的暂停必须算磁盘依据，否则 --resume 永远对不上账');
+  assert.equal(boot.transition, null, '启动时已经在停，不该再打一次「检测到暂停」');
+  const afterResume = reconcilePause(true, boot.diskBacked, { paused: false, corrupt: false });
+  assert.equal(afterResume.transition, 'resumed');
+  assert.equal(afterResume.paused, false);
+});
+
+test('运行中被人 --pause：对账采纳磁盘暂停并打一次翻转', () => {
+  const r = reconcilePause(false, false, { paused: true, corrupt: false });
+  assert.equal(r.paused, true);
+  assert.equal(r.diskBacked, true);
+  assert.equal(r.transition, 'paused');
+});
+
+test('落盘失败的暂停不会被对账静默抹掉（fail-closed）', () => {
+  const r = reconcilePause(true, false, { paused: false, corrupt: false });
+  assert.equal(r.paused, true, '内存暂停没落盘时，磁盘的「未暂停」不能把它解除');
+  assert.equal(r.transition, null);
+});
+
+test('磁盘未暂停且内存也未暂停：什么都不做', () => {
+  const r = reconcilePause(false, false, { paused: false, corrupt: false });
+  assert.equal(r.transition, null);
+  assert.equal(r.paused, false);
 });

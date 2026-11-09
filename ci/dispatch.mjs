@@ -51,7 +51,7 @@ import { missingLabels, labelPayload, formatLabelList } from './labels.mjs';
 import { DEFAULT_BEAT_STALE_MS, lockHeld, lockPayload } from './lock-policy.mjs';
 import { auditWorktrees, formatAudit, parseWorktreeDirs } from './worktree-audit.mjs';
 import { formatDrift, localDrift } from './drift.mjs';
-import { parseRuntime, readState, setPaused, clearPaused, formatStatus } from './runtime-state.mjs';
+import { parseRuntime, readState, setPaused, clearPaused, formatStatus, reconcilePause } from './runtime-state.mjs';
 import { appendEvent, eventRecord, psToastBody, toastText, writeToastScript, regAddArgs, regQueryArgs, settingsKey, postWebhook } from './notify.mjs';
 import { checkUnattendedIntake } from './intake-check.mjs';
 import { NEEDS_INFO_LABEL, buildNeedsInfoComment, buildNeedsInfoMail } from './needs-info.mjs';
@@ -1785,6 +1785,7 @@ let PAUSE_CLAIM = readState(LOG_DIR).paused;
 let DAYCAP_NOTIFIED = '';
 
 // 统一的暂停入口：内存 + 落盘一起改，避免出现「日志说暂停了、重启又开跑」。
+// PAUSE_DISK_OK = 当前内存暂停态是不是磁盘写下的（落盘失败时为假，此时对账不能把它抹掉）。
 let PAUSE_DISK_OK = false;
 function pauseClaim(why) {
   if (PAUSE_CLAIM) return;
@@ -1797,12 +1798,14 @@ function pauseClaim(why) {
 function syncPauseFromDisk() {
   let st;
   try { st = readState(LOG_DIR); } catch { return; } // 读不出来就维持内存判断，不擅自改成「可领单」
-  if (st.paused && !PAUSE_CLAIM) {
+  const r = reconcilePause(PAUSE_CLAIM, PAUSE_DISK_OK, st);
+  PAUSE_DISK_OK = r.diskBacked;
+  if (r.transition === 'paused') {
     PAUSE_CLAIM = true;
     const why = st.corrupt ? `状态文件损坏（按暂停处理）：${st.pausedWhy || ''}` : (st.pausedWhy || '未写原因');
     log(`⏸ 检测到暂停：${why}——本轮起不再领新单（--resume 可解除）`);
     if (st.corrupt) notifyEvent({ kind: 'state-drift', why: `state.json 损坏，按暂停处理：${st.pausedWhy || ''}` });
-  } else if (!st.paused && PAUSE_CLAIM && PAUSE_DISK_OK) {
+  } else if (r.transition === 'resumed') {
     PAUSE_CLAIM = false;
     log('▶ 检测到暂停已解除，恢复领单');
   }

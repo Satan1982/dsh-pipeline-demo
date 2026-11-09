@@ -64,6 +64,22 @@ export function clearPaused(logDir) {
   return writeState(logDir, { paused: false, pausedAt: null, pausedWhy: null });
 }
 
+// 常驻进程每轮拿磁盘对账内存暂停态：返回下一状态与这一轮发生的翻转（'paused' | 'resumed' | null）。
+// 关键取舍：
+// - 磁盘说停就采纳，并把内存暂停标记为「磁盘依据」（diskBacked）——常驻进程重启时内存暂停
+//   正是从磁盘读来的，不标记的话 `--resume` 永远对不上账（2026-11-09 实测：常驻停着时 resume 无效）；
+// - 磁盘说放、且当前暂停也来自磁盘，才恢复；
+// - 当前暂停是「落盘失败」留下的（diskBacked=false）就保持停——否则一次写盘失败会被下一轮
+//   对账静默抹掉，等于暂停没落盘却照样开跑。
+export function reconcilePause(memoryPaused, diskBacked, st) {
+  if (st.paused) {
+    return { paused: true, diskBacked: true, transition: memoryPaused ? null : 'paused', corrupt: st.corrupt === true };
+  }
+  if (!memoryPaused) return { paused: false, diskBacked, transition: null, corrupt: false };
+  if (diskBacked) return { paused: false, diskBacked, transition: 'resumed', corrupt: false };
+  return { paused: true, diskBacked, transition: null, corrupt: false };
+}
+
 // 未知旗标的黑名单：dispatch 只认下面这些。以前多写一个旗标，不是报错，而是静默起常驻进程
 // （`ci/dispatch.mjs:2156` 的 `if (ONCE || DRY) return;` 之后就是 `while (true)`），
 // 想看一眼状态反而把调度器点亮了——所以这里显式拒绝，宁可 exit 2。
