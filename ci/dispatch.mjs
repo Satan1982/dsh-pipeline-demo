@@ -35,8 +35,9 @@ import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { writeGateLog } from './gate-log.mjs';
 import { probeWorktree, testPathFor } from './mutate.mjs';
+import { takeSnapshot, compareSnapshots, formatRepoDrift, verifyCleanVerdict } from './drift-guard.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
-import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates } from './gate-snapshot.mjs';
+import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates, BASELINE_FILES } from './gate-snapshot.mjs';
 import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
 import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage } from './s4-coverage.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
@@ -1234,6 +1235,11 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
     await setupWorktree(branch, wt, 'origin/main');
     writePlan(wt, { n: issue.number, title: issue.title, goal, acceptance, constraints, cmds: acceptanceCmdsRaw });
 
+    // #236 P5.5：任务前给主仓拍一张快照（.git/info/exclude 的 sha256 + `git status` 条目）。
+    // 任务后（提交成功时）再拍一张比对：只看 worktree 的 status 抓不到「agent 改 exclude
+    // 把文件从 git status 里藏掉」和「主仓多出没放行的产物/凭据副本」这两类漂移。
+    const driftBefore = await takeSnapshot({ repoDir: REPO_DIR, run, git: GIT });
+
     const mainBefore = (await git(['rev-parse', 'origin/main'])).out.trim();
     // 只读工单：查代码/审计类任务不该产生改动。提示词里先立规矩，
     // 否则 agent 会为了满足「必须有改动」的门禁去造 wrapper 脚本（PR #41 就是这样混出来的）。
@@ -1566,6 +1572,24 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       if (c.code !== 0) throw new Error(`commit 失败: ${c.err.trim()}`);
     }
 
+    // #236 P5.5：提交后核对主仓漂移。只读工单没有提交，也就不涉及这一层。
+    if (status) {
+      const driftAfter = await takeSnapshot({ repoDir: REPO_DIR, run, git: GIT });
+      const drift = compareSnapshots(driftBefore, driftAfter);
+      // 快照落 .logs/（issue #236 建议第 3 条）：事后能翻出任务前后主仓到底长什么样。
+      try {
+        if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+        writeFileSync(path.join(LOG_DIR, `repo-drift-issue-${n}-attempt-${attempt}.json`),
+          JSON.stringify({ issue: n, attempt, at: new Date().toISOString(), before: driftBefore, after: driftAfter, blocked: drift.blocked, excludeChanged: drift.excludeChanged, added: drift.added }, null, 2));
+      } catch { /* 日志写不了不影响判定 */ }
+      if (drift.blocked) {
+        const detail = '主仓漂移（P5.5，任务期间出现）：\n' + formatRepoDrift(drift);
+        recordFailure({ text: detail, issue: n, attempt, reason: 'repo drift' }, FAIL_STORE);
+        throw new Error(detail);
+      }
+      log(`${tag} 主仓无漂移（exclude 未改，未放行条目 0）`);
+    }
+
     // v3 P1（docs/89 §3.1/§3.2）：门禁通过 + 本次提交签发一条 witness。
     // 签发点放在「提交之后」：§3.1 要求工作树干净才签，而 overlay 快照门禁是在 agent 的脏
     // 工作树上跑的；提交后 HEAD/tree 才是合并判据（L2：合并树哈希 == witness.tree_after）
@@ -1583,6 +1607,34 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       recordFailure({ text: review.detail, issue: n, attempt, reason: review.detail }, FAIL_STORE);
       throw new Error(review.detail);
     }
+    // #236 verify-clean：动过门禁/基线的提交要证明「提交后的 HEAD 自己」也能跑出 PASS。
+    // 门禁字节在候选树里来自 origin/main（overlay），提交后的树才是 HEAD——两者不一致时
+    // 云端 CI 才会红，调度器在这里提前复算。没动门禁的提交门禁字节完全一致，不重复跑。
+    if (status) {
+      const changed = ((await run(GIT, ['diff', '--name-only', 'origin/main...HEAD'], { cwd: wt })).out || '')
+        .split(/\r?\n/).filter(Boolean);
+      const touchedBaseline = changed.some((f) => BASELINE_FILES.includes(f));
+      // 只有「仅动了基线数字（bless）」的提交才在这里复算：scripts/verify.sh 与 ci/ 的字节
+      // 仍来自 origin/main，跑的是可信代码。实体门禁文件的改动（allow:gate）不在这里以
+      // Administrator 身份执行 agent 的脚本——那会绕过 S4 降权隔离，交给人工评审 + 云端 CI。
+      const touchedOpaqueGate = changed.some((f) => (f.startsWith('ci/') || f.startsWith('scripts/')) && !BASELINE_FILES.includes(f));
+      if (touchedOpaqueGate && touchedBaseline) {
+        log(`${tag} ⚠ 提交同时改了门禁实体文件与基线：跳过本地 verify-clean（由 allow:gate 人工评审 + 云端 CI 兜底）`);
+      } else if (touchedBaseline) {
+        log(`${tag} 提交含 bless 基线，复算 verify-clean（不带 --bless）`);
+        const vc = await run(BASH, ['scripts/verify.sh'], {
+          cwd: wt, timeout: 15 * 60 * 1000, env: { PATH: CHILD_PATH, PNPM_CLI },
+        });
+        const vcOut = `${vc.out ?? ''}\n${vc.err ?? ''}`;
+        const v = verifyCleanVerdict({ code: vc.code, out: vcOut });
+        if (!v.ok) {
+          recordFailure({ text: `${v.why}\n\n${vcOut.slice(-2000)}`, issue: n, attempt, reason: 'head not recomputable' }, FAIL_STORE);
+          throw new Error(v.why);
+        }
+        log(`${tag} verify-clean 通过（HEAD 可复算）`);
+      }
+    }
+
     const warns = (review.findings ?? []).filter((f) => f.severity === 'warn');
     // 自动化路径的放行也要留痕：issue 上的 allow:gate 有机械校验，但同样得能被事后翻出来。
     if (allowGate) {
