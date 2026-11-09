@@ -447,6 +447,7 @@
 1 668054daf061b715 assert.equal(VERIFY.includes('NODE_FAIL'), true, 'node 自己跑不起来也要算环境问题');
 1 66a7524091c0a7bd assert.ok(!c.body.includes('.secrets'), c.body);
 1 66a8c3e9cbcffca2 assert.equal(KNOWN_FLAGS.includes('--unattended'), true);
+1 671428c72fc7c6de assert.ok(all.every((e) => /^[\w.-]+\/[\w.-]+@/.test(e.spec)));
 1 674340056cef0f79 assert.ok(patchFile, 'dispatch.mjs 里找不到 PAID_PATCH');
 1 674f5f0b44f81acb assert.equal(readRevocations(dir).length, 1);
 1 67abc68300a7f181 assert.deepEqual(list, ['satan1982/foo', 'other/bar']);
@@ -502,6 +503,7 @@
 1 74c3214719308fdd assert.ok(rec);
 1 74dc3a4e0e0c0655 assert.deepEqual(merged.reviewers.map((r) => r.model), ['m-ok', 'm-bad']);
 1 74f101fcc017eed7 assert.ok(out.includes('读取'), out);
+1 74fc150b4afed0fe assert.match(perms[1], /^\s{2}contents:\s*read\s*$/m);
 1 755e0a20a46da456 assert.equal(checkSymbolBinding({ exports: [], testSource: '' }).result, 'pass');
 1 75a12177806c7982 assert.equal(DISPATCH.includes('Number(v.code) === 78 || v.spawnError === true'), true, 'spawn 失败与超时必须按不同字段区分');
 1 75b539bbffa223a8 assert.equal(autoMergeAllowed(PILOT_REPO, parseAllowlist(undefined)), true);
@@ -570,6 +572,7 @@
 1 83181fb276e635e1 assert.equal(killed[0].status, 'killed');
 1 831df63caaf415e0 assert.equal(/lock: pid=123/.test(text), true);
 1 835b834442c09edc assert.equal(shortHash(''), shortHash(''));
+1 837aee27aee2db3b assert.doesNotMatch(perms[1], /:\s*write\s*$/m);
 1 83963b1ea41ebf2a assert.equal(single.degraded, 'free-single');
 1 8399e594a1599c7e assert.equal(env.DSH_REPO, 'o/a');
 1 83b998ac70b025f0 assert.equal(validateDone({ ok: true, nonce: n }, n).ok, false);
@@ -810,6 +813,7 @@
 1 b3d306859fb9e70a assert.equal(rec.reason, '临时修门禁');
 1 b5094c02067920df assert.equal(
 1 b525d8f589dc96bc assert.match(parseRepos(['not-a-repo']).errors[0], /owner\/name/);
+1 b657c4a066399e74 assert.ok(perms, 'ci.yml 缺少顶层 permissions');
 1 b65c951c4dd864a3 assert.equal(DISPATCH.includes('心跳：每轮把锁的时间刷成现在'), false, '旧的循环内心跳又回来了');
 1 b67dfd82baeee498 assert.deepEqual(missingLabels(existing), ['agent:blocked:manual']);
 1 b6a8e9c283ae253c assert.equal(commandPolicy('cat D:/code/.secrets/github-token.txt').ok, false);
@@ -910,7 +914,9 @@
 1 ca2bb30e937c68d9 assert.equal(warn.verdict, 'WARN');
 1 ca5f9e4d0bde1df3 assert.ok(!msys.includes('.secrets'), msys);
 1 caa385432c4ff894 assert.equal(lockHeld({ alive: true, ageMs: NaN, mode: 'serve', staleMs: STALE }), false);
+1 cae0e485be223f10 assert.deepEqual(bad, [], `固定 SHA 缺版本标注：\n${bad.join('\n')}`);
 1 cb8f073db3038afd assert.equal(checkUnattendedIntake({ acceptanceCmds: 'node --test' }).ok, true);
+1 cb936b1e866192f5 assert.deepEqual(bad, [], bad.map((e) => `${e.file}:${e.line} ${e.spec}`).join('\n'));
 1 cc17d77254ce0af9 assert.deepEqual(panelModels('x/y, z/w'), ['x/y', 'z/w']);
 1 cc3801e468b38014 assert.equal(isPalindrome('A man, a plan, a canal: Panama'), true);
 3 cc3cda1dfa9e51eb assert.equal(res.blocked, true);
@@ -1023,6 +1029,7 @@
 1 e31276cf831d50d9 assert.equal(high.forceStrictVerdict, true);
 1 e39b845f66bb7fb8 assert.equal(classifyCause('verify: 断言基线不一致'), '基线');
 1 e3e90163bff67881 assert.ok(body.includes('A &amp; B &lt;c&gt;'));
+1 e40553528c195ead assert.ok(all.length >= 2, `只解析到 ${all.length} 个 uses`);
 1 e44bee9f8f17b31d assert.ok(out.includes('同一个根因出现过 1 次'));
 1 e4ebcff0e8b5c446 assert.ok(whys.some((w) => w.includes('测试文件不进探针')));
 1 e59eaf1e64dd0550 assert.equal(isEven(4), true);
@@ -1098,6 +1105,7 @@
 1 f36a9eda4132d3cc assert.equal(m.after, ' return n >= 2 || n < 9;');
 1 f41624bd044c6707 assert.equal(isPublicWritePath('/repos/a/b/issues/1/labels'), false);
 1 f42af9ac5c8186ad assert.equal(LABEL_META[NEEDS_INFO_LABEL].color, payload.color);
+1 f480f2cb34b26cb4 assert.deepEqual(bad, [], `浮动 tag 或短 SHA：\n${bad.join('\n')}`);
 1 f49be3b3c45c06bb assert.equal(lanePolicy(LANE.standard).forceStrictVerdict, false);
 1 f4a89f702f26deaa assert.equal(countVowels('hello'), 2);
 1 f4ae9d9fb5284632 assert.equal(flat['deepseek-v4.1-flash'].status, 'ok');
@@ -1107,6 +1115,7 @@
 1 f595f63475f608d1 assert.ok(keys.get('k1'));
 1 f5a2813d25e1a939 assert.ok(!r.findings.some((f) => f.rule === 'no-file-change'));
 1 f5b3e8422e79d530 assert.deepEqual(added.map((a) => [a.file, a.line, a.text.trim()]), [
+1 f5c915d91bd09df0 assert.match(text, /^permissions:\s*\n\s{2}contents:\s*write\s*$/m);
 1 f5d31c6c4957d6fa assert.equal(isTrustedAuthor({ author_association: 'NONE', user: { login: 'x' } }, '').ok, false);
 1 f61a15f29c54d5c1 assert.equal(meta.code.length, 0);
 1 f639e51f1e4769ae assert.equal(JSON.parse(seen[0].init.body).issue, 7);
