@@ -22,6 +22,7 @@
 1 06bb744c66e5480e assert.equal(countFallbackEvents(text), 2);
 1 07068f04c0de0bb5 assert.match(d.reason, /仍不可用/);
 1 0719893b41e77460 assert.deepEqual(probeArgv(['a']), ['--only', 'a', '--quiet']);
+1 0745beb2f3182e62 assert.match(text, /^exit=0/);
 1 07cead639b56ec64 assert.equal(r.code, 'auto-merge-disabled');
 1 093e6ad184539a9b assert.equal(existsSync(path.join(ROOT, 'ci', 'headless-local.yml')), false, '本地路由文件应已删除');
 1 09ea38f748f6cdff assert.match(summary.verdict, /n=3 < 36/);
@@ -43,6 +44,7 @@
 1 0e3f4b41b3620208 assert.equal(r.transition, 'paused');
 1 0e7d4586ce6d3c9b assert.equal(classifyConflicts(['scripts/test-baseline.txt.bak']).kind, 'manual');
 1 0f0f914bb5c7f41d assert.equal(eventRecord({ kind: 'x' }).issue, undefined);
+1 0f97ace485ba1460 assert.match(String(r.why), /./);
 1 0f98f04241274434 assert.equal(square(-3), 9);
 1 0fb40ab2d3833935 assert.equal(r.ok, true, 'ALERT 写成即算成功');
 1 103a0d7c0d21268f assert.ok(r.findings.some((f) => f.severity === 'warn' && f.rule === 'diff-large'));
@@ -81,7 +83,7 @@
 1 16c7fd0739029d3b assert.equal(spend.unmetered, 0);
 1 16ec195903c961b6 assert.equal(r.paused, true);
 1 1715ec86b662cf91 assert.throws(() => wilsonInterval(3, 2), RangeError);
-19 171d4db9216880f9 assert.equal(r.ok, false);
+20 171d4db9216880f9 assert.equal(r.ok, false);
 1 17843835dd4ed1e7 assert.equal(readFileSync(path.join(dir, 'ci', 'policy.mjs'), 'utf8'), 'export const v = 1;\n');
 1 17bd17892d7d9e3e assert.equal(s.rate, 0.25);
 1 17bda027fe0c04a0 assert.equal(costCny(u, 'deepseek-flash', idle), 10);
@@ -155,6 +157,7 @@
 1 2757f20402e1f1fa assert.equal(DISPATCH.includes(retry), true, '重试必须沿用同一个 attempt（不推高重试预算）');
 2 2782517a4c65f558 assert.equal(run, EXIT_FAIL);
 1 2836807e46ca1537 assert.equal('env' in JSON.parse(readFileSync(path.join(jobDir, 'job.json'), 'utf8')), false);
+1 287b259b905fb6b4 assert.match(text, /gate_bytes_sha256=abc123/);
 1 287cc0430a62b5f2 assert.equal(summary.n, 36);
 1 288a34971a0aff43 assert.equal(staleTargets(stats, { limit: 3 }).length, 3);
 1 297875285b0ccd7f assert.equal(r.cmd, null, '--serve 是模式旗标，不是子命令');
@@ -188,7 +191,7 @@
 1 31f69f9de78e409b assert.equal(rec.why.length, 300);
 1 31f99ea38a49aef7 assert.ok(r.findings.some((f) => f.rule === 'no-file-change' && f.severity === 'block'));
 1 32345cc3fbfa21aa assert.equal(missing.ok, false);
-11 32364602f0692844 assert.equal(r.ok, true);
+13 32364602f0692844 assert.equal(r.ok, true);
 1 3249acb73d4e7f97 assert.match(v.why, /没有 ok 模型/);
 1 327c3361b5f5987e assert.equal(keys.size, 1);
 1 329671b9aa29b36a assert.match(formatSemantic(partial), /需人工复核/);
@@ -232,6 +235,7 @@
 1 3c275a8af7d507a2 assert.equal(isFreePoolDown('余额不足，请充值'), true);
 1 3c370b34399d1276 assert.deepEqual(chunk('abcde', 2), ['ab', 'cd', 'e']);
 1 3c639d3cb0777872 assert.ok(!sig.includes('node:internal'));
+1 3c7aa80c486e021d assert.equal(gateLogName(7, 3), 'gate-issue-7-attempt-3.log');
 1 3c7d29cbd0e44d6e assert.ok(lines.every((r) => /^[0-9a-f]{16}$/.test(r.fp)), '所有记录的指纹都被重算成 16 位');
 1 3c812dcb3a552c76 assert.equal(verifyWitness(tampered, { publicKey: keys.get('k1'), requireSignature: true }).code, 'hash-mismatch');
 1 3cb8cd771a399625 assert.deepEqual(chunk('abcdef', 2), ['ab', 'cd', 'ef']);
@@ -374,6 +378,7 @@
 1 60b6c6b3c613cdd7 assert.match(merged.escalatedFrom, /没有按格式返回 JSON/);
 1 6107689f9c33d685 assert.throws(() => topoLevels(parseTasks(cyclic)), /依赖成环/);
 1 615c91b68d5d6b95 assert.equal(isFreePoolDown('no available model for this route'), true);
+1 61a9fd1f02fa9fbf assert.equal(gateLogName(229, 1), 'gate-issue-229-attempt-1.log');
 1 61cd639168f90d8f assert.equal(isTrustedLabeler([{ actor: { login: 'writer' } }, { actor: { login: 'stranger' } }], trusted).ok, false);
 2 61f5fe40e3ff5526 assert.equal(r.findings.length, 0);
 1 622e7f5bea9624a2 assert.equal(DISPATCH.includes('timedOut = true'), true, '超时要单独标记，不能混进环境失败');
@@ -470,6 +475,7 @@
 1 7a09ee8f22406f3a assert.equal(high.requireAcceptance, true);
 1 7a1a9bb840ccc6fc assert.equal(back.issue, 7);
 1 7a2d3e81d7836769 assert.equal(res.fps, 1);
+1 7a3e7e8cca6e5502 assert.equal(path.basename(r.file), 'gate-issue-229-attempt-2.log');
 1 7a891c08ab7db050 assert.equal(recordLane(file, { lane: 'high-risk', unknown: true }), true);
 1 7aa8ecae03f50247 assert.ok(r.findings.some((f) => f.rule === 'assert-removed'));
 1 7b2eeead88eebc59 assert.deepEqual(parseVerdict(text), { verdict: 'pass', reason: '第二次' });
@@ -626,6 +632,7 @@
 1 9f0420271883c34b assert.equal(costCny(u, 'deepseek-flash', off), 5);
 1 9f271104d3828c3e assert.equal(parseRepos(['not-a-repo']).entries.length, 0);
 1 9f8f2dbc50c88be2 assert.equal(laneStats([]).rate, 0);
+1 9f956bdbf8aad699 assert.match(readFileSync(r.file, 'utf8'), /门禁没有任何输出/);
 1 a01c43690c5d20ea assert.throws(() => genKeypair({ keysDir: dir, keyId: 'k1' }), /已存在/);
 1 a056a70a11d046ac assert.ok(Math.abs(iv.p - 0.7) < 1e-9);
 1 a08497bb28f16c8c assert.match(body, /重新打 `agent:ready`/);
@@ -965,6 +972,7 @@
 1 f0d8cdcd639e6878 assert.equal(missing.lane, LANE.highRisk);
 1 f10770896437b45e assert.equal(body.includes('https://github.com//issues/7'), false);
 1 f125fcb297933f94 assert.equal(classifyConflicts(undefined).kind, 'none');
+1 f184298a400c329d assert.match(text, /ok 1 - 有输出/);
 1 f1c718d5d3e5f8e7 assert.equal(typeof body.description, 'string');
 1 f27c6af079a31a5b assert.match(body.text, /\[流水线 #88\] 任务失败/);
 1 f30bc43c7cfb62c3 assert.equal(merged.reviewers.length, 2);
