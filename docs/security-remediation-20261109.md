@@ -94,18 +94,18 @@
 未做（按分类表 SKIPPED，不阻塞 P0 止血）：P0-4 ACL 断继承 / 删 `.worktrees\.secrets` 残留；P1-5 防火墙出网白名单；P1-7 输出脱敏；P1-8 `ci.yml permissions`；P2 全部。
 原因：均是系统级配置或需 broker 提权，改的是机器而不是仓库；且 P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
 
-未验证（恢复跑单前必须补）：
-- 真实工单 drill：断开 launcher → 单子应 fail 而不是回退；`git log` 无 Administrator 执行记录。
-- 恶意 drill 端到端（`ci/drills/security.json` 5 例）。
-- `node ci/dispatch.mjs --status` 的 S4 覆盖率 100%（无回退记录）。
-
+已补验（2026-11-09 13:50，`bash scripts/verify.sh` → 425/1106 PASS）：
+- 断 launcher drill：`node ci/drills/launcher.mjs` → 12/12 通过，`VERDICT: PASS`（伪造 done.json 被 nonce 拒、断 launcher 判 fail 且 `code=-1`、`s4FallbackAction` 默认/空串都 fail-closed、只有 admin 才回退、`git log` 无 Administrator 提交）。这是通道级复现（与 `.logs/exec-audit.jsonl` 里 `actor=manual-regression` 同手法），不是「新建一张真实 issue」；首张真实单开跑时再按 §八 门禁观察。
+- 恶意 drill：`node ci/drills/security.mjs`（用例在 `ci/drills/security.json`）→ 5/5 被拒 + 1 正对照通过，`VERDICT: PASS`；只调 `commandPolicy()`/`reviewDiff()` 做判定，不执行恶意命令。
+- S4 覆盖率：`--status` 新增 `s4:` 行（`ci/s4-coverage.mjs` 从 exec-audit + `s4-fallback` 事件算），当前 `覆盖 100%（4 次低权执行，其中成功 4；0 次回退）`；显式 `DSH_S4_FALLBACK=admin` 回退会写 `s4-fallback` 事件，覆盖率即跌破 100%（闸门 3 不成立）。
+- drill 专用开关（生产不设）：`DSH_S4_LAUNCHER` 换 stub launcher、`DSH_S4_DONE_GRACE_MS` 缩短 done.json 等待。
 
 ## 七、总闸门（全部完成后）
 
-1. `bash scripts/verify.sh` 绿、`npm test` 不降。
-2. 5 个恶意 drill 全被拒（`ci/drills/security.json`）。
-3. `node ci/dispatch.mjs --status` 显示 S4 覆盖 100%（无回退记录）。
-4. `leak_guard` 扫描公开仓工作树干净后再谈 push。
+1. ✅ `bash scripts/verify.sh` 绿（425/1106）；`npm test` 不降。
+2. ✅ 5 个恶意 drill 全被拒（`node ci/drills/security.mjs`）。
+3. ✅ `node ci/dispatch.mjs --status` 显示 `s4: 覆盖 100%（……0 次回退）`。
+4. ⏳ `leak_guard` 扫描公开仓工作树干净后再谈 push。
 
 ## 八、解冻记录（2026-11-09 13:37，用户拍板）
 

@@ -20,7 +20,10 @@ export const REPO_DIR = path.resolve(HERE, '..');
 export const AGENT_USER = process.env.DSH_AGENT_USER || 'dsh-agent';
 export const CAND_ROOT = process.env.DSH_CAND_ROOT || 'C:\\ProgramData\\dsh-gate';
 export const CMD_JOB_DIR = process.env.DSH_CMD_JOB_DIR || 'C:\\ProgramData\\dsh-jobs\\cmd';
-const LAUNCHER = path.join(HERE, 's4-as-agent.ps1');
+// DSH_S4_LAUNCHER 只给 drill 用（ci/drills/launcher.mjs 指到一个只会失败/伪造 done.json 的 stub）：
+// 生产路径不设它，必须走真正的 s4-as-agent.ps1。写错路径只会让通道不可用（fail-closed），不会放宽。
+// 注意：每次 runOnce 现读环境变量（drill 在同一进程里换 stub），所以这里只存默认值。
+const LAUNCHER_DEFAULT = path.join(HERE, 's4-as-agent.ps1');
 const RUNNER = path.join(HERE, 's4-run-cmd.ps1');
 const AUDIT_FILE = process.env.DSH_EXEC_AUDIT || path.join(REPO_DIR, '.logs', 'exec-audit.jsonl');
 
@@ -187,12 +190,24 @@ export function validateDone(done, nonce) {
   return { ok, code: done.exit, error: ok ? '' : (done.error || `done.ok=${done.ok} exit=${done.exit}`) };
 }
 
+// fail-closed 决策（docs §六「断 launcher 应 fail 而不是回退」）：通道起不来时默认不回退，
+// 只有显式 DSH_S4_FALLBACK=admin 才允许以 Administrator 跑 agent（并要落 s4-fallback 事件留痕）。
+// 抽成纯函数是为了让 ci/drills/launcher.mjs 能直接断言这两个分支，而不是靠读源码猜。
+export function s4FallbackAction(mode, error) {
+  const why = String(error || '没有 done.json');
+  if (String(mode ?? '') !== 'admin') {
+    return { fail: true, error: `ENV_FAIL: 低权执行通道不可用，拒绝以 Administrator 跑 agent（要临时回退请设 DSH_S4_FALLBACK=admin）；原因：${why}` };
+  }
+  return { fail: false, warning: `DSH_S4_FALLBACK=admin：显式回退 bash（隔离失效，等同全权执行 agent 内容）；原因：${why}` };
+}
+
 async function runOnce({ cmd, cwd, timeoutSec = 900, jobDir = CMD_JOB_DIR, issue = null, actor = 'dispatch' }) {
   const job = prepareCmdJob({ cmd, cwd, timeoutSec, jobDir });
   const doneFile = path.join(jobDir, 'done.json');
   const sha = cmdSha256(cmd);
+  const launcher = process.env.DSH_S4_LAUNCHER || LAUNCHER_DEFAULT;
   const child = spawn('powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER,
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', launcher,
       '-JobDir', jobDir, '-Runner', RUNNER],
     { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
 
@@ -210,7 +225,8 @@ async function runOnce({ cmd, cwd, timeoutSec = 900, jobDir = CMD_JOB_DIR, issue
   });
   clearTimeout(timer);
 
-  const graceDeadline = Date.now() + 60_000;
+  // DSH_S4_DONE_GRACE_MS 只给 drill 缩短等待（默认 60s）；生产不设。
+  const graceDeadline = Date.now() + (Number(process.env.DSH_S4_DONE_GRACE_MS) || 60_000);
   while (!existsSync(doneFile) && Date.now() < graceDeadline) {
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -270,6 +286,10 @@ export function __selftest() {
   let threw = '';
   try { prepareCmdJob({ cmd: 'echo hi', cwd: 'C:\\Windows' }); } catch (e) { threw = e.message; }
   t('cwd: 越权目录被拒', /不在允许的低权执行根目录/.test(threw));
+
+  t('fallback: 默认 fail-closed（不回退）', s4FallbackAction(undefined, 'launcher exit=1').fail === true);
+  t('fallback: 显式 admin 才回退', s4FallbackAction('admin', 'launcher exit=1').fail === false);
+  t('fallback: 其他值仍 fail-closed', s4FallbackAction('1', '').fail === true);
 
   return r;
 }

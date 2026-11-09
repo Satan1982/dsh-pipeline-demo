@@ -35,7 +35,8 @@ import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree } from './gate-snapshot.mjs';
-import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir } from './s4-exec.mjs';
+import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
+import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage } from './s4-coverage.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
@@ -2305,12 +2306,14 @@ export async function runHeadless(cwd, prompt, env, timeout) {
     // 2026-11-09 审计：这里的静默回退就是"隔离装坏了 → 全部以 Administrator 跑 agent"，等于洞原地复活。
     // 默认 fail-closed（按环境失败计，不耗重试预算）；只有显式 DSH_S4_FALLBACK=admin 才回退，且留告警。
     log(`[s4] 低权通道不可用：${r.error || '没有 done.json'}`);
-    if (process.env.DSH_S4_FALLBACK !== 'admin') {
-      const e = new Error('ENV_FAIL: 低权执行通道不可用，拒绝以 Administrator 跑 agent（要临时回退请设 DSH_S4_FALLBACK=admin）');
+    const act = s4FallbackAction(process.env.DSH_S4_FALLBACK, r.error);
+    if (act.fail) {
+      const e = new Error(act.error);
       e.env = true;
       throw e;
     }
-    log('[s4] ⚠ DSH_S4_FALLBACK=admin：显式回退 bash（隔离失效，等同全权执行 agent 内容）');
+    log(`[s4] ⚠ ${act.warning}`);
+    notifyEvent({ kind: 's4-fallback', why: act.warning.slice(0, 160) });
   }
   let last = null;
   for (let i = 1; i <= 3; i += 1) {
@@ -2753,6 +2756,13 @@ async function main() {
   if (RUNTIME.cmd === 'status') {
     LOG_READONLY = true; // 只读体检：连日志文件都不写（见 log 的注释）
     const st = readState(LOG_DIR);
+    // 闸门 3（docs/security-remediation-20261109.md §七）：S4 覆盖率只能从落盘事实算——
+    // exec-audit 的每次低权执行 + events.jsonl 里的 s4-fallback（显式回退才留痕）。
+    let audit = [];
+    try { audit = parseAudit(readFileSync(execAuditPath(), 'utf8')); } catch { /* 没跑过就没有审计文件 */ }
+    let fallbackEvents = 0;
+    try { fallbackEvents = countFallbackEvents(readFileSync(EVENTS_FILE, 'utf8')); } catch { /* 没有事件文件＝没有回退记录 */ }
+    const s4Status = summarizeS4Coverage({ audit, fallbackEvents });
     for (const line of formatStatus({
       mode: PAUSE_CLAIM ? 'paused' : 'ready',
       lock: statusLock(),
@@ -2760,6 +2770,7 @@ async function main() {
       spendCny: todaySpendCny(),
       dayMaxCny: DAY_MAX_CNY,
       taskMaxCny: TASK_MAX_CNY,
+      s4: formatS4Coverage(s4Status),
       events: recentKinds(3),
       repo: REPO,
       autoMerge: AUTO_MERGE_ALLOWLIST,
