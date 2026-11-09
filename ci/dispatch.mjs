@@ -34,6 +34,7 @@ import { sumUsage, formatUsage, finalText, sessionIdOf, spendOfRows, UNMETERED_U
 import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { writeGateLog } from './gate-log.mjs';
+import { probeWorktree, testPathFor } from './mutate.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree, grantTreeForCurrentUser, sweepCandidates } from './gate-snapshot.mjs';
 import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir, execAuditPath, s4FallbackAction } from './s4-exec.mjs';
@@ -1426,6 +1427,30 @@ async function runTask(issue, attempt = 1, priorFailure = '') {
       const err = new Error(`${gate.detail}${firstErrorLine}`);
       if (gate.env) err.env = true;
       throw err;
+    }
+
+    // P4.5 变异探针（issue #235）：默认只扫描（0 次测试运行），只有 mutation:strict
+    // 的工单才逐个变异体跑受影响测试。门禁已绿才探针，所以「存活」= 判据真的没人看着。
+    {
+      const mdiff = await run(GIT, ['diff', '--unified=0', 'origin/main...HEAD'], { cwd: wt });
+      const msum = await probeWorktree({
+        root: wt,
+        patch: mdiff.out,
+        strict: labels.includes('mutation:strict'),
+        runTests: (mutant) => {
+          const tf = testPathFor(mutant.file);
+          const abs = tf === null ? '' : path.join(wt, tf);
+          if (abs === '' || !existsSync(abs)) return Promise.resolve({ missingTest: true });
+          return run(process.execPath, ['--test', tf], { cwd: wt, timeout: 300000 })
+            .then((r) => ({ code: r.code, timedOut: r.timedOut }));
+        },
+      });
+      const mdetail = msum.lines.length === 0 ? '' : '\n' + msum.lines.join('\n');
+      if (msum.blocked) {
+        recordFailure({ text: msum.text + mdetail, issue: n, attempt, reason: 'mutation-survivor' }, FAIL_STORE);
+        throw new Error(msum.text + mdetail);
+      }
+      log(tag + ' ' + msum.text + mdetail);
     }
 
     // 可执行验收（issue 的 `### 验收命令`）：agent 自己写的测试只能自证，
