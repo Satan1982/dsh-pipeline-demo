@@ -41,7 +41,26 @@ foreach ($p in $required) {
 }
 
 $dispatch = Join-Path $repo 'ci\dispatch.mjs'
-$command = '"{0}" --use-system-ca "{1}" --ensure' -f $node, $dispatch
+
+# 登录自启同样不该在桌面上闪一下控制台：HKCU Run 直接跑 node.exe（控制台程序）会创建黑窗。
+# 改由 wscript.exe（GUI 子系统，自身无窗口）拉起隐藏的 node --ensure。
+$hidden = Join-Path $repo '.logs\dispatch-autostart.vbs'
+$hiddenDir = Split-Path -Parent $hidden
+if (-not (Test-Path $hiddenDir)) { $null = New-Item -ItemType Directory -Path $hiddenDir -Force }
+$vbs = @'
+Dim sh, rc
+On Error Resume Next
+Set sh = CreateObject("WScript.Shell")
+sh.CurrentDirectory = "__REPO__"
+rc = sh.Run("""__NODE__"" --use-system-ca "__DISPATCH__" --ensure", 0, False)
+If Err.Number <> 0 Then
+  WScript.Quit 1
+End If
+WScript.Quit rc
+'@.Replace('__REPO__', $repo).Replace('__NODE__', $node).Replace('__DISPATCH__', $dispatch)
+[IO.File]::WriteAllText($hidden, $vbs, (New-Object Text.UTF8Encoding($false)))
+
+$command = 'wscript.exe //nologo "{0}"' -f $hidden
 
 Set-ItemProperty -Path $key -Name $Name -Value $command
 
