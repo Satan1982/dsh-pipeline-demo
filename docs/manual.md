@@ -109,6 +109,12 @@ Stop-Process -Id <pid>
 | `node ci/cost-report.mjs` | 生成 `.logs/cost-report.md` | 看钱花在哪；别再写进 `docs/`（会脏工作树） |
 | `python ~/.dsh/tools/free-models/fm.py stats --json` | 免费池健康快照 | 判断该不该重投 |
 
+### 4.1 Gitee 镜像
+
+`bash ci/land.sh` 的最后一步（第 4 步镜像；v3 P1 起验签单列，脚本日志显示为 `== 5/5 镜像 Gitee ==`）会调用 `ci/mirror-gitee.sh`，把 GitHub 的 `main` 与 tag 自动同步到 Gitee。Gitee 侧只做只读镜像：不跑 CI、不接受 PR，纯粹让国内拉代码更快。
+
+镜像的验签基线取 **Gitee 当前 `main`**（`git ls-remote` 拿到的 tip，等同 land 的 BASE 语义）：只要自该 tip 起只有文档/元数据改动就放行。因此 docs-only 提交同步 Gitee **无需人工 attest**，也不用手动设 `DSH_GITEE_ALLOW_UNVERIFIED`。拿不到 Gitee tip（首次镜像/断网）时会退回 `--head` 的严格判据并 fail-closed；确需绕过时才显式设 `DSH_GITEE_ALLOW_UNVERIFIED=1` 并写理由，放行记录落在 `.logs/gitee-unverified.jsonl`。
+
 ---
 
 ## 5. 标签手册
