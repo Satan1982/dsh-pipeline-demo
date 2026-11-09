@@ -114,3 +114,18 @@
 - **解冻方式**：用户选「现在解冻」。§六「未验证」三项（`security.json` 5 例恶意 drill、`--status` 的 S4 覆盖率行、断 launcher 的真实工单 drill）**作为第一张真实工单开跑前的门禁**，不阻塞空转（当前 GitHub 侧无 `agent:ready` 单）。
 - **解冻后状态**：`state.json paused=false`，常驻每 60 秒轮询、日志 `没有待处理任务`；`git log` 无 Administrator 执行记录。
 - **仍未做**：12+1 个本地提交没有 witness 签名证据，`ci/trust/verify.mjs --land origin/main` 仍判 FAIL，push 另议。
+
+## 九、首张真实单 #231 与候选树清理 EPERM（2026-11-09 14:11 端到端跑通）
+
+**结论：真实单在低权通道下端到端跑通了**（#231 → 门禁绿 → witness `1b0c8db76b76` → 语义评审 pass → PR #232）。挡在中间的不是安全闸，而是候选树清理的 `EPERM`。
+
+- **复现**：`#231` 第 2/3 次尝试都在 `headless exit=0`、agent 自己跑绿 `verify.sh` 之后被判失败，错误是 `Error: EPERM, Permission denied: \?\C:\ProgramData\dsh-gate\cand-XXXXXX`。手工 `rm -rf` 同样 `cannot remove …/dist/build-info.json: Permission denied`。
+- **根因（ACL 而非瞬时占用）**：候选树里的 `dist/` 等产物由低权用户 `dsh-agent` 建，其 ACE 只把 FullControl 给了 `dsh-agent`、`SYSTEM`、`BUILTIN\Administrators`、`Users(RX+Write)`——**没有 `ZHAO\Administrator`**。调度器跑在 UAC 过滤令牌里（`IsInRole(Administrator)=False`），`BUILTIN\Administrators` 是 deny-only SID，那条 ACE 不生效，于是自己删不掉自己门禁里产出的文件。（同一原因也是「提权常驻进程本会话杀不掉」的原因。）
+- **修法（08d869b）**：
+  1. `ci/gate-snapshot.mjs` 新增 `grantTreeForCurrentUser()`：建树后 `icacls <dir> /grant <USERDOMAIN\USERNAME>:(OI)(CI)F /T /Q`，子文件靠 `(OI)(CI)` 继承；
+  2. `removeTreeSafe()`：先直删，`EPERM/EACCES` 就补 ACL 再删一次，**永不抛出**——`cleanup()` 返回 `{ok,via?,why?}`；
+  3. `sweepCandidates()`：每次建树前清扫 `>1h` 的 `cand-*` 残留（避免误删并发在跑的两棵）；
+  4. `ci/dispatch.mjs` 的 `finally` 改为「清理失败只打 `[s4-warn]`，不判任务失败」——候选树是临时物，不该让一次清理失败推翻「门禁全绿」。
+- **验证**：`node --test ci/gate-snapshot.test.mjs` → 9 pass / 0 fail（新增 4 例：直删成功、EPERM→补 ACL 成功、两次失败不抛出、sweep 只删 cand-* 且保留新树）；`bash scripts/verify.sh` → 429/1119 PASS（基线 `429 1119 17c0fbc629cef31f`）。
+- **复跑证据**：`--status` 的 `s4` 行仍为 100%（`exec-audit` 新增 `actor=gate`、`actor=acceptance` 各一条，`s4:true`、`nonce_ok:true`）；本次运行无任何 `[s4-warn]`，`C:\ProgramData\dsh-gate\` 下只剩 `drill`。
+- **遗留**：`#231` 的 PR #232 等人工点合并（v3 P0 关闭了 `merge:auto`）；本地 16 个提交仍无 witness 覆盖，push 另议。
