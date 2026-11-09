@@ -44,6 +44,7 @@ import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage 
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
 import { redactPublicPayload } from './redact.mjs';
+import { fenceUntrusted, FENCE_DECLARATION } from './prompt-fence.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
 import { HIGH_RISK_LABEL, defaultLaneStatsFile, findRunJs, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane, runHighRiskAdapter } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
@@ -816,16 +817,21 @@ function buildPrompt({ n, title, goal, acceptance, constraints, attempt = 1, pri
   const knownBlock = known
     ? `\n## 历史同类失败（调度器记忆库）\n${known}\n\n先确认这次的根因是否与上次一致；一致就直接照上次的修法，不要重新试错。\n`
     : '';
-  return `你正在一个隔离的 git worktree 里工作。任务来自 GitHub Issue #${n}：${title}
+  // P2：Issue 正文（含标题）是不可信输入。三段内容一律进围栏，并在前面显式声明「以下为数据」；
+  // 提示词层不是主防线，这里只保证正文无法提前闭栏、越不过下面的「## 硬性规则」。
+  const safeTitle = String(title || '').replace(/[\r\n]+/g, ' ').slice(0, 300);
+  return `你正在一个隔离的 git worktree 里工作。任务来自 GitHub Issue #${n}：${safeTitle}
 ${retryBlock}${knownBlock}${readonlyBlock}
+${FENCE_DECLARATION}
+
 ## 目标
-${goal}
+${fenceUntrusted(goal, { label: '目标' })}
 
 ## 验收标准（必须全部满足）
-${acceptance}
+${fenceUntrusted(acceptance, { label: '验收' })}
 
 ## 约束
-${constraints || '（无额外约束）'}
+${fenceUntrusted(constraints || '（无额外约束）', { label: '约束' })}
 
 ## 硬性规则
 1. 先读仓库根目录的 AGENTS.md，遵守其中的约定。
