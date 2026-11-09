@@ -43,6 +43,7 @@ import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, co
 import { parseAudit, countFallbackEvents, summarizeS4Coverage, formatS4Coverage } from './s4-coverage.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
+import { redactPublicPayload } from './redact.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
 import { HIGH_RISK_LABEL, defaultLaneStatsFile, findRunJs, formatLaneLine, lanePolicy, laneStats, loadLaneStats, parseLane, recordLane, runHighRiskAdapter } from './risk-lane.mjs';
 import { collectDiff, reviewWithPanel, formatSemantic, pickFreeModels, registryStats, FREE_STRONG_MODELS } from './semantic-review.mjs';
@@ -474,6 +475,9 @@ function pruneLogs() {
 // ---------- 基础设施 ----------
 
 async function api(method, p, body) {
+  // 公开出口（issue 评论 / PR body）先脱敏：本机绝对路径与 token 形状不该跟着 agent 输出
+  // 发到公开页面。打码只做在这一处，新增的评论点不用各自记得处理（P1-7，issue #242）。
+  const payload = redactPublicPayload(method, p, body);
   const r = await fetch(`https://api.github.com${p}`, {
     method,
     headers: {
@@ -482,7 +486,7 @@ async function api(method, p, body) {
       'User-Agent': 'dsh-dispatch',
       'Content-Type': 'application/json',
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   const text = await r.text();
   let data = null;
