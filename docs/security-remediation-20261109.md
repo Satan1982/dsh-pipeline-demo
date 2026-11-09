@@ -147,3 +147,4 @@
 - **兜底**：拿不到 TIP（首次镜像/断网）退回 `--head`，仍然 fail-closed；`DSH_GITEE_ALLOW_UNVERIFIED=1` 的显式放行路径保留并写 `.logs/gitee-unverified.jsonl`。门禁脚本自更新的 `DSH_LAND_GATE_UPDATE=1` 例外**没有**复制进镜像口——镜像仍必须显式放行，避免在镜像口开第二条仅凭环境变量的放行路。
 - **改动**：`ci/trust/verify.mjs` 新增 `--mirror <ref> [--base <提交>]` 与 `mirrorCheck()`（复用 `landChangedFiles`/`classifyPaths`，另加 `newestCoveredAncestor()` 作无基线时的后退选项）；`ci/mirror-gitee.sh` 把 `--head $SRC` 换成上述动态判据，失败文案同步改。
 - **验证**：`node --test ci/trust-verify.test.mjs` → 11 pass / 0 fail（新增 3 例：docs-only 放行+源码拒推、无基线退回 witness 祖先、基线提交不存在 fail-closed）；`bash scripts/verify.sh --bless` → 432/1127 PASS（基线 `432 1127 17c0fbc629cef31f`）。
+- **live 证据（本提交）**：修复提交 `33aa51a` 本身含门禁脚本改动，落 Gitee 时仍显式放行一次并留痕（`.logs/gitee-unverified.jsonl`，符合「镜像口不复制 gateOnly 例外」的决定）。本条**纯文档**提交随后走 `bash ci/land.sh`——`--land` 判 PASS、镜像**没有**设 `DSH_GITEE_ALLOW_UNVERIFIED` 也成功推上 Gitee，证明 docs-only 同步不再需要人工 attest。
