@@ -120,8 +120,11 @@ async function main() {
       const entry = { id: task.id, title: task.title, runs: [] };
       for (let r = 1; r <= RUNS; r++) {
         const title = `[${task.id} r${r}] ${task.title}`;
-        const issue = await api('POST', `/repos/${REPO}/issues`, {
-          title, body: issueBody(task), labels: ['agent:ready', 'lane:standard', ...(PAID ? ['model:paid'] : [])],
+        // agent:ready 必须「建单之后单独贴」：创建时带 label 不产生 labeled 事件，会被
+        // dispatch 的贴标人闸拒（2026-11-09）。分两步也让「谁允许了这次执行」有明确 actor。
+        const issue = await api('POST', `/repos/${REPO}/issues`, { title, body: issueBody(task) });
+        await api('POST', `/repos/${REPO}/issues/${issue.number}/labels`, {
+          labels: ['agent:ready', 'lane:standard', ...(PAID ? ['model:paid'] : [])],
         });
         log(`#${issue.number} 已创建：${title}`);
         const code = await runDispatch(['--once', '--issue', String(issue.number)]);

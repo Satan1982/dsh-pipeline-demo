@@ -176,8 +176,12 @@ async function main() {
       continue;
     }
     for (const d of t.deps) await ensureLabel(`dep-on:${d}`);
-    const r = await api('POST', '/issues', { title: `[${slug}/${t.id}] ${t.title}`, body, labels });
+    // 建单时不带 agent:ready：创建即带 label 不产生 labeled 事件，调度器的贴标人闸会拒
+    // （2026-11-09）。分两步建单再贴，贴标 actor 才明确。
+    const r = await api('POST', '/issues', { title: `[${slug}/${t.id}] ${t.title}`, body });
     if (r.status !== 201) { console.error(`建单失败 ${t.id}: ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`); process.exit(1); }
+    const lr = await api('POST', `/issues/${r.data.number}/labels`, { labels });
+    if (lr.status !== 200) { console.error(`贴标失败 #${r.data.number}: ${lr.status} ${JSON.stringify(lr.data).slice(0, 200)}`); process.exit(1); }
     console.log(`created #${r.data.number} ${t.id} ${t.title}`);
     created.push({ id: t.id, number: r.data.number });
   }

@@ -70,7 +70,7 @@
 
 ## 六、实施状态（2026-11-09 落地记录）
 
-已实现（`bash scripts/verify.sh` → 408/408 pass，`node ci/s4-exec.mjs --selftest` → 10/10）：
+已实现（`bash scripts/verify.sh` → 416/416 pass / 1080 断言，`node ci/s4-exec.mjs --selftest` → 23/23）：
 
 - **P0-1 回跑降权**（新通道）：`ci/s4-exec.mjs` + `ci/s4-run-cmd.ps1`，`runAsAgentCommand` 以 `dsh-agent` 跑固定命令；候选树根 `C:\ProgramData\dsh-gate`；三处改走低权：候选树 `verify.sh`、`### 验收命令`、高风险适配器（`dispatch.mjs:1092/1410` 区段）。
 - **P0-2 保护面**：`review.mjs` 白名单 `ci/`、`scripts/`、`.github/`、`.githooks/`；两个 `--bless` 基线 txt 例外（数据非代码，另受 assert-guard 指纹保护）；`gate-snapshot.mjs` 不再把基线 overlay 回 origin（否则「加测试」工单必判基线未更新）；`gateBytesSha256` 仍在恢复基线**之前**计算，证据仍只代表 origin 门禁字节。
@@ -81,8 +81,15 @@
 - **cwd 规范化**：`s4-run-cmd.ps1` 先拒 `..`、再 `GetFullPath` 后比较许可根（纯 `StartsWith` 允许 `D:\code\.worktrees\..\..\dsh\default-workspace` 逃逸）。
 - **提交钩子隔离**：调度器以 Administrator 提交时带 `-c core.hooksPath=C:/ProgramData/dsh-gate/.no-hooks`（目录不存在=无钩子），worktree 内 agent 可写的 `.githooks` 不再能以管理员身份执行；agent 自己的提交仍用 worktree 钩子（低权身份）。
 - **降权开关可观测**：`DSH_S4_EXEC=0` 回退 Administrator 时打 `[s4-warn]`（kill switch 仍存在，但不再静默）。
+- **结果文件 nonce（2026-11-09 残余收口）**：`prepareCmdJob` 每次生成 16 字节随机 nonce 写进 `job.json`，`s4-run-cmd.ps1` 在**启动命令前**删除 job.json 并复核已删除，`done.json` 回带 nonce；`s4-exec.mjs` 的 `validateDone()` 要求 nonce 匹配 + 整数 exit + `ok=true && exit=0`，再叠加 launcher 退出码 0 才判 `ok`。命令即使能写 jobDir 也读不到 nonce。实测：低权 `bash scripts/verify.sh` 通过，运行期间 `C:\ProgramData\dsh-jobs\cmd\job.json` 不存在，`done.json` 的 nonce 与 job 一致。
+- **低权权限档**：`s4-run-cmd.ps1` 的 `DSH_PERMISSION_MODE` 由 `danger-full-access` 降为 `workspace-write`（该通道只跑固定命令，不走 DSH 的 shell 通道，`node --test` 的子进程命名管道限制不适用）。
+- **作者/贴标人双闸**：`isTrustedAuthor()` 不再单凭 `author_association` 放行 MEMBER/COLLABORATOR，改为「OWNER + 协作者表里有 admin/maintain/write/push 的登录 + `DSH_TRUSTED_AUTHORS`」；新增 `isTrustedLabeler()` 读 `GET /repos/{repo}/issues/{n}/events`，要求最新一条 `agent:ready` labeled 事件的 actor 也在同一可信集合。协作者表 10 分钟缓存，读不到时退化为只信任所有者/白名单（fail-closed）；`--issue N` 强推路径同样过双闸。
+- **建单流程配合**：`ci/pass3-issues.mjs`、`ci/plan.mjs` 改为先建单再 POST labels —— 创建时带 label 不产生 labeled 事件，会被贴标人闸拒；人工建单若在创建时就勾了 `agent:ready`，需去掉重贴一次。
+- **单测**：`ci/s4-exec.test.mjs`（8 测试 / 27 断言）把作者/协作者/贴标人/`validateDone` 的判定钉进断言基线。
 
-已知残余（未修，记入 P1/P2）：done.json 本身仍由低权进程写入 jobDir（可伪造 exit=0，需 Admin 侧独立取码/HMAC 通道）；`DSH_PERMISSION_MODE=danger-full-access` 与低权语义不符；`MEMBER/COLLABORATOR` 作者面偏宽、未校验贴 label 的人。
+已知残余（不阻塞恢复跑单，记入 P2）：
+- `done.json` 仍由低权进程写：nonce 挡住「命令自己写一份结果」，但同一登录会话仍可从 runner 内存读 nonce；彻底隔离要等 P2 的独立取码/OS 级隔离。launcher 退出码 0 与 nonce 双条件是为了避免把它降级成单点。
+- 低权通道的出网仍不受限（P1-5 防火墙白名单未做），`DSH_PERMISSION_MODE` 只影响该通道 spawn 的 DSH 子进程，`verify.sh` 本身不经 DSH 沙箱。
 
 未做（按分类表 SKIPPED，不阻塞 P0 止血）：P0-4 ACL 断继承 / 删 `.worktrees\.secrets` 残留；P1-5 防火墙出网白名单；P1-7 输出脱敏；P1-8 `ci.yml permissions`；P2 全部。
 原因：均是系统级配置或需 broker 提权，改的是机器而不是仓库；且 P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。

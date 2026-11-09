@@ -2,9 +2,12 @@
 #
 # Contract (job directory):
 #   input   <JobDir>\job.json  { "cmd": "bash scripts/verify.sh", "timeoutSec": 900,
+#                                "nonce": "<hex>",
 #                                "cwd": "C:\ProgramData\dsh-gate\dsh-gate-XXXX" }
+#           job.json is DELETED right before the command starts: the nonce inside it must not be
+#           readable by the command, else a forged done.json would pass the dispatcher's check.
 #   output  <JobDir>\cmd.log   stdout + stderr of the command
-#           <JobDir>\done.json { ok, exit, user, cmd, cwd, startedAt, endedAt, durationSec, tail, error }
+#           <JobDir>\done.json { ok, exit, nonce, user, cmd, cwd, startedAt, endedAt, durationSec, tail, error }
 #
 # Why a separate runner: s4-run-headless.ps1 runs a DSH headless *agent* (stdin = prompt).
 # The dispatcher needs the opposite - execute a fixed command whose content it may not trust
@@ -33,7 +36,7 @@ function Write-Done([hashtable]$doc) {
 $started = (Get-Date)
 $done = @{
   ok = $false; exit = $null; user = $env:USERNAME; startedAt = $started.ToString('o')
-  endedAt = $null; durationSec = 0; cmd = ''; cwd = ''; tail = @(); error = ''
+  endedAt = $null; durationSec = 0; cmd = ''; cwd = ''; tail = @(); error = ''; nonce = ''
 }
 
 if (-not (Test-Path -LiteralPath $JobDir)) { New-Item -ItemType Directory -Path $JobDir -Force | Out-Null }
@@ -44,6 +47,11 @@ try {
   $job = [System.IO.File]::ReadAllText($jobFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
   $cmd = [string]$job.cmd
   if ([string]::IsNullOrWhiteSpace($cmd)) { throw 'job.json cmd is empty' }
+  # nonce proves the done.json came from this runner, not from the command it ran. The command
+  # can write anything in JobDir, so job.json (the only copy) is deleted before the command starts.
+  $nonce = [string]$job.nonce
+  if ([string]::IsNullOrWhiteSpace($nonce)) { throw 'job.json nonce is missing (old dispatcher? refusing forge-prone result file)' }
+  $done.nonce = $nonce
   $done.cmd = $cmd
   $timeoutSec = 900
   if ($job.timeoutSec) { $timeoutSec = [int]$job.timeoutSec }
@@ -85,7 +93,11 @@ try {
   $userHome = $env:USERPROFILE
   if ([string]::IsNullOrWhiteSpace($userHome)) { $userHome = Join-Path 'C:\Users' $env:USERNAME }
   $env:DSH_HOME = Join-Path $userHome '.dsh'
-  $env:DSH_PERMISSION_MODE = 'danger-full-access'
+  # 低权回跑不需要"全盘可写"：agent 的代码与测试只应改候选树/工作树。历史原因是 DSH 的
+  # workspace-write 在 Windows 上禁掉子进程命名管道，会让 node --test 直接 EPERM；本 runner
+  # 只跑固定命令（verify.sh / 验收命令 / pipeline run），不用 DSH 的 shell 通道，所以降到
+  # workspace-write（2026-11-09 实测 verify.sh 仍绿，见 docs/security-remediation-20261109.md）。
+  $env:DSH_PERMISSION_MODE = 'workspace-write'
   $env:TMP = $env:TEMP
 
   $logFile = Join-Path $JobDir 'cmd.log'
@@ -110,6 +122,10 @@ try {
 
   $p = New-Object System.Diagnostics.Process
   $p.StartInfo = $psi
+  # Delete job.json (the ONLY place the nonce is written) right before the command starts, and
+  # verify it is gone: if it survives, the command could read the nonce and forge done.json.
+  Remove-Item -LiteralPath $jobFile -Force
+  if (Test-Path -LiteralPath $jobFile) { throw 'cannot delete job.json before start (nonce would be readable by the command)' }
   [void]$p.Start()
   $stdout = $p.StandardOutput.ReadToEndAsync()
   $stderr = $p.StandardError.ReadToEndAsync()

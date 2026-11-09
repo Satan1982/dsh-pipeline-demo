@@ -35,7 +35,7 @@ import { costCny, formatCny } from './prices.mjs';
 import { reviewWorktree, formatFindings } from './review.mjs';
 import { gateFilesFromFindings } from './gate-override.mjs';
 import { prepareCandidateTree } from './gate-snapshot.mjs';
-import { runAsAgentCommand, commandPolicy, isTrustedAuthor, ensureCandidateRoot, grantDir } from './s4-exec.mjs';
+import { runAsAgentCommand, commandPolicy, isTrustedAuthor, isTrustedLabeler, collaboratorLogins, ensureCandidateRoot, grantDir } from './s4-exec.mjs';
 import { attestCommit, assertHeadWitnessed, defaultChainFile } from './trust/verify.mjs';
 import { loadKeyring } from './trust/keys.mjs';
 import { formatFirstError, parseFirstError } from './metrics.mjs';
@@ -1848,6 +1848,45 @@ async function depsSatisfied(issue) {
   return { ok: true };
 }
 
+// 作者/贴标人双闸的支持数据（2026-11-09）。协作者表 10 分钟缓存；读不到就退化成「只信任
+// 所有者 + DSH_TRUSTED_AUTHORS」，绝不因为 API 抖动而放行陌生人（fail-closed）。
+const TRUSTED_LOGIN_TTL_MS = 10 * 60 * 1000;
+let trustedLoginCache = { at: 0, set: null };
+
+async function trustedLogins() {
+  if (trustedLoginCache.set && Date.now() - trustedLoginCache.at < TRUSTED_LOGIN_TTL_MS) return trustedLoginCache.set;
+  const owner = String(REPO).split('/')[0];
+  try {
+    const rows = [];
+    for (let page = 1; page <= 5; page += 1) {
+      const { data } = await api('GET', `/repos/${REPO}/collaborators?per_page=100&page=${page}`);
+      const list = Array.isArray(data) ? data : [];
+      rows.push(...list);
+      if (list.length < 100) break;
+    }
+    trustedLoginCache = { at: Date.now(), set: collaboratorLogins(rows, owner) };
+  } catch (e) {
+    log(`[author-gate] 读不到仓库协作者表（${e.message}）：本轮只信任所有者与 DSH_TRUSTED_AUTHORS`);
+    trustedLoginCache = { at: Date.now(), set: collaboratorLogins([], owner) };
+  }
+  return trustedLoginCache.set;
+}
+
+// 取 issue 的 agent:ready labeled 事件（升序，最多 5 页 = 500 条）：最新一条的 actor 即贴标人。
+// 创建时就带 label 的 issue 不产生 labeled 事件 —— 那种单会在这里被拒，必须建单后再贴一次。
+async function fetchAgentReadyEvents(n) {
+  const hits = [];
+  for (let page = 1; page <= 5; page += 1) {
+    const { data } = await api('GET', `/repos/${REPO}/issues/${n}/events?per_page=100&page=${page}`);
+    const list = Array.isArray(data) ? data : [];
+    for (const e of list) {
+      if (e?.event === 'labeled' && String(e?.label?.name ?? '').toLowerCase() === 'agent:ready') hits.push(e);
+    }
+    if (list.length < 100) return { events: hits, truncated: false };
+  }
+  return { events: hits, truncated: true };
+}
+
 async function pollOnce() {
   // 每轮都读一次状态文件：`--pause`/`--resume` 是人从另一个进程下单的，
   // 只在启动时读一次（旧做法）意味着运行中的常驻进程根本不理它，钱闸形同虚设。
@@ -1877,15 +1916,23 @@ async function pollOnce() {
   const raw = FORCE_ISSUE
     ? (await api('GET', `/repos/${REPO}/issues/${FORCE_ISSUE}`)).data
     : (await api('GET', `/repos/${REPO}/issues?labels=${encodeURIComponent('agent:ready')}&state=open&per_page=20`)).data;
-  let issues = (Array.isArray(raw) ? raw : [raw]).filter(
-    (i) => i && !i.pull_request && !(i.labels ?? []).some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
-  ).filter((i) => {
-    // 2026-11-09 作者闸：贴 agent:ready 需要 triage 权限，但仍接受「被骗一次贴标」。
-    // 只领 OWNER/MEMBER/COLLABORATOR 的工单（或 DSH_TRUSTED_AUTHORS 白名单），其余不领。
-    const a = isTrustedAuthor(i);
-    if (!a.ok) log('[author-gate] #' + i.number + ' 跳过：' + a.why);
-    return a.ok;
-  });
+  let issues = [];
+  // 2026-11-09 双闸（原单闸只信 author_association，MEMBER/只读协作者也能把一条 issue
+  // 变成 Administrator 侧动作）：①作者是 OWNER / 仓库协作者写权限表 / 白名单；
+  // ②agent:ready 必须由可信的人亲手贴上（issues/{n}/events 的 labeled 事件 actor）。
+  const trusted = await trustedLogins();
+  for (const i of (Array.isArray(raw) ? raw : [raw]).filter(
+    (x) => x && !x.pull_request && !(x.labels ?? []).some((l) => l.name === 'agent:working' || l.name === 'agent:done'),
+  )) {
+    const a = isTrustedAuthor(i, process.env.DSH_TRUSTED_AUTHORS || '', trusted);
+    if (!a.ok) { log('[author-gate] #' + i.number + ' 跳过：' + a.why); continue; }
+    let ev;
+    try { ev = await fetchAgentReadyEvents(i.number); }
+    catch (e) { log(`[author-gate] #${i.number} 跳过：读不到贴标事件（${e.message}）`); continue; }
+    const l = isTrustedLabeler(ev.events, trusted, process.env.DSH_TRUSTED_AUTHORS || '', ev.truncated);
+    if (!l.ok) { log('[author-gate] #' + i.number + ' 跳过：' + l.why); continue; }
+    issues.push(i);
+  }
   if (FORCE_ISSUE) {
     issues = issues.filter((i) => i.state === 'open' && (i.labels ?? []).some((l) => l.name === 'agent:ready'));
     if (!issues.length) {
