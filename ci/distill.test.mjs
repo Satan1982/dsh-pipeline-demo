@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clean, group, render, renderPoolSection } from './distill-failures.mjs';
+import { clean, group, memoryItem, render, renderPoolSection } from './distill-failures.mjs';
 import { poolTrend } from './pool-trend.mjs';
 
 test('同一个指纹的多条记录归并成一条，次数与工单都留下', () => {
@@ -44,6 +44,20 @@ test('池子健康单独成段：带截止时间与「不是当前可用性」',
   const section = renderPoolSection(poolTrend(rows));
   assert.match(section, /^## 免费模型池健康（近 14 天，快照截止 2026-11-02/);
   assert.match(section, /不是当前可用性/);
+});
+
+test('两份摘要各带自己的 context/tags：池子统计不被打成 failures', () => {
+  assert.deepEqual(memoryItem('pool', 'x'), {
+    content: 'x',
+    context: 'pipeline-pool',
+    tags: ['pipeline', 'pool'],
+  });
+  assert.deepEqual(memoryItem('failures', 'y').tags, ['pipeline', 'failures']);
+  assert.equal(memoryItem('failures', 'y').context, 'pipeline-failures');
+  // tags 是副本：调用方改了不该污染常量表
+  memoryItem('pool', 'z').tags.push('dirty');
+  assert.deepEqual(memoryItem('pool', 'z').tags, ['pipeline', 'pool']);
+  assert.throws(() => memoryItem('nope', 'z'), /未知摘要类型/);
 });
 
 test('池子快照坏掉时出「快照不可用」，不静默省略', () => {

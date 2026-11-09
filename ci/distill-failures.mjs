@@ -149,16 +149,26 @@ export function renderPoolSection(trend, { bad = 0, problem = null } = {}) {
   return '';
 }
 
-async function post(text, bank) {
+// bank 分开了，元数据也得分开：池子统计若被打上 failures 的 context/tags，
+// 检索和抽取都会把它当失败知识读——这正是分 bank 要避免的那类误读。
+export const MEMORY_META = {
+  failures: { context: 'pipeline-failures', tags: ['pipeline', 'failures'] },
+  pool: { context: 'pipeline-pool', tags: ['pipeline', 'pool'] },
+};
+
+export function memoryItem(kind, text) {
+  const meta = MEMORY_META[kind];
+  if (!meta) throw new Error(`[distill] 未知摘要类型：${kind}`);
+  return { content: text, context: meta.context, tags: meta.tags.slice() };
+}
+
+async function post(text, bank, kind) {
   const cfg = readClient();
   const auth = resolveToken(cfg);
   if (!auth) throw new Error('[distill] 缺少 Hindsight 凭据：配置无 apiToken，User 环境也没有 HINDSIGHT_API_TOKEN');
   const base = (cfg.apiUrl || 'http://127.0.0.1:9077').replace(/\/$/, '');
   const url = `${base}/v1/default/banks/${encodeURIComponent(bank)}/memories`;
-  const body = {
-    items: [{ content: text, context: 'pipeline-failures', tags: ['pipeline', 'failures'] }],
-    async: true,
-  };
+  const body = { items: [memoryItem(kind, text)], async: true };
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${auth}` },
@@ -196,10 +206,10 @@ async function main() {
     process.exit(1);
   }
   const jobs = [];
-  if (records.length) jobs.push(['失败摘要', failuresText, bank]);
-  if (poolText) jobs.push(['池子统计', poolText, poolBank]);
-  for (const [label, text, target] of jobs) {
-    const r = await post(text, target);
+  if (records.length) jobs.push(['失败摘要', failuresText, bank, 'failures']);
+  if (poolText) jobs.push(['池子统计', poolText, poolBank, 'pool']);
+  for (const [label, text, target, kind] of jobs) {
+    const r = await post(text, target, kind);
     if (r.status >= 200 && r.status < 300) {
       console.log(`[distill] ${label}已写入 Hindsight：bank=${target} status=${r.status}`);
     } else {

@@ -660,6 +660,7 @@
 1 8c9e6a4f166cfe6e assert.equal(summary.meetsTarget, true);
 1 8ca2b5ead46139c3 assert.deepEqual(nums, [3, 1, 2]);
 1 8cf133c49d764337 assert.equal(boot.paused, true);
+1 8d0c1adfbc17e158 assert.throws(() => memoryItem('nope', 'z'), /未知摘要类型/);
 1 8d595e1d46b2e251 assert.equal(parseRunExit(3).reason, '合并冲突');
 1 8d8a50c6c3b6c42d assert.equal(ok.bad, 1);
 1 8da09694c70517a8 assert.equal(runCli(['--file', f2, '--json'], { ...io, now: new Date('2026-11-06T10:00:00.000Z') }), 0);
@@ -722,6 +723,7 @@
 1 98049eeb7cb20b4f assert.equal(parsed.kind, 'tap');
 1 981cfef14769a936 assert.ok(interval < 3 * 60 * 1000, `心跳间隔 ${interval}ms 不小于判陈旧阈值 180000ms，跑单期间仍会被接管`);
 1 981ffeb12f9f207d assert.match(body, /bash scripts\/verify\.sh/);
+1 982ed32e885cd8f5 assert.equal(memoryItem('failures', 'y').context, 'pipeline-failures');
 1 98bfb0e2c7ceca59 assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
 1 98db00a56c63ae4b assert.ok(loaded[0].at, '记录必须带时间戳');
 1 98fc5c1289f42444 assert.equal(parsed.kind, 'spec');
@@ -1022,6 +1024,7 @@
 1 d2332fc997068ae7 assert.equal(isTrustedAuthor({ author_association: 'COLLABORATOR', user: { login: 'writer' } }, '', trusted).ok, true);
 1 d256e9beff5bf545 assert.match(out, /⚠ 本段含 1 处疑似指令式内容/);
 1 d27445f474561535 assert.equal(isPublicWritePath('/repos/a/b/issues/1/comments'), true);
+1 d2f48b35893019a8 assert.deepEqual(memoryItem('failures', 'y').tags, ['pipeline', 'failures']);
 1 d2fd8c92b9f744f3 assert.match(formatSemantic(merged), /\[付费\]/);
 1 d33333f3889b3646 assert.equal(toFahrenheit(0), 32);
 1 d355b8adb2a29457 assert.equal(subtract(2, 5), -3);
@@ -1163,6 +1166,7 @@
 1 ef352ecde8203028 assert.ok(files[0].startsWith(ALERT_PREFIX));
 1 ef3c33ec792cc782 assert.equal(e.gaveUp, false);
 1 ef55af71a30c0ca3 assert.ok(allowed.size > 0, 'policy.paid.models 不能为空');
+1 ef742d99454cfc41 assert.deepEqual(memoryItem('pool', 'x'), {
 1 ef9bb2c9de7b217e assert.equal(summary.n, 3);
 1 f018c4c86a27bd3f assert.equal(res.status, 200);
 1 f0362a4f6542bbae assert.equal(isWorkingTreeClean(dir), false);
@@ -1208,6 +1212,7 @@
 1 f6f7efafadedcbed assert.match(formatSemantic(r), /跳过/);
 2 f72726de8ce841a5 assert.equal(readState(d).paused, false);
 1 f74b39d0a2a13a4f assert.equal(existsSync(audit), true);
+1 f76fbb744b119b7c assert.deepEqual(memoryItem('pool', 'z').tags, ['pipeline', 'pool']);
 1 f78fc983e07cf475 assert.match(summary.verdict, /只报原始比例 66\.7%/);
 1 f79333dd3788daf7 assert.deepEqual(words(''), []);
 2 f8067c98d8fa95e2 assert.equal(s.ok, true);
