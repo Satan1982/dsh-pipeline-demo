@@ -55,7 +55,7 @@
 
 | # | 项 | 改法 | 验收 |
 |---|---|---|---|
-| P1-5 | 出网白名单 | 防火墙按用户：`dsh-agent` 出站默认 block，放行 127.0.0.1（+ registry 若 verify 需要） | **BLOCKED**：Windows 防火墙规则无用户维度（2026-11-09 实测 `netsh advfirewall firewall add rule ?` 仅 program/protocol/端口/rmtcomputergrp）；按用户过滤需 WFP 自定义过滤器或容器网络隔离 → 另立 P2 |
+| P1-5 | 出网白名单 | 防火墙按用户：`dsh-agent` 出站默认 block，放行 127.0.0.1（+ registry 若 verify 需要） | **BLOCKED（2026-11-09 20:30 理由修正）**：`netsh advfirewall firewall add rule ?` 确无本地用户维度，但 PowerShell `New-NetFirewallRule -LocalUser` 有（本机实测该参数存在；`Get-NetFirewallSecurityFilter` 也暴露 `LocalUser`）。**阻塞点不是「能不能按用户过滤」**：`dsh-agent` 本身就是低权执行通道与 headless agent 的身份，它靠出网调云端模型/依赖，按用户封死等于停跑；且防火墙规则没有域名维度，无法给模型端点开白名单。要做得用 WFP 按目标地址过滤或容器网络隔离 → 另立 P2 |
 | P1-6 | 回退 fail-closed | `dispatch.mjs:2167-2179` 默认失败；`DSH_S4_FALLBACK=admin` 才回退，回退时 `notifyEvent` 告警 | 断开 launcher → 单子 fail 而不是静默以 Admin 跑 |
 | P1-7 | 只读工单输出脱敏 | `dispatch.mjs:1343-1349` 发公开评论前：绝对路径/`D:\`/token 形状替换、截断 | drill 输出含 `D:\code\.secrets` → 评论里打码 |
 | P1-8 | CI 权限收紧 | `ci.yml` 加 `permissions: contents: read`；actions 固定到 SHA | `grep permissions ci.yml`；CI 仍绿 |
@@ -102,7 +102,7 @@
 
 未做 / 改判（2026-11-09 20:30 复核）：
 - P0-4：**已完成**，证据见 §二 P0-4「状态」。
-- P1-5：**BLOCKED**——Windows 防火墙不支持按用户过滤（规则维度只有程序/端口/协议/远程地址/远程组）；按用户出网需 WFP 过滤器或容器网络隔离，不在现网改。替代缓解＝低权通道命令策略（`ci/s4-exec.mjs`）+ 只读工单内容围栏（`ci/prompt-fence.mjs`）。
+- P1-5：**BLOCKED（理由修正，2026-11-09 20:30）**——原来写「Windows 防火墙不支持按用户过滤」不准确：`netsh` 规则确实只有程序/协议/端口/远程地址/远程组，但 PowerShell `New-NetFirewallRule -LocalUser` 提供本地用户维度（本机实测参数存在、`Get-NetFirewallSecurityFilter` 暴露 `LocalUser`）。**真正不做它的原因**：`dsh-agent` 正是低权执行通道和 headless agent 的运行身份，它需要出网调云端模型，按用户封死等于停掉执行通道；防火墙又没有域名维度，无法给模型端点开白名单。要做只能靠 WFP 按目标地址过滤或容器网络隔离，不在现网改。替代缓解不变＝低权通道命令策略（`ci/s4-exec.mjs`）+ 只读工单内容围栏（`ci/prompt-fence.mjs`）。
 - P2 其余：P1-7/P1-8/P2 围栏已于 2026-11-09 落地；PAT 换 fine-grained 需人工在 GitHub 建 token，**SKIPPED**（不动凭据）。
 原因：剩余项改的是机器而不是仓库；P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
 
@@ -125,7 +125,7 @@
 - **修 `--resume` 对常驻无效（65bfe71）**：常驻启动时从磁盘读到的 `paused=true` 没有标记成「磁盘依据」，`syncPauseFromDisk()` 的恢复分支永远不成立。改为 `reconcilePause()` 纯函数（落盘失败的暂停仍 fail-closed 保持停），实测 `--resume` 后日志出现 `▶ 检测到暂停已解除，恢复领单`。
 - **解冻方式**：用户选「现在解冻」。§六「未验证」三项（`security.json` 5 例恶意 drill、`--status` 的 S4 覆盖率行、断 launcher 的真实工单 drill）**作为第一张真实工单开跑前的门禁**，不阻塞空转（当前 GitHub 侧无 `agent:ready` 单）。
 - **解冻后状态**：`state.json paused=false`，常驻每 60 秒轮询、日志 `没有待处理任务`；`git log` 无 Administrator 执行记录。
-- **仍未做**：12+1 个本地提交没有 witness 签名证据，`ci/trust/verify.mjs --land origin/main` 仍判 FAIL，push 另议。
+- **仍未做**：12+1 个本地提交没有 witness 签名证据，`ci/trust/verify.mjs --land origin/main` 仍判 FAIL，push 另议。→ **[已于 15:05 解决，见 §十：人工 attest 一条 witness + `land.sh` 推 `f32d244..8538e58`]**
 
 ## 九、首张真实单 #231 与候选树清理 EPERM（2026-11-09 14:11 端到端跑通）
 
@@ -140,7 +140,7 @@
   4. `ci/dispatch.mjs` 的 `finally` 改为「清理失败只打 `[s4-warn]`，不判任务失败」——候选树是临时物，不该让一次清理失败推翻「门禁全绿」。
 - **验证**：`node --test ci/gate-snapshot.test.mjs` → 9 pass / 0 fail（新增 4 例：直删成功、EPERM→补 ACL 成功、两次失败不抛出、sweep 只删 cand-* 且保留新树）；`bash scripts/verify.sh` → 429/1119 PASS（基线 `429 1119 17c0fbc629cef31f`）。
 - **复跑证据**：`--status` 的 `s4` 行仍为 100%（`exec-audit` 新增 `actor=gate`、`actor=acceptance` 各一条，`s4:true`、`nonce_ok:true`）；本次运行无任何 `[s4-warn]`，`C:\ProgramData\dsh-gate\` 下只剩 `drill`。
-- **遗留**：`#231` 的 PR #232 等人工点合并（v3 P0 关闭了 `merge:auto`）；本地 16 个提交仍无 witness 覆盖，push 另议。
+- **遗留**：`#231` 的 PR #232 等人工点合并（v3 P0 关闭了 `merge:auto`）；本地 16 个提交仍无 witness 覆盖，push 另议。→ **[两条均已于 15:05 解决，见 §十]**
 
 ## 十、落地记录（2026-11-09 15:05，用户授权一次性收尾）
 
@@ -171,3 +171,17 @@
 - **合并**：v3 P0 关掉了 `merge:auto`（`ci/merge-policy.mjs:46`），按 PR #232 先例打 `merge:verified` 后 squash 合并 → `merge_commit_sha=3cab6afde2268d9d6672e415749bfe07e4bb498d`，本地 `merge --ff-only` 跟到 `3cab6af`（`docs/manual.md +6`）。
 - **镜像（关键证据）**：`bash ci/mirror-gitee.sh` **没有**设 `DSH_GITEE_ALLOW_UNVERIFIED` → `To gitee.com:Satan1982/dsh-pipeline-demo.git 1a2390a..3cab6af`，`EXIT=0`；事后 `git ls-remote gitee refs/heads/main` 与本地 HEAD 同为 `3cab6af…`，`.logs/gitee-unverified.jsonl` **仍是 2 行**（无新增放行记录）。
 - **结论**：`--base <Gitee TIP>` + docs-only 分类这套判据在**真实流水线产出**的提交上成立——docs-only 同步 Gitee 不再需要人工 attest，也不再需要环境变量旁路。
+
+## 十三、第 36 代接手复核（2026-11-09 20:26–20:35）
+
+**结论：安全整改没有未落地项，剩下的都是「等真实单」；本代只补了出口漂移和一处判据理由。**
+
+- 门禁：在 `0086849` 上复跑 `bash scripts/verify.sh` → `== verify: OK ==` / `VERDICT: PASS`（exit 0）。
+- 调度器：`--status` → `mode: ready`、`pause: 否`、`s4: 覆盖 100%（16 次低权执行，成功 15；0 次回退）`；GitHub 侧 open PR 0、open issue 0。
+- P0-4 现状复核：`icacls D:\dsh` 根上只剩 `dsh-agent:(OI)(CI)(RX)`、`Administrator/SYSTEM/BUILTIN\Administrators:(OI)(CI)(F)`，全部不带 `(I)`（继承已断）；`D:\dsh\default-workspace` 的 ACE 全带 `(I)`（从 `D:\dsh` 继承）并另有 Low Mandatory Label——与 §二 P0-4 记录一致。
+- **Gitee 镜像漂移（本代修复）**：Gitee main 停在 `4af45fe`，落后 10 个提交（#238–#247）。原因是这些 squash 合并提交发生在 GitHub 侧、本地没有对应 witness，`land.sh` 也没被调用，于是 `mirror-gitee.sh` 的 `--mirror --base` 判「自基线起含非文档改动且未被覆盖」而 fail-closed。
+  - 做法：在 `0086849` 上人工 `attestCommit()` 签一条 witness（`issue=mirror-catchup-20261109`、`key_id=dispatch-20261108`、`hash=df7066bc05ea…`，链上第 43 条），再跑 `bash ci/mirror-gitee.sh` → `4af45fe..0086849`、`EXIT=0`。
+  - 证据：`git ls-remote gitee refs/heads/main` = `0086849f34955e576feac0ac63dbf860b0ff00eb` = 本地 HEAD；`.logs/gitee-unverified.jsonl` 仍 2 行（**没有**用 `DSH_GITEE_ALLOW_UNVERIFIED` 旁路）。
+  - 教训：PR 在 GitHub 上合并后不会自动镜像；这类提交要么走 `land.sh`，要么人工 attest 后再镜像，否则 Gitee 会静默落后。
+- P1-5 判据理由修正（见 §三表与 §六）：不是「防火墙没有用户维度」，而是「dsh-agent 本身要出网调模型、封死等于停跑」。
+- 未变：P1-5 仍不做（要 WFP/容器网络）、`done.json` 残余、PAT 换 fine-grained 需人工。
