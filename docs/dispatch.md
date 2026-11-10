@@ -544,7 +544,7 @@ bash ci/release.sh minor --push    # 0.1.1 -> 0.2.0
 | 重投上限 | 同一张单最多自动重投 3 次（`DSH_BLOCKED_MAX_REQUEUE`）；次数用完 → 打 `agent:blocked:manual` + 评论「怎么接手」，不再自动投 |
 | 计数为什么要跨次继承 | `blockTask()` 重新挂起时继承 `requeues`，否则「池子抖一下 → 重投 → 立刻又挂 → 再重投」会无限循环 |
 | 老单子怎么办 | 本代进程第一次见到的 `agent:blocked`（上一代挂的 / 手动打的）从此刻开始计时，不继承旧计数 |
-| 状态文件 | `.logs/blocked-state.json`（原子写：写 `.tmp` 再 rename）；7 天没动过的条目自动清 |
+| 状态文件 | `.logs/blocked-state.json`（原子写：写 `.tmp` 再 rename）；7 天没动过的条目自动清。**这是退避计数，不是台账**：条目可能指向已关闭工单（关闭后仍留满 7 天），判断一张单还要不要重投只看 GitHub `state=open`（见 `docs/99-blocked-tickets-disposal-20261110.md`） |
 | 日志判读 | `[blocked] #N 已挂起但没有本地记录，从现在开始计时` / `[blocked] #N 免费池仍不可用（…）` / `[blocked] #N 免费池恢复（3/103 个模型 ok），自动重投 agent:ready（第 1/3 次）` / `[blocked] #N …停止自动恢复` |
 | 关掉 | `DSH_BLOCKED_AUTO_REQUEUE=0`（回到「只挂起、等人工」） |
 | dry-run | 只打印 `[dry-run] [blocked] #N would requeue：…`，不改标签、不写状态 |
