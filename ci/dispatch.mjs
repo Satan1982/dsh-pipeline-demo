@@ -26,7 +26,7 @@
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync, rmdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, unlinkSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fingerprint, recordFailure, formatPriorFailures } from './failures.mjs';
 import { headlessKind } from './headless-kind.mjs';
@@ -719,7 +719,16 @@ async function setupWorktree(branch, wt, baseRef) {
     await git(['worktree', 'remove', '--force', wt]);
     await git(['branch', '-D', branch]);
     const add = await git(['worktree', 'add', wt, '-b', branch, baseRef]);
-    if (add.code !== 0) throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    if (add.code !== 0) {
+      // #229 对照表 #2：worktree add 失败会留下半建目录 / 已建分支，下一轮 setupWorktree 又因
+      // 「目录已存在」「分支已占用」继续失败，把一次网络/参数错误放大成死循环。先按 git 登记
+      // 状态回滚，git 不认的残留目录再手删；失败信息原样抛出（重试策略仍由调用方决定）。
+      const rm = await git(['worktree', 'remove', '--force', wt]);
+      const del = await git(['branch', '-D', branch]);
+      if (existsSync(wt)) rmSync(wt, { recursive: true, force: true });
+      log(`⚠ worktree add 失败，已清理残留（remove=${rm.code} branch=${del.code}）: ${add.err.trim().slice(0, 200)}`);
+      throw new Error(`worktree add 失败: ${add.err.trim()}`);
+    }
     // 红线执行层（P0-2）：打开仓库里的钩子目录。规则在 ci/precommit.mjs，
     // agent 想「不读 AGENTS.md 硬推」时会被钩子直接挡在 commit 之前。
     const hooks = await git(['config', 'core.hooksPath', '.githooks']);
