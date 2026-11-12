@@ -63,7 +63,7 @@
 ## 四、P2（加固，约 1 人日）
 
 - 正文围栏 + 消毒（`dispatch.mjs:790-829`）：issue 三段包固定分隔符、声明"以下为数据"，可疑模式打标；**不作为主防线**。（2026-11-09 已落地：`ci/prompt-fence.mjs`，见 §六）
-- PAT 换 fine-grained 单仓并轮换（现为 classic `repo, workflow`）。
+- PAT 换 fine-grained 单仓并轮换（2026-11-12 交接记录：已换 fine-grained 单仓、换后 serve 已重启；本轮文档校准未复核 token 实际类型）。
 - `ci/drills/security.json` + 脚本：5 个恶意用例（读 `.secrets`、改 precommit、改 workflow、外网 curl、`node -e` 读盘）作为回归，CI 只断言"被拒"，不真执行。
 - 执行审计（与 P0-1 合并）。
 
@@ -103,7 +103,7 @@
 未做 / 改判（2026-11-09 20:30 复核）：
 - P0-4：**已完成**，证据见 §二 P0-4「状态」。
 - P1-5：**BLOCKED（理由修正，2026-11-09 20:30）**——原来写「Windows 防火墙不支持按用户过滤」不准确：`netsh` 规则确实只有程序/协议/端口/远程地址/远程组，但 PowerShell `New-NetFirewallRule -LocalUser` 提供本地用户维度（本机实测参数存在、`Get-NetFirewallSecurityFilter` 暴露 `LocalUser`）。**真正不做它的原因**：`dsh-agent` 正是低权执行通道和 headless agent 的运行身份，它需要出网调云端模型，按用户封死等于停掉执行通道；防火墙又没有域名维度，无法给模型端点开白名单。要做只能靠 WFP 按目标地址过滤或容器网络隔离，不在现网改。替代缓解不变＝低权通道命令策略（`ci/s4-exec.mjs`）+ 只读工单内容围栏（`ci/prompt-fence.mjs`）。
-- P2 其余：P1-7/P1-8/P2 围栏已于 2026-11-09 落地；PAT 换 fine-grained 需人工在 GitHub 建 token，**SKIPPED**（不动凭据）。
+- P2 其余：P1-7/P1-8/P2 围栏已于 2026-11-09 落地；PAT 换 fine-grained **已完成（2026-11-12 交接记录；本轮未复核 token 类型）**。
 原因：剩余项改的是机器而不是仓库；P0-1 已把"执行身份"与"内容来源"解耦，P0-4/5/8 属于纵深防御。
 
 已补验（2026-11-09 13:50，`bash scripts/verify.sh` → 425/1106 PASS）：
@@ -184,4 +184,4 @@
   - 证据：`git ls-remote gitee refs/heads/main` = `0086849f34955e576feac0ac63dbf860b0ff00eb` = 本地 HEAD；`.logs/gitee-unverified.jsonl` 仍 2 行（**没有**用 `DSH_GITEE_ALLOW_UNVERIFIED` 旁路）。
   - 教训：PR 在 GitHub 上合并后不会自动镜像；这类提交要么走 `land.sh`，要么人工 attest 后再镜像，否则 Gitee 会静默落后。
 - P1-5 判据理由修正（见 §三表与 §六）：不是「防火墙没有用户维度」，而是「dsh-agent 本身要出网调模型、封死等于停跑」。
-- 未变：P1-5 仍不做（要 WFP/容器网络）、`done.json` 残余、PAT 换 fine-grained 需人工。
+- 未变：P1-5 仍不做（要 WFP/容器网络）、`done.json` 残余；PAT 换 fine-grained 已完成（2026-11-12 交接记录）。
